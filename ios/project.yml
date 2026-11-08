@@ -78,6 +78,7 @@ targets:
         CuyPayAPIBaseURL: $(CUYPAY_API_BASE_URL)
         CuyPayAPIMode: $(CUYPAY_API_MODE)
         CuyPayEnvironmentName: $(CUYPAY_ENVIRONMENT_NAME)
+        CuyPayAllowDemo: $(CUYPAY_ALLOW_DEMO)
         # Permisos
         NSFaceIDUsageDescription: "CuyPay usa Face ID para proteger tu cuenta y autorizar envíos, conversiones y cambios de seguridad."
         NSCameraUsageDescription: "CuyPay necesita la cámara para verificar tu identidad (foto de tu documento y selfie)."

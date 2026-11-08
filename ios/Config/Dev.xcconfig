@@ -5,3 +5,5 @@ CUYPAY_API_BASE_URL = http:/$()/localhost:8080/v1
 // La variable de entorno CUYPAY_API_MODE del esquema tiene prioridad sobre este valor.
 CUYPAY_API_MODE = mock
 CUYPAY_ENVIRONMENT_NAME = Dev
+
+CUYPAY_ALLOW_DEMO = YES

@@ -4,7 +4,8 @@ import Foundation
 ///
 /// Prioridad: variable de entorno `CUYPAY_API_MODE` / `CUYPAY_API_BASE_URL` (esquema de Xcode)
 /// → Info.plist (`CuyPayAPIMode` / `CuyPayAPIBaseURL`, rellenados desde `Config/*.xcconfig`).
-/// En builds Release el modo mock está deshabilitado.
+/// En builds Release el modo mock está deshabilitado, salvo que `CuyPayAllowDemo = YES`
+/// (piloto en TestFlight mientras el backend no está desplegado). Debe ser NO antes de la App Store.
 struct AppEnvironment: Sendable {
     enum APIMode: String, Sendable {
         case mock
@@ -25,7 +26,9 @@ struct AppEnvironment: Sendable {
         let modeString = env["CUYPAY_API_MODE"] ?? (info["CuyPayAPIMode"] as? String) ?? "live"
         let mode = APIMode(rawValue: modeString.lowercased()) ?? .live
         #else
-        let mode = APIMode.live
+        let allowDemo = (info["CuyPayAllowDemo"] as? String)?.uppercased() == "YES"
+        let modeString = (info["CuyPayAPIMode"] as? String) ?? "live"
+        let mode: APIMode = allowDemo ? (APIMode(rawValue: modeString.lowercased()) ?? .live) : .live
         #endif
 
         let urlString = env["CUYPAY_API_BASE_URL"] ?? (info["CuyPayAPIBaseURL"] as? String) ?? "https://api.cuypay.com/v1"

@@ -1,4 +1,7 @@
 // Configuración Prod: backend real, sin modo mock, sin fallback de clave por software.
 CUYPAY_API_BASE_URL = https:/$()/api.cuypay.com/v1
-CUYPAY_API_MODE = live
+// ⚠️ PILOTO TESTFLIGHT: modo demo activo hasta desplegar el backend en api.cuypay.com.
+// Antes de enviar a la App Store: CUYPAY_API_MODE = live y CUYPAY_ALLOW_DEMO = NO.
+CUYPAY_API_MODE = mock
+CUYPAY_ALLOW_DEMO = YES
 CUYPAY_ENVIRONMENT_NAME = Prod
