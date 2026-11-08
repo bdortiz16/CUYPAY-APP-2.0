@@ -1,0 +1,4 @@
+// Configuración Prod: backend real, sin modo mock, sin fallback de clave por software.
+CUYPAY_API_BASE_URL = https:/$()/api.cuypay.com/v1
+CUYPAY_API_MODE = live
+CUYPAY_ENVIRONMENT_NAME = Prod

@@ -1,0 +1,1065 @@
+{
+  "sourceLanguage": "es",
+  "strings": {
+    "30 días": {},
+    "Activa Face ID para proteger tu cuenta CuyPay": {},
+    "Activar Face ID": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativar Face ID"
+          }
+        }
+      }
+    },
+    "Activo": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativo"
+          }
+        }
+      }
+    },
+    "Actualizando cotización…": {},
+    "Actívala para enviar, convertir y crear tu llave Bre-B.": {},
+    "Agregar": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar"
+          }
+        }
+      }
+    },
+    "Agregar beneficiario": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar beneficiário"
+          }
+        }
+      }
+    },
+    "Al inscribirlo validaremos al titular en listas de control (AML), como exige la regulación.": {},
+    "Alias @": {},
+    "Alias preferido (opcional)": {},
+    "Anual": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anual"
+          }
+        }
+      }
+    },
+    "Aprobado": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aprovado"
+          }
+        }
+      }
+    },
+    "Aquí verás avisos de depósitos, envíos y tu verificación.": {},
+    "Aquí verás tus depósitos, envíos y conversiones.": {},
+    "Autoriza el envío": {},
+    "Autoriza la conversión": {},
+    "Ayer": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ontem"
+          }
+        }
+      }
+    },
+    "Beneficiarios": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beneficiários"
+          }
+        }
+      }
+    },
+    "Biometría": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biometria"
+          }
+        }
+      }
+    },
+    "Borrar": {},
+    "Borraremos la llave segura de este iPhone y tendrás que registrarte de nuevo.": {},
+    "Borraremos la llave segura de este iPhone. Podrás registrarte con otro número.": {},
+    "Buscar": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar"
+          }
+        }
+      }
+    },
+    "Buscar beneficiario": {},
+    "Buscar movimientos": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar movimentações"
+          }
+        }
+      }
+    },
+    "Básico": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Básico"
+          }
+        }
+      }
+    },
+    "Cada operación sensible pide Face ID": {},
+    "Cancelar": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar"
+          }
+        }
+      }
+    },
+    "Cancelaste la autenticación. La operación no se realizó.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você cancelou a autenticação. A operação não foi realizada."
+          }
+        }
+      }
+    },
+    "Celular": {},
+    "Cerrar": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fechar"
+          }
+        }
+      }
+    },
+    "Cerrar sesión": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sair"
+          }
+        }
+      }
+    },
+    "Cerraste la verificación antes de terminar. Puedes retomarla cuando quieras.": {},
+    "Coma decimal": {},
+    "Comisión": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarifa"
+          }
+        }
+      }
+    },
+    "Comparte solo tu llave: nunca pidas claves ni códigos.": {},
+    "Compartir": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar"
+          }
+        }
+      }
+    },
+    "Compartir comprobante": {},
+    "Completo": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completo"
+          }
+        }
+      }
+    },
+    "Con tu llave cualquier persona te puede enviar pesos desde su banco, al instante.": {},
+    "Confirma la creación de tu llave Bre-B": {},
+    "Confirma la eliminación del beneficiario": {},
+    "Confirma la eliminación del dispositivo": {},
+    "Confirma la inscripción del beneficiario": {},
+    "Consultando llave…": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consultando chave…"
+          }
+        }
+      }
+    },
+    "Continuar": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar"
+          }
+        }
+      }
+    },
+    "Conversiones": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversões"
+          }
+        }
+      }
+    },
+    "Conversión a BRL": {},
+    "Convertir": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Converter"
+          }
+        }
+      }
+    },
+    "Convertir ahora": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Converter agora"
+          }
+        }
+      }
+    },
+    "Copiar": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar"
+          }
+        }
+      }
+    },
+    "Correo": {},
+    "Correo electrónico": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "E-mail"
+          }
+        }
+      }
+    },
+    "Crea tu llave Bre-B": {},
+    "Crear cuenta": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar conta"
+          }
+        }
+      }
+    },
+    "Crear mi llave Bre-B": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar minha chave Bre-B"
+          }
+        }
+      }
+    },
+    "CuyPay está bloqueado": {},
+    "Cédula": {},
+    "Código QR de tu llave Bre-B": {},
+    "Código de verificación": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Código de verificação"
+          }
+        }
+      }
+    },
+    "Desbloquea CuyPay": {},
+    "Desbloquear": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desbloquear"
+          }
+        }
+      }
+    },
+    "Desvincular": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desvincular"
+          }
+        }
+      }
+    },
+    "Desvincular este dispositivo": {},
+    "Desvincular y registrarme de nuevo": {},
+    "Diario": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diário"
+          }
+        }
+      }
+    },
+    "Disponible": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disponível"
+          }
+        }
+      }
+    },
+    "Dispositivos": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dispositivos"
+          }
+        }
+      }
+    },
+    "El código no es válido o expiró. Solicita uno nuevo.": {},
+    "El dinero llega a tu bolsillo COP en segundos, 24/7.": {},
+    "El documento está vencido": {},
+    "Eliminar": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir"
+          }
+        }
+      }
+    },
+    "En este momento no es posible inscribir esta cuenta como beneficiario. Si tienes preguntas, escríbenos a soporte@cuypay.com.": {},
+    "En revisión": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em análise"
+          }
+        }
+      }
+    },
+    "Entorno de desarrollo: usa el código 123456": {},
+    "Enviados": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviados"
+          }
+        }
+      }
+    },
+    "Enviar": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar"
+          }
+        }
+      }
+    },
+    "Enviar ahora": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar agora"
+          }
+        }
+      }
+    },
+    "Envío en proceso": {},
+    "Envíos": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envios"
+          }
+        }
+      }
+    },
+    "Esa llave ya está en uso. Prueba con otra.": {},
+    "Ese dispositivo ya no podrá acceder a tu cuenta. Te pediremos Face ID para confirmar.": {},
+    "Esta operación supera tus límites disponibles.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta operação ultrapassa seus limites disponíveis."
+          }
+        }
+      }
+    },
+    "Esta operación ya está en proceso. Revisa tus movimientos.": {},
+    "Esta solicitud ya fue procesada. Inténtalo de nuevo.": {},
+    "Estado KYC": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status KYC"
+          }
+        }
+      }
+    },
+    "Estamos buscando al titular en el directorio Bre-B.": {},
+    "Este beneficiario aún no está activo para recibir envíos.": {},
+    "Este beneficiario quedó en revisión. Te avisaremos cuando esté listo.": {},
+    "Este dispositivo": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este dispositivo"
+          }
+        }
+      }
+    },
+    "Este envío supera tu cupo diario.": {},
+    "Esto puede tardar unos segundos.": {},
+    "Explorar demo": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Explorar demo"
+          }
+        }
+      }
+    },
+    "Fallido": {},
+    "Falta una cara del documento": {},
+    "Filtrar movimientos": {},
+    "Filtro": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filtro"
+          }
+        }
+      }
+    },
+    "Gratis": {},
+    "Hacerlo más tarde": {},
+    "Hiciste demasiados intentos. Espera un momento e inténtalo de nuevo.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muitas tentativas. Aguarde um momento e tente novamente."
+          }
+        }
+      }
+    },
+    "Hola de nuevo": {},
+    "Hoy": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoje"
+          }
+        }
+      }
+    },
+    "Ingresa a CuyPay": {},
+    "Ingresa a CuyPay con Face ID. Sin contraseñas.": {},
+    "Ingresa la llave Bre-B": {},
+    "Ingresa un monto para cotizar": {},
+    "Ingresar con Face ID": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrar com Face ID"
+          }
+        }
+      }
+    },
+    "Inscribe la llave Bre-B de las personas a las que les envías dinero.": {},
+    "Inscribe una llave Bre-B para enviar dinero.": {},
+    "Inscripción en revisión": {},
+    "La conexión tardó demasiado. Inténtalo de nuevo.": {},
+    "La cotización expiró. Generamos una nueva para ti.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cotação expirou. Geramos uma nova para você."
+          }
+        }
+      }
+    },
+    "La foto del documento no es nítida": {},
+    "La selfie no coincide con el documento": {},
+    "La verificación de identidad no está disponible en esta versión.": {},
+    "Listo": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pronto"
+          }
+        }
+      }
+    },
+    "Llave alfanumérica": {},
+    "Llave del dispositivo": {},
+    "Llave no válida": {},
+    "Los envíos Bre-B son inmediatos y no se pueden reversar. Verifica los datos.": {},
+    "Los límites se reinician cada día, mes y año calendario (hora de Colombia).": {},
+    "Límites": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limites"
+          }
+        }
+      }
+    },
+    "Mensual": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensal"
+          }
+        }
+      }
+    },
+    "Mi llave Bre-B": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minha chave Bre-B"
+          }
+        }
+      }
+    },
+    "Monto": {},
+    "Montos en COP": {},
+    "Mostrar saldo": {},
+    "Movimientos": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimentações"
+          }
+        }
+      }
+    },
+    "Movimientos BRL": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimentações BRL"
+          }
+        }
+      }
+    },
+    "Movimientos COP": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimentações COP"
+          }
+        }
+      }
+    },
+    "Más opciones": {},
+    "Más tarde": {},
+    "Necesitamos Face ID para proteger tu cuenta. Actívalo en Ajustes > Face ID y código.": {},
+    "Necesitas verificar tu identidad para hacer esta operación.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você precisa verificar sua identidade para fazer esta operação."
+          }
+        }
+      }
+    },
+    "Nivel básico": {},
+    "Nivel completo": {},
+    "Nivel de cuenta": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nível da conta"
+          }
+        }
+      }
+    },
+    "No disponible": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indisponível"
+          }
+        }
+      }
+    },
+    "No encontramos esa llave Bre-B. Verifica que esté bien escrita.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não encontramos essa chave Bre-B. Verifique se está escrita corretamente."
+          }
+        }
+      }
+    },
+    "No encontramos la llave de este dispositivo. Regístralo de nuevo.": {},
+    "No encontramos lo que buscabas.": {},
+    "No es esta persona": {},
+    "No es posible inscribir este beneficiario en este momento.": {},
+    "No pudimos abrir la verificación. Inténtalo de nuevo.": {},
+    "No pudimos completar la inscripción": {},
+    "No pudimos conectarnos con CuyPay. Inténtalo de nuevo.": {},
+    "No pudimos crear la llave segura en este dispositivo.": {},
+    "No pudimos iniciar la verificación. Inténtalo de nuevo en unos minutos.": {},
+    "No pudimos usar la llave segura de este dispositivo. Si cambiaste tu Face ID, debes registrar el dispositivo de nuevo.": {},
+    "No pudimos verificar la firma de este dispositivo. Inténtalo de nuevo.": {},
+    "No tienes conexión a internet. Revisa tu red e inténtalo de nuevo.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você está sem conexão com a internet. Verifique sua rede e tente novamente."
+          }
+        }
+      }
+    },
+    "No tienes saldo suficiente para esta operación.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você não tem saldo suficiente para esta operação."
+          }
+        }
+      }
+    },
+    "Nombre": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nome"
+          }
+        }
+      }
+    },
+    "Notificaciones": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificações"
+          }
+        }
+      }
+    },
+    "Nuestro aliado no está respondiendo. Inténtalo de nuevo en unos minutos.": {},
+    "Nuestro equipo de cumplimiento revisará la información. Te avisaremos cuando el beneficiario esté activo, normalmente en menos de 24 horas hábiles.": {},
+    "Nuevo beneficiario": {},
+    "Número de celular": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Número de celular"
+          }
+        }
+      }
+    },
+    "Ocultar saldo": {},
+    "Ocurrió un error inesperado. Inténtalo de nuevo.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocorreu um erro inesperado. Tente novamente."
+          }
+        }
+      }
+    },
+    "Otro": {},
+    "Otros": {},
+    "Para crear tu llave Bre-B necesitamos verificar tu identidad.": {},
+    "Pendiente": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pendente"
+          }
+        }
+      }
+    },
+    "Perfil y seguridad": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perfil e segurança"
+          }
+        }
+      }
+    },
+    "Pesos colombianos": {},
+    "Podrás volver a entrar con Face ID.": {},
+    "Por tu seguridad, confirma que eres tú para continuar.": {},
+    "Protegido con Face ID y Secure Enclave": {},
+    "Puede ser un celular, una cédula, un correo o un alias como @juan.": {},
+    "Reales brasileños": {},
+    "Recargas": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recargas"
+          }
+        }
+      }
+    },
+    "Rechazado": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejeitado"
+          }
+        }
+      }
+    },
+    "Recibe desde cualquier banco o billetera conectada a Bre-B.": {},
+    "Recibe en COP con Bre-B, convierte a BRL, envía al instante.": {},
+    "Recibes": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você recebe"
+          }
+        }
+      }
+    },
+    "Recibidos": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recebidos"
+          }
+        }
+      }
+    },
+    "Recibimos una respuesta inesperada. Inténtalo de nuevo en unos minutos.": {},
+    "Recibir": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Receber"
+          }
+        }
+      }
+    },
+    "Reenviar código": {},
+    "Reintentar": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentar novamente"
+          }
+        }
+      }
+    },
+    "Resumen": {},
+    "Reversado": {},
+    "Revisa la información enviada": {},
+    "Revisa lo siguiente:": {},
+    "Revisa los datos ingresados e inténtalo de nuevo.": {},
+    "Saldo disponible": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saldo disponível"
+          }
+        }
+      }
+    },
+    "Saldo oculto": {},
+    "Secure Enclave": {},
+    "Seguridad": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segurança"
+          }
+        }
+      }
+    },
+    "Si cambias tu Face ID, deberás registrar el dispositivo de nuevo": {},
+    "Si lo dejas vacío, generamos uno que empieza por @cuypay.": {},
+    "Sin beneficiarios": {},
+    "Sin contraseñas: ingresas con tu rostro": {},
+    "Sin movimientos": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem movimentações"
+          }
+        }
+      }
+    },
+    "Sin resultados": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem resultados"
+          }
+        }
+      }
+    },
+    "Sin verificar": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não verificado"
+          }
+        }
+      }
+    },
+    "Software (solo desarrollo)": {},
+    "Tasa": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taxa de câmbio"
+          }
+        }
+      }
+    },
+    "Tasa COP→BRL": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Câmbio COP→BRL"
+          }
+        }
+      }
+    },
+    "Tasa de cambio": {},
+    "Te avisaremos cuando esté lista.": {},
+    "Te pediremos Face ID para confirmar.": {},
+    "Te pediremos Face ID para firmar esta operación.": {},
+    "Titular verificado en Bre-B": {},
+    "Todos": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos"
+          }
+        }
+      }
+    },
+    "Total": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Total"
+          }
+        }
+      }
+    },
+    "Tu llave Bre-B": {},
+    "Tu llave privada vive en el Secure Enclave y nunca sale de este iPhone. Cada envío, conversión o cambio de seguridad se firma con Face ID. Si cambias tus biometrías deberás registrar el dispositivo de nuevo.": {},
+    "Tu sesión expiró. Ingresa de nuevo con Face ID.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua sessão expirou. Entre novamente com Face ID."
+          }
+        }
+      }
+    },
+    "Tu verificación de identidad está en revisión. Te avisaremos cuando termine.": {},
+    "Tus beneficiarios": {},
+    "Tus datos se procesan cifrados con Sumsub, nuestro aliado de verificación.": {},
+    "Tus movimientos aparecerán aquí.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suas movimentações aparecerão aqui."
+          }
+        }
+      }
+    },
+    "Tus reales ya están disponibles en tu bolsillo BRL.": {},
+    "Tú conviertes": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você converte"
+          }
+        }
+      }
+    },
+    "Usa fotos tomadas en el momento, no capturas de pantalla": {},
+    "Usar todo": {},
+    "Vas a enviar": {},
+    "Ver todo": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver tudo"
+          }
+        }
+      }
+    },
+    "Verifica tu identidad": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifique sua identidade"
+          }
+        }
+      }
+    },
+    "Verificación AML": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificação AML"
+          }
+        }
+      }
+    },
+    "Verificación de identidad": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificação de identidade"
+          }
+        }
+      }
+    },
+    "Verificación en revisión": {},
+    "Ya tengo cuenta": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Já tenho conta"
+          }
+        }
+      }
+    },
+    "Ya tienes una llave Bre-B registrada.": {},
+    "por 1 BRL": {},
+    "¡Beneficiario inscrito!": {},
+    "¡Conversión exitosa!": {},
+    "¡Copiada!": {},
+    "¡Envío exitoso!": {},
+    "¿A quién envías?": {},
+    "¿Cerrar sesión?": {},
+    "¿Desvincular este dispositivo?": {},
+    "¿Eliminar beneficiario?": {},
+    "¿Eliminar dispositivo?": {},
+    "¿Es la persona correcta?": {},
+    "¿No eres tú? Usar otra cuenta": {},
+    "¿Qué quieres hacer?": {}
+  },
+  "version": "1.0"
+}

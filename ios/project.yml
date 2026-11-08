@@ -1,0 +1,142 @@
+name: CuyPay
+
+options:
+  bundleIdPrefix: com.cuypay
+  developmentLanguage: es
+  deploymentTarget:
+    iOS: "26.0"
+  xcodeVersion: "26.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  defaultConfig: Dev
+
+configs:
+  Dev: debug
+  Prod: release
+
+configFiles:
+  Dev: Config/Dev.xcconfig
+  Prod: Config/Prod.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    SWIFT_EMIT_LOC_STRINGS: YES
+    ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
+
+packages:
+  IdensicMobileSDK:
+    url: https://github.com/sumsub/IdensicMobileSDK-iOS
+    from: 1.47.0
+
+targets:
+  CuyPay:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: CuyPay
+    dependencies:
+      - package: IdensicMobileSDK
+        product: IdensicMobileSDK
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cuypay.app
+        PRODUCT_NAME: CuyPay
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        SUPPORTS_MACCATALYST: NO
+    info:
+      path: CuyPay/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: CuyPay
+        CFBundleDevelopmentRegion: es
+        CFBundleLocalizations: [es, pt-BR]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen:
+          UIColorName: BrandNavy
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        ITSAppUsesNonExemptEncryption: false
+        # Configuración de entorno (se rellena desde Config/*.xcconfig)
+        CuyPayAPIBaseURL: $(CUYPAY_API_BASE_URL)
+        CuyPayAPIMode: $(CUYPAY_API_MODE)
+        CuyPayEnvironmentName: $(CUYPAY_ENVIRONMENT_NAME)
+        # Permisos
+        NSFaceIDUsageDescription: "CuyPay usa Face ID para proteger tu cuenta y autorizar envíos, conversiones y cambios de seguridad."
+        NSCameraUsageDescription: "CuyPay necesita la cámara para verificar tu identidad (foto de tu documento y selfie)."
+        NSPhotoLibraryUsageDescription: "CuyPay necesita acceso a tus fotos para que puedas subir tu documento de identidad."
+        NSMicrophoneUsageDescription: "CuyPay puede necesitar el micrófono durante la verificación de identidad por video."
+        # ATS por defecto (solo HTTPS). NSAllowsLocalNetworking permite http://localhost en Dev
+        # sin abrir excepciones para dominios de Internet.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+
+  CuyPayTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: CuyPayTests
+    dependencies:
+      - target: CuyPay
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cuypay.app.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/CuyPay.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CuyPay
+        BUNDLE_LOADER: $(TEST_HOST)
+
+schemes:
+  CuyPay-Dev:
+    build:
+      targets:
+        CuyPay: all
+        CuyPayTests: [test]
+    run:
+      config: Dev
+      environmentVariables:
+        # Cambia a "live" (o desmarca la variable) para usar el backend en http://localhost:8080/v1
+        - variable: CUYPAY_API_MODE
+          value: mock
+          isEnabled: true
+    test:
+      config: Dev
+      gatherCoverageData: true
+      targets:
+        - CuyPayTests
+    profile:
+      config: Prod
+    analyze:
+      config: Dev
+    archive:
+      config: Prod
+
+  CuyPay-Prod:
+    build:
+      targets:
+        CuyPay: all
+    run:
+      config: Prod
+    test:
+      config: Prod
+      targets:
+        - CuyPayTests
+    profile:
+      config: Prod
+    analyze:
+      config: Prod
+    archive:
+      config: Prod

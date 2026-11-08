@@ -1,0 +1,86 @@
+import { randomInt } from 'node:crypto';
+import type { BrebKey, User } from '../domain/types.js';
+import { newId } from '../lib/clock.js';
+import { AppError, isAppError } from '../lib/errors.js';
+import type { ServiceDeps } from './deps.js';
+import { requireKycApproved } from './kyc.js';
+
+const ALIAS_RE = /^@[a-z0-9]{3,20}$/;
+
+const slug = (s: string) =>
+  s
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+
+/** Llave Bre-B propia (recibir COP). */
+export class BrebService {
+  constructor(private readonly d: ServiceDeps) {}
+
+  async get(userId: string): Promise<BrebKey> {
+    const key = await this.d.repos.brebKeys.byUser(userId);
+    if (!key) throw new AppError('NOT_FOUND', 'Aún no tienes llave Bre-B');
+    return key;
+  }
+
+  normalizeAlias(input: string): string {
+    const a = input.trim().toLowerCase();
+    const withAt = a.startsWith('@') ? a : `@${a}`;
+    if (!ALIAS_RE.test(withAt)) {
+      throw new AppError('VALIDATION_ERROR', 'La llave debe ser @ seguido de 3 a 20 letras o números', { field: 'preferredAlias' });
+    }
+    return withAt;
+  }
+
+  private generateAlias(user: User): string {
+    const base = `@cuypay${slug(user.firstName).slice(0, 10)}`;
+    return `${base}${randomInt(100, 1000)}`;
+  }
+
+  private async isFree(alias: string): Promise<boolean> {
+    if (await this.d.repos.brebKeys.byAlias(alias)) return false;
+    // El directorio responde "no encontrada" (withdrawaccount_23) cuando la llave está libre.
+    return (await this.d.coinsenda.resolveBrebAlias(alias)) === null;
+  }
+
+  async create(user: User, preferredAlias?: string): Promise<BrebKey> {
+    requireKycApproved(user);
+    if (await this.d.repos.brebKeys.byUser(user.id)) throw new AppError('BREB_KEY_EXISTS', 'Ya tienes una llave Bre-B');
+
+    let alias: string;
+    if (preferredAlias) {
+      alias = this.normalizeAlias(preferredAlias);
+      if (!(await this.isFree(alias))) throw new AppError('BREB_ALIAS_TAKEN', 'Esa llave ya está tomada', { alias });
+    } else {
+      let found: string | null = null;
+      for (let i = 0; i < 8 && !found; i++) {
+        const candidate = this.generateAlias(user);
+        if (await this.isFree(candidate)) found = candidate;
+      }
+      if (!found) throw new AppError('BREB_ALIAS_TAKEN', 'No se pudo generar una llave libre, intenta con una preferida');
+      alias = found;
+    }
+
+    const holderName = `${user.firstName} ${user.lastName}`.trim();
+    let created;
+    try {
+      created = await this.d.coinsenda.createBrebKey({ alias, holderName, userRef: user.id });
+    } catch (err) {
+      if (isAppError(err)) throw err;
+      throw new AppError('PROVIDER_ERROR', 'No se pudo crear la llave en Coinsenda', { provider: 'coinsenda' });
+    }
+    const now = this.d.clock.now();
+    const key: BrebKey = {
+      id: newId('brk', now),
+      userId: user.id,
+      alias: created.alias,
+      status: created.status,
+      holderName,
+      providerKeyId: created.providerKeyId,
+      createdAt: now,
+    };
+    await this.d.repos.brebKeys.create(key);
+    return key;
+  }
+}
