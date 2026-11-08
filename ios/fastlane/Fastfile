@@ -3,7 +3,7 @@
 # Variables de entorno necesarias (en tu Mac o como secretos de GitHub):
 #   ASC_KEY_CONTENT             Contenido del archivo .p8 (texto)            ← SECRETO
 #   MATCH_PASSWORD              Contraseña con la que match cifra los certificados ← SECRETO
-#   MATCH_GIT_BASIC_AUTHORIZATION  base64("usuario:token") con acceso a cuypay-certificates ← SECRETO
+#   MATCH_GIT_TOKEN             Token de GitHub con acceso a cuypay-certificates ← SECRETO (el workflow arma la autorización)
 # Opcionales (tienen valor por defecto; no son secretos):
 #   CUYPAY_TEAM_ID (YRFDF3T7CQ) · ASC_KEY_ID (Y4G39PY7CG) · ASC_ISSUER_ID · MATCH_GIT_URL
 #   MATCH_READONLY=false solo la PRIMERA vez, para que match cree el certificado y el perfil.

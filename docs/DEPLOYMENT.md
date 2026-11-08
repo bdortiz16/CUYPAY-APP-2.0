@@ -88,7 +88,7 @@ Pasos (una sola vez):
    cd ios && bundle install && bundle exec fastlane match appstore
    ```
 4. En GitHub → *Settings → Secrets and variables → Actions*, agrega solo 3 secretos:
-   `ASC_KEY_CONTENT` (texto del `.p8`), `MATCH_PASSWORD` (contraseña inventada) y `MATCH_GIT_BASIC_AUTHORIZATION` (base64 de `usuario:token` con acceso a `cuypay-certificates`). El Team ID, el Key ID y el Issuer ID ya vienen configurados.
+   `ASC_KEY_CONTENT` (texto del `.p8`), `MATCH_PASSWORD` (contraseña inventada) y `MATCH_GIT_TOKEN` (token de GitHub con acceso a `cuypay-certificates`, tal cual). El Team ID, el Key ID y el Issuer ID ya vienen configurados.
 5. Primera vez: *Actions → iOS → TestFlight → Run workflow* con **"crear certificados"** marcado (no hace falta el paso 3 en una Mac). Las siguientes veces, sin marcar.
 
 ## 4. Piloto cerrado (TestFlight) 🧑‍💼

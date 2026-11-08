@@ -19,10 +19,16 @@ jobs:
     env:
       ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
       MATCH_READONLY: ${{ inputs.create_certificates && 'false' || 'true' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Preparar acceso al repo de certificados
+        env:
+          MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
+        run: |
+          AUTH=$(printf 'bdortiz16:%s' "$MATCH_GIT_TOKEN" | base64 | tr -d '\n')
+          echo "::add-mask::$AUTH"
+          echo "MATCH_GIT_BASIC_AUTHORIZATION=$AUTH" >> "$GITHUB_ENV"
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
