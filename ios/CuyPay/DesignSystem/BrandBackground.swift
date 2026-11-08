@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Fondo esmerilado claro con "blobs" mint/teal suaves para que el Liquid Glass se lea bien.
-/// En modo oscuro usa el navy de marca.
+/// Fondo esmerilado claro (blanco → #E1E3EA) con manchas Blue Spruce / Dark Slate Grey y un toque de coral,
+/// para que el Liquid Glass se lea bien. En modo oscuro usa Onyx → Jet Black.
 struct BrandBackground: View {
     @Environment(\.colorScheme) private var colorScheme
 
@@ -9,8 +9,8 @@ struct BrandBackground: View {
         ZStack {
             LinearGradient(
                 colors: colorScheme == .dark
-                    ? [Color(red: 0.05, green: 0.11, blue: 0.14), Color(red: 0.03, green: 0.07, blue: 0.10)]
-                    : [Color(red: 0.96, green: 0.97, blue: 0.97), Color(red: 0.91, green: 0.94, blue: 0.94)],
+                    ? [Theme.jetBlack, Theme.onyx]
+                    : [Color.white, Theme.mist],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -19,15 +19,15 @@ struct BrandBackground: View {
                 let size = proxy.size
                 ZStack {
                     Circle()
-                        .fill(Theme.mint.opacity(colorScheme == .dark ? 0.22 : 0.28))
+                        .fill(Theme.spruceSolid.opacity(colorScheme == .dark ? 0.35 : 0.22))
                         .frame(width: size.width * 0.9)
                         .offset(x: -size.width * 0.35, y: -size.height * 0.30)
                     Circle()
-                        .fill(Color(red: 0.36, green: 0.80, blue: 0.86).opacity(colorScheme == .dark ? 0.16 : 0.22))
+                        .fill(Theme.slate.opacity(colorScheme == .dark ? 0.12 : 0.45))
                         .frame(width: size.width * 0.8)
                         .offset(x: size.width * 0.40, y: -size.height * 0.05)
                     Circle()
-                        .fill(Theme.mint.opacity(colorScheme == .dark ? 0.12 : 0.18))
+                        .fill(Theme.coral.opacity(colorScheme == .dark ? 0.08 : 0.10))
                         .frame(width: size.width * 1.0)
                         .offset(x: -size.width * 0.1, y: size.height * 0.42)
                 }

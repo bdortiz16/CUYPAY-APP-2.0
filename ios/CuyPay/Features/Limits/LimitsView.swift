@@ -73,7 +73,7 @@ struct LimitProgressRow: View {
     private var barColor: Color {
         if item.isExhausted { return Theme.negative }
         if item.isNearLimit { return Theme.warning }
-        return Theme.mint
+        return Theme.spruce
     }
 
     var body: some View {

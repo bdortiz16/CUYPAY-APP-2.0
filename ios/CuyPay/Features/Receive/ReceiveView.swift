@@ -142,7 +142,7 @@ struct ReceiveView: View {
         VStack(spacing: 20) {
             Image(systemName: "key.viewfinder")
                 .font(.system(size: 72, weight: .light))
-                .foregroundStyle(Theme.mint)
+                .foregroundStyle(Theme.spruce)
                 .padding(.top, 24)
             Text("Crea tu llave Bre-B")
                 .font(.system(.title, design: .rounded).weight(.bold))

@@ -56,7 +56,7 @@ struct WelcomeView: View {
                     CuyPayLogo(size: 26)
                         .padding(.top, 24)
 
-                    Text("Tu dinero entre Colombia y Brasil, \(Text("al mejor precio").foregroundStyle(Theme.mint))")
+                    Text("Tu dinero entre Colombia y Brasil, \(Text("al mejor precio").foregroundStyle(Theme.coral))")
                     .font(.system(.largeTitle, design: .rounded).weight(.bold))
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -125,7 +125,7 @@ private struct ValuePropRow: View {
         HStack(spacing: 14) {
             Image(systemName: systemImage)
                 .font(.system(size: 30))
-                .foregroundStyle(Theme.mint)
+                .foregroundStyle(Theme.spruce)
                 .symbolRenderingMode(.hierarchical)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.headline)
@@ -211,7 +211,7 @@ struct OTPEntryView: View {
                             .monospacedDigit()
                             .frame(maxWidth: .infinity, minHeight: 60)
                             .glassEffect(
-                                index == characters.count ? Glass.regular.tint(Theme.mint.opacity(0.25)) : Glass.regular,
+                                index == characters.count ? Glass.regular.tint(Theme.spruce.opacity(0.25)) : Glass.regular,
                                 in: .rect(cornerRadius: 16)
                             )
                     }
@@ -303,7 +303,7 @@ struct FaceIDEnrollmentView: View {
             VStack(spacing: 20) {
                 Image(systemName: "faceid")
                     .font(.system(size: 88, weight: .thin))
-                    .foregroundStyle(Theme.mint)
+                    .foregroundStyle(Theme.spruce)
                     .symbolEffect(.bounce, value: model.isLoading)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)

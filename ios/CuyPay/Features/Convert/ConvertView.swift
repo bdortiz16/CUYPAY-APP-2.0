@@ -153,7 +153,7 @@ private struct ConvertContent: View {
                 Spacer()
             }
             .padding(12)
-            .background(Theme.mint.opacity(0.08), in: .rect(cornerRadius: 16))
+            .background(Theme.spruce.opacity(0.08), in: .rect(cornerRadius: 16))
         }
         .padding(16)
         .glassEffect(.regular, in: .rect(cornerRadius: Theme.cardRadius))
@@ -202,12 +202,12 @@ struct ConversionSuccessView: View {
             Spacer()
             ZStack {
                 Circle()
-                    .fill(Theme.mint.opacity(0.18))
+                    .fill(Theme.spruce.opacity(0.18))
                     .frame(width: 150, height: 150)
                     .scaleEffect(appeared ? 1 : 0.4)
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 92))
-                    .foregroundStyle(Theme.mint)
+                    .foregroundStyle(Theme.spruce)
                     .symbolEffect(.bounce, value: appeared)
             }
             Text("¡Conversión exitosa!")

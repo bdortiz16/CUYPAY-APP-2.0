@@ -111,10 +111,10 @@ struct CountdownRing: View {
     var body: some View {
         ZStack {
             Circle()
-                .stroke(Theme.mint.opacity(0.2), lineWidth: 4)
+                .stroke(Theme.spruce.opacity(0.2), lineWidth: 4)
             Circle()
                 .trim(from: 0, to: progress)
-                .stroke(remaining <= 5 ? Theme.warning : Theme.mint, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                .stroke(remaining <= 5 ? Theme.warning : Theme.spruce, style: StrokeStyle(lineWidth: 4, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .animation(.linear(duration: 1), value: remaining)
             Text(verbatim: "\(max(0, remaining))")

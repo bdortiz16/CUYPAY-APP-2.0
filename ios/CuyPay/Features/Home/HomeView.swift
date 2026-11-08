@@ -367,7 +367,7 @@ struct MainMenuSheet: View {
             VStack(spacing: 8) {
                 Image(systemName: systemImage)
                     .font(.title2)
-                    .foregroundStyle(Theme.mint)
+                    .foregroundStyle(Theme.spruce)
                     .symbolRenderingMode(.hierarchical)
                 Text(title)
                     .font(.caption.weight(.semibold))

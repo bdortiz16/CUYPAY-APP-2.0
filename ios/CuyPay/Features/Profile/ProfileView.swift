@@ -90,13 +90,13 @@ struct ProfileView: View {
                         HStack(spacing: 12) {
                             Image(systemName: device.name.localizedCaseInsensitiveContains("ipad") ? "ipad" : "iphone")
                                 .font(.title3)
-                                .foregroundStyle(Theme.mint)
+                                .foregroundStyle(Theme.spruce)
                                 .frame(width: 28)
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 6) {
                                     Text(verbatim: device.name).font(.body.weight(.medium))
                                     if device.current {
-                                        StatusBadge(text: "Este dispositivo", color: Theme.mint)
+                                        StatusBadge(text: "Este dispositivo", color: Theme.spruce)
                                     }
                                 }
                                 if let lastUsed = device.lastUsedAt {

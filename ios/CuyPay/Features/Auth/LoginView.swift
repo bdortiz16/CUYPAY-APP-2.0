@@ -20,7 +20,7 @@ struct LoginView: View {
                     } label: {
                         Image(systemName: "faceid")
                             .font(.system(size: 64, weight: .light))
-                            .foregroundStyle(Theme.mint)
+                            .foregroundStyle(Theme.spruce)
                             .frame(width: 132, height: 132)
                             .symbolEffect(.pulse, options: .repeating, isActive: app.isAuthenticating)
                     }

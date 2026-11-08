@@ -25,7 +25,7 @@ struct PocketSwitcher: View {
                         .buttonStyle(.plain)
                         .glassEffect(
                             currency == selection
-                                ? Glass.regular.tint(Theme.mint.opacity(0.35)).interactive()
+                                ? Glass.regular.tint(Theme.spruce.opacity(0.35)).interactive()
                                 : Glass.regular.interactive(),
                             in: .capsule
                         )
@@ -205,7 +205,7 @@ struct RateChartCard: View {
                 yEnd: .value("Tasa", bar.value),
                 width: .ratio(0.55)
             )
-            .foregroundStyle(bar.isCurrent ? AnyShapeStyle(Theme.navy) : AnyShapeStyle(Color.primary.opacity(0.18)))
+            .foregroundStyle(bar.isCurrent ? AnyShapeStyle(Theme.coral) : AnyShapeStyle(Theme.spruce.opacity(0.28)))
             .cornerRadius(3)
         }
         .chartYScale(domain: minValue...maxValue)
@@ -252,7 +252,7 @@ struct BeneficiariesQuickCard: View {
                             .font(.headline)
                             .foregroundStyle(.white)
                             .frame(width: 40, height: 40)
-                            .background(Theme.navy, in: .circle)
+                            .background(Theme.onyx, in: .circle)
                         Text("Agregar")
                             .font(.caption2.weight(.semibold))
                             .lineLimit(1)
@@ -294,8 +294,8 @@ struct TransactionRow: View {
     private var icon: (name: String, color: Color) {
         switch transaction.type {
         case .deposit: ("arrow.down.left", Theme.positive)
-        case .transfer: ("arrow.up.right", Theme.navy)
-        case .conversion: ("arrow.left.arrow.right", Theme.mint)
+        case .transfer: ("arrow.up.right", Theme.ink)
+        case .conversion: ("arrow.left.arrow.right", Theme.spruce)
         case .unknown: ("circle.dashed", Color.secondary)
         }
     }
@@ -435,7 +435,7 @@ struct KYCBanner: View {
             HStack(spacing: 12) {
                 Image(systemName: status == .pending ? "hourglass" : "person.badge.shield.checkmark.fill")
                     .font(.title2)
-                    .foregroundStyle(Theme.mint)
+                    .foregroundStyle(Theme.spruce)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(status == .pending ? LocalizedStringKey("Verificación en revisión") : LocalizedStringKey("Verifica tu identidad"))
                         .font(.subheadline.weight(.semibold))
@@ -453,6 +453,6 @@ struct KYCBanner: View {
             .contentShape(.rect(cornerRadius: 22))
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.tint(Theme.mint.opacity(0.18)).interactive(), in: .rect(cornerRadius: 22))
+        .glassEffect(.regular.tint(Theme.spruce.opacity(0.18)).interactive(), in: .rect(cornerRadius: 22))
     }
 }

@@ -226,7 +226,7 @@ private struct SendReviewView: View {
                         if let remaining = model.remainingDailyAfter {
                             HStack(spacing: 10) {
                                 Image(systemName: "gauge.with.dots.needle.33percent")
-                                    .foregroundStyle(model.exceedsDailyLimit ? Theme.negative : Theme.mint)
+                                    .foregroundStyle(model.exceedsDailyLimit ? Theme.negative : Theme.spruce)
                                 Group {
                                     if model.exceedsDailyLimit {
                                         Text("Este envío supera tu cupo diario.")
@@ -290,7 +290,7 @@ private struct SendReceiptView: View {
                     Spacer()
                     Image(systemName: transaction.status == .pending ? "clock.badge.checkmark.fill" : "checkmark.circle.fill")
                         .font(.system(size: 90))
-                        .foregroundStyle(transaction.status == .pending ? Theme.warning : Theme.mint)
+                        .foregroundStyle(transaction.status == .pending ? Theme.warning : Theme.spruce)
                         .symbolEffect(.bounce, value: appeared)
                         .scaleEffect(appeared ? 1 : 0.5)
                     Text(transaction.status == .pending ? LocalizedStringKey("Envío en proceso") : LocalizedStringKey("¡Envío exitoso!"))

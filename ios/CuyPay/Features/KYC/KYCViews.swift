@@ -72,7 +72,7 @@ private struct KYCStepRow: View {
         HStack(spacing: 14) {
             Image(systemName: systemImage)
                 .font(.title2)
-                .foregroundStyle(Theme.mint)
+                .foregroundStyle(Theme.spruce)
                 .frame(width: 36)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.headline)
@@ -163,11 +163,11 @@ struct KYCStatusView: View {
         case .notStarted:
             Image(systemName: "person.badge.shield.checkmark")
                 .font(.system(size: 88, weight: .light))
-                .foregroundStyle(Theme.mint)
+                .foregroundStyle(Theme.spruce)
         case .pending, .unknown:
             Image(systemName: "hourglass")
                 .font(.system(size: 80, weight: .light))
-                .foregroundStyle(Theme.mint)
+                .foregroundStyle(Theme.spruce)
                 .symbolEffect(.rotate, options: .repeating)
         }
     }

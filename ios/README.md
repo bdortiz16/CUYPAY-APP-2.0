@@ -104,7 +104,7 @@ ios/
   - `Money` guarda `Int64` en unidades menores y hace aritmética con detección de overflow.
   - Formato fijo: COP `$ 1.250.000` (los centavos solo aparecen si no son 0) y BRL `R$ 1.823,00`.
   - `AmountInput` arma el monto dígito a dígito.
-- **Liquid Glass:** se usan las APIs nativas de iOS 26: `glassEffect(_:in:)`, `GlassEffectContainer`, `glassEffectID(_:in:)` (el selector COP/BRL se transforma de uno a otro) y los estilos `.glass` / `.glassProminent`. El fondo es un degradado claro con manchas menta; en modo oscuro usa navy de marca.
+- **Liquid Glass:** se usan las APIs nativas de iOS 26: `glassEffect(_:in:)`, `GlassEffectContainer`, `glassEffectID(_:in:)` (el selector COP/BRL se transforma de uno a otro) y los estilos `.glass` / `.glassProminent`. El fondo es un degradado blanco → #E1E3EA con manchas Blue Spruce / Dark Slate Grey y un toque coral; en modo oscuro usa Onyx → Jet Black. Paleta en [docs/BRAND.md](../docs/BRAND.md).
 
 ## Modelo de seguridad
 

@@ -9,7 +9,7 @@ struct CuyPayApp: App {
         WindowGroup {
             RootView()
                 .appEnvironment(model)
-                .tint(Theme.mint)
+                .tint(Theme.spruce)
                 .onChange(of: scenePhase) { _, newPhase in
                     model.handleScenePhase(newPhase)
                 }
@@ -102,7 +102,7 @@ struct LockView: View {
                 CuyPayLogo(size: 28)
                 Image(systemName: "faceid")
                     .font(.system(size: 64, weight: .light))
-                    .foregroundStyle(Theme.mint)
+                    .foregroundStyle(Theme.spruce)
                     .symbolEffect(.pulse, options: .repeating)
                 Text("CuyPay está bloqueado")
                     .font(.title3.weight(.semibold))

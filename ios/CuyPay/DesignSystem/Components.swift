@@ -11,10 +11,10 @@ struct CuyPayLogo: View {
         HStack(spacing: size * 0.4) {
             ZStack {
                 RoundedRectangle(cornerRadius: size * 0.32, style: .continuous)
-                    .stroke(Theme.mint, lineWidth: size * 0.14)
+                    .stroke(Theme.spruce, lineWidth: size * 0.14)
                     .frame(width: size, height: size)
                 Circle()
-                    .fill(Theme.mint)
+                    .fill(Theme.coral)
                     .frame(width: size * 0.26, height: size * 0.26)
             }
             Text(verbatim: "CUYPAY")
@@ -36,12 +36,13 @@ struct AvatarView: View {
     var seed: String = ""
 
     private var gradient: LinearGradient {
+        // Degradados derivados de la paleta de marca (Zarta Studio).
         let palettes: [[Color]] = [
-            [Theme.mint, Color(red: 0.16, green: 0.55, blue: 0.62)],
-            [Color(red: 0.98, green: 0.71, blue: 0.40), Color(red: 0.93, green: 0.42, blue: 0.36)],
-            [Color(red: 0.55, green: 0.62, blue: 0.98), Color(red: 0.36, green: 0.36, blue: 0.85)],
-            [Color(red: 0.96, green: 0.55, blue: 0.75), Color(red: 0.72, green: 0.33, blue: 0.75)],
-            [Color(red: 0.40, green: 0.80, blue: 0.55), Color(red: 0.13, green: 0.55, blue: 0.40)],
+            [Theme.spruceSolid, Theme.jetBlack],
+            [Theme.coral, Color(red: 0.788, green: 0.290, blue: 0.298)],
+            [Theme.slate, Theme.spruceSolid],
+            [Color(red: 0.165, green: 0.302, blue: 0.333), Theme.onyx],
+            [Color(red: 0.992, green: 0.596, blue: 0.565), Theme.coral],
         ]
         let key = seed.isEmpty ? initials : seed
         let index = key.unicodeScalars.reduce(0) { $0 &+ Int($1.value) } % palettes.count
@@ -173,7 +174,7 @@ extension KYCStatus {
 
 // MARK: - Botón principal
 
-/// Botón principal de marca (vidrio prominente con tinte mint).
+/// Botón principal de marca (vidrio prominente con tinte Blue Spruce y texto blanco).
 struct PrimaryButton: View {
     let title: LocalizedStringKey
     var systemImage: String? = nil
@@ -186,7 +187,7 @@ struct PrimaryButton: View {
             HStack(spacing: 8) {
                 if isLoading {
                     ProgressView()
-                        .tint(Theme.navy)
+                        .tint(.white)
                 } else if let systemImage {
                     Image(systemName: systemImage)
                 }
@@ -195,10 +196,10 @@ struct PrimaryButton: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
-            .foregroundStyle(Theme.navy)
+            .foregroundStyle(.white)
         }
         .buttonStyle(.glassProminent)
-        .tint(Theme.mint)
+        .tint(Theme.spruceSolid)
         .controlSize(.large)
         .buttonBorderShape(.capsule)
         .disabled(!isEnabled || isLoading)
@@ -240,7 +241,7 @@ struct DetailRow: View {
             if let systemImage {
                 Image(systemName: systemImage)
                     .font(.footnote.weight(.bold))
-                    .foregroundStyle(Theme.mint)
+                    .foregroundStyle(Theme.spruce)
                     .frame(width: 20)
             }
             Text(title)

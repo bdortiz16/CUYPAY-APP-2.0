@@ -195,7 +195,7 @@ private struct AddBeneficiaryContent: View {
                     if !model.alias.isEmpty {
                         Label(model.keyKind.title, systemImage: model.keyKind.systemImage)
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(model.keyKind == .invalid ? Theme.negative : Theme.mint)
+                            .foregroundStyle(model.keyKind == .invalid ? Theme.negative : Theme.spruce)
                             .transition(.opacity)
                     }
                 }
@@ -248,7 +248,7 @@ private struct AddBeneficiaryContent: View {
                     Text(verbatim: resolution.holderName)
                         .font(.title3.weight(.bold))
                         .multilineTextAlignment(.center)
-                    StatusBadge(text: "Titular verificado en Bre-B", color: Theme.mint, systemImage: "checkmark.seal.fill")
+                    StatusBadge(text: "Titular verificado en Bre-B", color: Theme.spruce, systemImage: "checkmark.seal.fill")
                     Divider()
                     DetailRow(title: "Llave", value: resolution.alias)
                     DetailRow(title: "Banco", value: resolution.bankName)
@@ -353,7 +353,7 @@ struct AMLVerificationProgressView: View {
             Spacer()
             Image(systemName: "checkmark.shield")
                 .font(.system(size: 72, weight: .light))
-                .foregroundStyle(Theme.mint)
+                .foregroundStyle(Theme.spruce)
                 .symbolEffect(.pulse, options: .repeating)
             Text("Verificación AML")
                 .font(.system(.title2, design: .rounded).weight(.bold))
