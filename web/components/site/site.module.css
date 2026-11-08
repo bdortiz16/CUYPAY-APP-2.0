@@ -1,135 +1,276 @@
-.header {
+/* CuyPay — Floating pill header & clean light footer */
+.headerContainer {
   position: sticky;
-  top: 0;
-  z-index: 50;
-  background: rgba(12, 18, 20, 0.72);
-  backdrop-filter: saturate(160%) blur(16px);
-  -webkit-backdrop-filter: saturate(160%) blur(16px);
-  border-bottom: 1px solid var(--hairline-dark);
-  color: var(--on-dark);
+  top: 18px;
+  z-index: 100;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 16px;
 }
 
-.headerInner {
+.headerPill {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 72px;
-  gap: 24px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(16, 79, 71, 0.08);
+  border-radius: 9999px;
+  padding: 8px 10px 8px 18px;
+  box-shadow: 0 12px 36px -10px rgba(16, 79, 71, 0.08), 0 2px 6px rgba(0, 0, 0, 0.02);
+  transition: box-shadow 0.2s ease;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 28px;
 }
 
 .brand {
-  text-decoration: none;
-  color: var(--white);
   display: inline-flex;
-  border-radius: 8px;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
 }
 
-.nav {
+.brandBadge {
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: #104F47;
+  border-radius: 9px;
 }
 
-.nav a {
+.brandText {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #104F47;
+}
+
+.brandTextDark {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #0c1214;
+}
+
+.segmentTabs {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding-left: 6px;
+}
+
+.segmentTab {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(12, 18, 20, 0.55);
+  cursor: pointer;
+  padding: 6px 0;
+  position: relative;
+  transition: color 0.15s ease;
+}
+
+.segmentTab:hover {
+  color: #104F47;
+}
+
+.segmentActive {
+  color: #104F47;
+}
+
+.segmentActive::after {
+  content: "";
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #104F47;
+  border-radius: 2px;
+}
+
+.navLinks {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.navLink,
+.dropdownLink {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(12, 18, 20, 0.75);
   text-decoration: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.navLink:hover,
+.dropdownLink:hover {
+  color: #104F47;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.countrySelector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(12, 18, 20, 0.8);
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 9999px;
+  background: rgba(16, 79, 71, 0.04);
+}
+
+.flag {
+  font-size: 14px;
+}
+
+.countryCode {
+  letter-spacing: 0.02em;
+}
+
+.loginLink {
   font-size: 14px;
   font-weight: 600;
-  color: var(--on-dark-2);
-  padding: 8px 14px;
-  border-radius: 999px;
-  transition:
-    color 0.2s ease,
-    background-color 0.2s ease;
+  color: rgba(12, 18, 20, 0.85);
+  text-decoration: none;
+  transition: color 0.15s ease;
 }
 
-.nav a:hover {
-  color: var(--white);
-  background: rgba(173, 203, 200, 0.08);
+.loginLink:hover {
+  color: #104F47;
 }
 
-.headerCta {
-  min-height: 40px;
-  padding: 0 18px;
+.ctaButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #104F47;
+  color: #ffffff;
   font-size: 14px;
+  font-weight: 600;
+  padding: 10px 22px;
+  border-radius: 9999px;
+  text-decoration: none;
+  transition: background 0.2s ease, transform 0.15s ease;
+  box-shadow: 0 4px 12px rgba(16, 79, 71, 0.18);
 }
 
-@media (max-width: 860px) {
-  .nav {
-    display: none;
-  }
+.ctaButton:hover {
+  background: #16685e;
+  transform: translateY(-1px);
 }
 
 /* Footer */
 .footer {
-  background: var(--onyx);
-  color: var(--on-dark-2);
-  padding: 72px 0 40px;
+  background: #ffffff;
+  border-top: 1px solid rgba(16, 79, 71, 0.08);
+  padding: 60px 0 36px;
+  color: rgba(12, 18, 20, 0.7);
   font-size: 14px;
-  position: relative;
-  overflow: hidden;
 }
 
 .footerGrid {
   display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr 1fr;
-  gap: 40px;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 48px;
+  margin-bottom: 48px;
+}
+
+.footerLogo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
 }
 
 .footerBrand p {
-  margin-top: 18px;
-  max-width: 34ch;
   line-height: 1.6;
+  max-width: 320px;
+  color: rgba(12, 18, 20, 0.6);
 }
 
-.footerCol h3 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--slate);
+.footerCol h4 {
+  font-size: 14px;
   font-weight: 700;
-  margin-bottom: 16px;
+  color: #0c1214;
+  margin: 0 0 16px;
+  letter-spacing: 0.02em;
 }
 
 .footerCol ul {
   list-style: none;
-  margin: 0;
   padding: 0;
-  display: grid;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
 }
 
 .footerCol a {
+  color: rgba(12, 18, 20, 0.65);
   text-decoration: none;
-  color: var(--on-dark-2);
-  transition: color 0.2s ease;
+  transition: color 0.15s ease;
 }
 
 .footerCol a:hover {
-  color: var(--white);
+  color: #104F47;
 }
 
 .footerBottom {
-  margin-top: 56px;
-  padding-top: 24px;
-  border-top: 1px solid var(--hairline-dark);
   display: flex;
-  flex-wrap: wrap;
   justify-content: space-between;
+  align-items: center;
+  padding-top: 28px;
+  border-top: 1px solid rgba(16, 79, 71, 0.06);
+  font-size: 12px;
+  color: rgba(12, 18, 20, 0.5);
+  flex-wrap: wrap;
   gap: 16px;
-  color: var(--on-dark-3);
-  font-size: 13px;
 }
 
-.footerBottom strong {
-  color: var(--on-dark-2);
-  font-weight: 600;
-}
-
-@media (max-width: 860px) {
+@media (max-width: 990px) {
+  .segmentTabs,
+  .navLinks {
+    display: none;
+  }
   .footerGrid {
     grid-template-columns: 1fr 1fr;
+    gap: 32px;
   }
-  .footerBrand {
-    grid-column: 1 / -1;
+}
+
+@media (max-width: 600px) {
+  .headerPill {
+    padding: 6px 8px 6px 14px;
+  }
+  .loginLink,
+  .countrySelector {
+    display: none;
+  }
+  .footerGrid {
+    grid-template-columns: 1fr;
+  }
+  .footerBottom {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
