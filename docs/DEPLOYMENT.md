@@ -25,6 +25,8 @@ flowchart LR
 | D-U-N-S | `963698649` (a nombre de XATECH SERVICES S A S) | ✅ Asignado |
 | Tipo de entidad | Individual → **Organization** | ⏳ Conversión por solicitar a Apple |
 | Bundle ID | `com.cuypay.app` | ⏳ Por registrar |
+| API Key App Store Connect | Key ID `Y4G39PY7CG` · Issuer `a2afdadf-5348-49b3-ae25-ddfc0a930044` · rol Gestor de apps | ✅ Creada |
+| Repo de certificados | `bdortiz16/cuypay-certificates` (privado) | ✅ Creado |
 
 ## 0. Cuentas y requisitos legales 🧑‍💼 (empezar YA, es lo más lento)
 
@@ -85,9 +87,9 @@ Pasos (una sola vez):
    ```bash
    cd ios && bundle install && bundle exec fastlane match appstore
    ```
-4. En GitHub → *Settings → Secrets and variables → Actions*, agrega:
-   `CUYPAY_TEAM_ID`, `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_CONTENT`, `MATCH_GIT_URL`, `MATCH_PASSWORD`, `MATCH_GIT_BASIC_AUTHORIZATION` (base64 de `usuario:token` con acceso al repo de certificados).
-5. *Actions → iOS → TestFlight → Run workflow*. En ~20 min el build aparece en TestFlight.
+4. En GitHub → *Settings → Secrets and variables → Actions*, agrega solo 3 secretos:
+   `ASC_KEY_CONTENT` (texto del `.p8`), `MATCH_PASSWORD` (contraseña inventada) y `MATCH_GIT_BASIC_AUTHORIZATION` (base64 de `usuario:token` con acceso a `cuypay-certificates`). El Team ID, el Key ID y el Issuer ID ya vienen configurados.
+5. Primera vez: *Actions → iOS → TestFlight → Run workflow* con **"crear certificados"** marcado (no hace falta el paso 3 en una Mac). Las siguientes veces, sin marcar.
 
 ## 4. Piloto cerrado (TestFlight) 🧑‍💼
 
