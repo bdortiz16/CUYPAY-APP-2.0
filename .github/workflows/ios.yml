@@ -1,0 +1,38 @@
+name: iOS CI
+
+# Compila la app y corre las pruebas en un simulador, en una Mac de GitHub.
+# Es la primera verificación real de compilación del código SwiftUI.
+on:
+  push:
+    branches: [main]
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  pull_request:
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    # Necesita Xcode 26 (SDK de iOS 26 para Liquid Glass).
+    runs-on: macos-26
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode version
+        run: xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build and test (simulator)
+        run: |
+          set -o pipefail
+          DEST=$(xcrun simctl list devices available | grep -m1 -oE 'iPhone [0-9]+( Pro)? \(' | sed 's/ ($//')
+          echo "Usando simulador: $DEST"
+          xcodebuild test \
+            -project CuyPay.xcodeproj \
+            -scheme CuyPay-Dev \
+            -destination "platform=iOS Simulator,name=$DEST" \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify || exit 1

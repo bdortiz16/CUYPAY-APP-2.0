@@ -54,6 +54,8 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic
+        # Team ID de Apple Developer (10 caracteres). Se puede sobrescribir con la variable DEVELOPMENT_TEAM en CI.
+        DEVELOPMENT_TEAM: ${CUYPAY_TEAM_ID}
         SUPPORTS_MACCATALYST: NO
     info:
       path: CuyPay/Resources/Info.plist

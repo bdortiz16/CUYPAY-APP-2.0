@@ -1,0 +1,30 @@
+name: iOS → TestFlight
+
+# Manual: Actions → "iOS → TestFlight" → Run workflow.
+# Requiere los secretos descritos en ios/fastlane/Fastfile.
+on:
+  workflow_dispatch:
+
+jobs:
+  testflight:
+    runs-on: macos-26
+    defaults:
+      run:
+        working-directory: ios
+    env:
+      CUYPAY_TEAM_ID: ${{ secrets.CUYPAY_TEAM_ID }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: ios
+      - run: brew install xcodegen
+      - run: bundle exec fastlane beta

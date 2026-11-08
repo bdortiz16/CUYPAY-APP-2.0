@@ -18,6 +18,8 @@ Billetera CuyPay para iPhone con diseño **Liquid Glass (iOS 26)**, enfocada en 
 | [`backend/`](backend/) | API Node.js/TypeScript (Fastify) que integra Coinsenda, Sumsub, Sartblock y el proveedor BRL. Ver [backend/README.md](backend/README.md) |
 | [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) | Contrato único app ↔ backend |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura, flujos y seguridad |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | **Guía de despliegue y lanzamiento** (Apple, nube, legal, TestFlight) |
+| [`docs/BRAND.md`](docs/BRAND.md) | Paleta, isotipo y reglas de marca |
 | [`docs/reference/`](docs/reference/) | Referencias de diseño y de la integración Coinsenda Studio |
 
 ## Arranque rápido

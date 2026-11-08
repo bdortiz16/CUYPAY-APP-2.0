@@ -2,21 +2,18 @@ import SwiftUI
 
 // MARK: - Logo
 
-/// Wordmark "CUYPAY" con el isotipo (cuadro redondeado con punto), inspirado en cuypay.com.
+/// Wordmark "CUYPAY" con el isotipo de marca (Zarta Studio).
 struct CuyPayLogo: View {
     var size: CGFloat = 20
     var color: Color = .primary
+    /// Color del isotipo; por defecto Blue Spruce (Dark Slate Grey en modo oscuro).
+    var markColor: Color = Theme.spruce
 
     var body: some View {
         HStack(spacing: size * 0.4) {
-            ZStack {
-                RoundedRectangle(cornerRadius: size * 0.32, style: .continuous)
-                    .stroke(Theme.spruce, lineWidth: size * 0.14)
-                    .frame(width: size, height: size)
-                Circle()
-                    .fill(Theme.coral)
-                    .frame(width: size * 0.26, height: size * 0.26)
-            }
+            CuyPayIsotype()
+                .fill(markColor)
+                .frame(width: size * 1.1, height: size * 1.1)
             Text(verbatim: "CUYPAY")
                 .font(.system(size: size * 0.95, weight: .heavy, design: .rounded))
                 .tracking(size * 0.08)

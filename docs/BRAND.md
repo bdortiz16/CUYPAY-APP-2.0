@@ -24,6 +24,13 @@ Fuente: *CUYPAY Identity Proposal* — Zarta Studio (paleta en `reference/brand-
 - **Modo oscuro:** fondo Onyx → Jet Black. El color interactivo pasa a Dark Slate Grey (`#ADCBC8`) para que se lea bien. Los botones principales mantienen Blue Spruce.
 - **Liquid Glass:** el vidrio se tiñe con Blue Spruce a baja opacidad (0.18–0.35) sobre el fondo blanco → `#E1E3EA`.
 
+## Isotipo
+La "C" con la silueta del cuy, en `docs/brand/` (`cuypay-isotipo-spruce|white|onyx.svg` + PNG 1024).
+En la app: `CuyPayIsotype` (SwiftUI `Shape`) dentro de `CuyPayLogo`. El ícono de la app usa el isotipo blanco sobre un degradado de Onyx a Blue Spruce.
+
+> [!WARNING]
+> **Provisional:** se vectorizó a partir de una captura de baja resolución. Cuando Zarta Studio entregue el SVG oficial, se reemplazan los SVG, la ruta de `CuyPayIsotype.swift` y el ícono.
+
 ## Pendiente
-- Recibir el **logotipo / isotipo en SVG o PDF vectorial** (la "C" estilizada del moodboard). Así reemplazamos el isotipo temporal en `CuyPayLogo` y el ícono de la app.
+- El SVG oficial del isotipo y del logotipo completo.
 - La tipografía oficial de la marca, si la guía la define.
