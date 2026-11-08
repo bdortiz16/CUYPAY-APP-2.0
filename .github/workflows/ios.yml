@@ -19,8 +19,10 @@ jobs:
         working-directory: ios
     steps:
       - uses: actions/checkout@v4
-      - name: Xcode version
-        run: xcodebuild -version
+      - name: Usar el Xcode más reciente
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          echo "Usando $XCODE"; sudo xcode-select -s "$XCODE"; xcodebuild -version
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate project

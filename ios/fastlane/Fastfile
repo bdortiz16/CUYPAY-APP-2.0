@@ -1,12 +1,12 @@
 # Automatización de publicación de CuyPay iOS.
 #
 # Variables de entorno necesarias (en tu Mac o como secretos de GitHub):
-#   CUYPAY_TEAM_ID              Team ID de Apple Developer (10 caracteres)
-#   ASC_KEY_ID                  App Store Connect API key: Key ID
-#   ASC_ISSUER_ID               App Store Connect API key: Issuer ID
-#   ASC_KEY_CONTENT             Contenido del archivo .p8 (texto)
-#   MATCH_GIT_URL               Repo privado donde fastlane match guarda certificados y perfiles
-#   MATCH_PASSWORD              Contraseña con la que match cifra ese repo
+#   ASC_KEY_CONTENT             Contenido del archivo .p8 (texto)            ← SECRETO
+#   MATCH_PASSWORD              Contraseña con la que match cifra los certificados ← SECRETO
+#   MATCH_GIT_BASIC_AUTHORIZATION  base64("usuario:token") con acceso a cuypay-certificates ← SECRETO
+# Opcionales (tienen valor por defecto; no son secretos):
+#   CUYPAY_TEAM_ID (YRFDF3T7CQ) · ASC_KEY_ID (Y4G39PY7CG) · ASC_ISSUER_ID · MATCH_GIT_URL
+#   MATCH_READONLY=false solo la PRIMERA vez, para que match cree el certificado y el perfil.
 #
 # Uso:
 #   bundle exec fastlane tests       # compila y corre pruebas
@@ -18,8 +18,8 @@ default_platform(:ios)
 platform :ios do
   def asc_key
     app_store_connect_api_key(
-      key_id: ENV.fetch("ASC_KEY_ID"),
-      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_id: ENV.fetch("ASC_KEY_ID", "Y4G39PY7CG"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID", "a2afdadf-5348-49b3-ae25-ddfc0a930044"),
       key_content: ENV.fetch("ASC_KEY_CONTENT"),
       in_house: false
     )
@@ -38,7 +38,12 @@ platform :ios do
   lane :beta do
     setup_ci if ENV["CI"]
     api_key = asc_key
-    match(type: "appstore", readonly: is_ci, api_key: api_key)
+    match(
+      type: "appstore",
+      git_url: ENV.fetch("MATCH_GIT_URL", "https://github.com/bdortiz16/cuypay-certificates.git"),
+      readonly: ENV["MATCH_READONLY"] != "false",
+      api_key: api_key
+    )
     increment_build_number(
       xcodeproj: "CuyPay.xcodeproj",
       build_number: latest_testflight_build_number(api_key: api_key) + 1

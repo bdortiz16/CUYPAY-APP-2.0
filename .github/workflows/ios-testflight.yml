@@ -4,6 +4,11 @@ name: iOS → TestFlight
 # Requiere los secretos descritos en ios/fastlane/Fastfile.
 on:
   workflow_dispatch:
+    inputs:
+      create_certificates:
+        description: "Primera vez: crear certificado y perfil de distribución (match)"
+        type: boolean
+        default: false
 
 jobs:
   testflight:
@@ -12,13 +17,10 @@ jobs:
       run:
         working-directory: ios
     env:
-      CUYPAY_TEAM_ID: ${{ secrets.CUYPAY_TEAM_ID }}
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
-      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+      MATCH_READONLY: ${{ inputs.create_certificates && 'false' || 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: ruby/setup-ruby@v1
@@ -26,5 +28,9 @@ jobs:
           ruby-version: "3.3"
           bundler-cache: true
           working-directory: ios
+      - name: Usar el Xcode más reciente
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          echo "Usando $XCODE"; sudo xcode-select -s "$XCODE"; xcodebuild -version
       - run: brew install xcodegen
       - run: bundle exec fastlane beta
