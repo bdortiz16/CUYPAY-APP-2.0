@@ -1,14 +1,12 @@
 name: iOS → TestFlight
 
 # Manual: Actions → "iOS → TestFlight" → Run workflow.
+# También corre al hacer push a la rama `testflight` (git push origin main:testflight).
 # Requiere los secretos descritos en ios/fastlane/Fastfile.
 on:
   workflow_dispatch:
-    inputs:
-      create_certificates:
-        description: "Primera vez: crear certificado y perfil de distribución (match)"
-        type: boolean
-        default: false
+  push:
+    branches: [testflight]
 
 jobs:
   testflight:
@@ -19,7 +17,6 @@ jobs:
     env:
       ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      MATCH_READONLY: ${{ inputs.create_certificates && 'false' || 'true' }}
     steps:
       - uses: actions/checkout@v5
       - name: Preparar acceso al repo de certificados

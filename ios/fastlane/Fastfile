@@ -6,7 +6,7 @@
 #   MATCH_GIT_TOKEN             Token de GitHub con acceso a cuypay-certificates ← SECRETO (el workflow arma la autorización)
 # Opcionales (tienen valor por defecto; no son secretos):
 #   CUYPAY_TEAM_ID (YRFDF3T7CQ) · ASC_KEY_ID (Y4G39PY7CG) · ASC_ISSUER_ID · MATCH_GIT_URL
-#   MATCH_READONLY=false solo la PRIMERA vez, para que match cree el certificado y el perfil.
+#   MATCH_READONLY=true para prohibir que match cree certificados (por defecto los crea solo si faltan).
 #
 # Uso:
 #   bundle exec fastlane tests       # compila y corre pruebas
@@ -41,7 +41,7 @@ platform :ios do
     match(
       type: "appstore",
       git_url: ENV.fetch("MATCH_GIT_URL", "https://github.com/bdortiz16/cuypay-certificates.git"),
-      readonly: ENV["MATCH_READONLY"] != "false",
+      readonly: ENV["MATCH_READONLY"] == "true", # crea certificado/perfil solo si faltan; luego los reutiliza
       api_key: api_key
     )
     increment_build_number(
