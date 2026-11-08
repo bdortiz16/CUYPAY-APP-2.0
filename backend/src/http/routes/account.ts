@@ -17,7 +17,7 @@ export function registerAccountRoutes(app: FastifyInstance, { services }: Contai
 
   app.get('/me', auth, async (req) => {
     const user = await h.currentUser(req);
-    if (user.kycStatus !== 'approved') {
+    if (process.env.AUTO_APPROVE_KYC === 'true' && user.kycStatus !== 'approved') {
       await services.kyc.applyStatus(user, 'approved', { applicantId: null, reviewAnswer: 'GREEN', rejectLabels: [], rejectType: null });
     }
     return presentUser(user);

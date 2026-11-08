@@ -99,8 +99,8 @@ export class AuthService {
         firstName: input.firstName.trim(),
         lastName: input.lastName.trim(),
         country: 'CO',
-        kycStatus: 'approved',
-        tier: 'full',
+        kycStatus: process.env.AUTO_APPROVE_KYC === 'true' ? 'approved' : 'not_started',
+        tier: process.env.AUTO_APPROVE_KYC === 'true' ? 'full' : 'basic',
         createdAt: now,
         updatedAt: now,
       };

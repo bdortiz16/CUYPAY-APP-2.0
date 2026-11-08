@@ -1,3 +1,4 @@
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { newId } from '../lib/clock.js';
 import type {
   AmlCheck,
@@ -81,13 +82,65 @@ export function createMemoryRepositories(): Repositories {
   };
   const opt = <T extends object>(v: T | null | undefined): T | null => (v ? clone(v) : null);
 
+  const STORE_PATH = process.env.STORE_PATH || (process.env.NODE_ENV === 'test' ? null : '/tmp/cuypay_store.json');
+
+  const save = () => {
+    if (!STORE_PATH) return;
+    try {
+      const data = {
+        users: Array.from(users.entries()),
+        devices: Array.from(devices.entries()),
+        kyc: Array.from(kyc.entries()),
+        brebKeys: Array.from(brebKeys.entries()),
+        cards: Array.from(cards.entries()),
+        beneficiaries: Array.from(beneficiaries.entries()),
+        ledgerAccounts: Array.from(ledgerAccounts.entries()),
+        balances: Array.from(balances.entries()).map(([k, v]) => [k, v.toString() + 'n']),
+        txns: Array.from(txns.entries()),
+        adminUsers: Array.from(adminUsers.entries()),
+      };
+      writeFileSync(STORE_PATH, JSON.stringify(data));
+    } catch {
+      // ignore
+    }
+  };
+
+  const load = () => {
+    if (!STORE_PATH || !existsSync(STORE_PATH)) return;
+    try {
+      const text = readFileSync(STORE_PATH, 'utf8');
+      const data = JSON.parse(text, (_k, v) => {
+        if (typeof v === 'string') {
+          if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(v)) return new Date(v);
+          if (/^\d+n$/.test(v)) return BigInt(v.slice(0, -1));
+        }
+        return v;
+      });
+      if (data.users) for (const [k, v] of data.users) users.set(k, v);
+      if (data.devices) for (const [k, v] of data.devices) devices.set(k, v);
+      if (data.kyc) for (const [k, v] of data.kyc) kyc.set(k, v);
+      if (data.brebKeys) for (const [k, v] of data.brebKeys) brebKeys.set(k, v);
+      if (data.cards) for (const [k, v] of data.cards) cards.set(k, v);
+      if (data.beneficiaries) for (const [k, v] of data.beneficiaries) beneficiaries.set(k, v);
+      if (data.ledgerAccounts) for (const [k, v] of data.ledgerAccounts) ledgerAccounts.set(k, v);
+      if (data.balances) for (const [k, v] of data.balances) balances.set(k, v);
+      if (data.txns) for (const [k, v] of data.txns) txns.set(k, v);
+      if (data.adminUsers) for (const [k, v] of data.adminUsers) adminUsers.set(k, v);
+    } catch {
+      // ignore
+    }
+  };
+  load();
+
   return {
     users: {
       async create(u) {
         users.set(u.id, clone(u));
+        save();
       },
       async update(u) {
         users.set(u.id, clone(u));
+        save();
       },
       async byId(id) {
         return opt(users.get(id));
@@ -105,9 +158,11 @@ export function createMemoryRepositories(): Repositories {
     devices: {
       async create(d) {
         devices.set(d.id, clone(d));
+        save();
       },
       async update(d) {
         devices.set(d.id, clone(d));
+        save();
       },
       async byId(id) {
         return opt(devices.get(id));
@@ -172,6 +227,7 @@ export function createMemoryRepositories(): Repositories {
     kyc: {
       async upsert(k) {
         kyc.set(k.userId, { ...k, rejectLabels: [...k.rejectLabels] });
+        save();
       },
       async byUser(userId) {
         return opt(kyc.get(userId));
@@ -183,12 +239,15 @@ export function createMemoryRepositories(): Repositories {
     brebKeys: {
       async create(k) {
         brebKeys.set(k.id, clone(k));
+        save();
       },
       async update(k) {
         brebKeys.set(k.id, clone(k));
+        save();
       },
       async delete(id) {
         brebKeys.delete(id);
+        save();
       },
       async byUser(userId) {
         return opt(find(brebKeys, (k) => k.userId === userId));
@@ -209,9 +268,11 @@ export function createMemoryRepositories(): Repositories {
     cards: {
       async create(c) {
         cards.set(c.id, clone(c));
+        save();
       },
       async update(c) {
         cards.set(c.id, clone(c));
+        save();
       },
       async byId(id) {
         return opt(cards.get(id));

@@ -7,14 +7,16 @@ export function registerKycRoutes(app: FastifyInstance, { services }: Container,
 
   app.post('/kyc/sumsub/token', auth, async (req) => {
     const user = await h.currentUser(req);
-    await services.kyc.applyStatus(user, 'approved', { applicantId: null, reviewAnswer: 'GREEN', rejectLabels: [], rejectType: null });
+    if (process.env.AUTO_APPROVE_KYC === 'true') {
+      await services.kyc.applyStatus(user, 'approved', { applicantId: null, reviewAnswer: 'GREEN', rejectLabels: [], rejectType: null });
+    }
     const r = await services.kyc.sdkToken(user);
     return { token: r.token, levelName: r.levelName, expiresAt: r.expiresAt.toISOString() };
   });
 
   app.get('/kyc/status', auth, async (req) => {
     const user = await h.currentUser(req);
-    if (user.kycStatus !== 'approved') {
+    if (process.env.AUTO_APPROVE_KYC === 'true' && user.kycStatus !== 'approved') {
       await services.kyc.applyStatus(user, 'approved', { applicantId: null, reviewAnswer: 'GREEN', rejectLabels: [], rejectType: null });
     }
     return services.kyc.status(user);

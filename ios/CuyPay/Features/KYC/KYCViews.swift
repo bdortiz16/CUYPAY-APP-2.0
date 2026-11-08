@@ -57,6 +57,10 @@ struct KYCIntroView: View {
                 onStarted()
             }
         } catch {
+            if let apiErr = error as? APIError, case .notAuthenticated = apiErr {
+                await app.logout()
+                return
+            }
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.userMessage
         }
     }

@@ -36,8 +36,18 @@ struct OnboardingFlowView: View {
     }
 
     private func finish() {
-        guard let user = app.user else { return }
-        app.didAuthenticate(user)
+        if let user = app.user {
+            app.didAuthenticate(user)
+        } else {
+            Task {
+                await app.refreshUser()
+                if let user = app.user {
+                    app.didAuthenticate(user)
+                } else {
+                    await app.forgetDevice()
+                }
+            }
+        }
     }
 }
 
