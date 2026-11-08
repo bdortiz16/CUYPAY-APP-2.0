@@ -153,6 +153,10 @@ struct CardItem: Codable, Hashable, Sendable, Identifiable {
     var currency: Currency
     var createdAt: Date
     var updatedAt: Date
+
+    var maskedPan: String {
+        "•••• " + lastFour
+    }
 }
 
 enum CardItemStatus: String, Codable, Hashable, Sendable {

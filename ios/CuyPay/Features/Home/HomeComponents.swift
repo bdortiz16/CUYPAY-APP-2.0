@@ -329,7 +329,7 @@ struct CardQuickCard: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: Theme.cardRadius))
-        .accessibilityLabel(Text(card != nil ? "Tarjeta CuyPay \(card!.maskedPan)" : "Solicitar Tarjeta CuyPay"))
+        .accessibilityLabel(card != nil ? Text("Tarjeta CuyPay \(card!.maskedPan)") : Text("Solicitar Tarjeta CuyPay"))
     }
 }
 
