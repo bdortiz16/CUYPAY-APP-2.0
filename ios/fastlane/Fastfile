@@ -48,7 +48,7 @@ platform :ios do
       scheme: "CuyPay-Prod",
       configuration: "Prod",
       export_method: "app-store",
-      xcargs: "DEVELOPMENT_TEAM=#{ENV.fetch('CUYPAY_TEAM_ID')} CODE_SIGN_STYLE=Manual"
+      xcargs: "DEVELOPMENT_TEAM=#{ENV.fetch('CUYPAY_TEAM_ID', 'YRFDF3T7CQ')} CODE_SIGN_STYLE=Manual"
     )
     upload_to_testflight(api_key: api_key, skip_waiting_for_build_processing: true)
   end

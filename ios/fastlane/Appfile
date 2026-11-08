@@ -1,2 +1,2 @@
 app_identifier("com.cuypay.app")
-team_id(ENV["CUYPAY_TEAM_ID"])
+team_id(ENV.fetch("CUYPAY_TEAM_ID", "YRFDF3T7CQ"))
