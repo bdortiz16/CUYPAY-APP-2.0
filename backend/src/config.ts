@@ -136,11 +136,6 @@ const EnvSchema = z
         'COINSENDA_PRIVATE_KEY_PEM',
         'COINSENDA_BREB_DEPOSIT_ACCOUNT_ID',
         'COINSENDA_COP_ACCOUNT_ID',
-        'SUMSUB_APP_TOKEN',
-        'SUMSUB_SECRET_KEY',
-        'SUMSUB_WEBHOOK_SECRET',
-        'SARTBLOCK_BASE_URL',
-        'SARTBLOCK_API_KEY',
       ] as const;
       for (const key of required) {
         if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: `${key} es obligatorio con PROVIDERS_MODE=live` });

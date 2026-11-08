@@ -106,12 +106,14 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
       : new MockCoinsendaGateway(clock));
   const kyc =
     o.kyc ??
-    (live
+    (live && config.SUMSUB_APP_TOKEN && config.SUMSUB_SECRET_KEY
       ? new LiveSumsubProvider({ baseUrl: config.SUMSUB_BASE_URL, appToken: config.SUMSUB_APP_TOKEN!, secretKey: config.SUMSUB_SECRET_KEY!, logger })
       : new MockSumsubProvider());
   const aml =
     o.aml ??
-    (live ? new LiveSartblockProvider({ baseUrl: config.SARTBLOCK_BASE_URL!, apiKey: config.SARTBLOCK_API_KEY!, logger }) : new MockAmlProvider());
+    (live && config.SARTBLOCK_API_KEY
+      ? new LiveSartblockProvider({ baseUrl: config.SARTBLOCK_BASE_URL!, apiKey: config.SARTBLOCK_API_KEY!, logger })
+      : new MockAmlProvider());
   // TODO(brl-partner): el socio BRL aún no está definido; en modo live se usa el stub que responde PROVIDER_ERROR
   // salvo que se fuerce el mock con BRL_PROVIDER_MODE=mock.
   const brlMode = config.BRL_PROVIDER_MODE ?? config.PROVIDERS_MODE;
