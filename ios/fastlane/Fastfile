@@ -48,12 +48,22 @@ platform :ios do
       xcodeproj: "CuyPay.xcodeproj",
       build_number: latest_testflight_build_number(api_key: api_key) + 1
     )
+    team_id = ENV.fetch("CUYPAY_TEAM_ID", "YRFDF3T7CQ")
+    # Firma manual solo para el target de la app (no para los paquetes SPM), con el perfil que creó match.
+    update_code_signing_settings(
+      path: "CuyPay.xcodeproj",
+      use_automatic_signing: false,
+      targets: ["CuyPay"],
+      build_configurations: ["Prod"],
+      team_id: team_id,
+      code_sign_identity: "Apple Distribution",
+      profile_name: ENV.fetch("sigh_com.cuypay.app_appstore_profile-name")
+    )
     build_app(
       project: "CuyPay.xcodeproj",
       scheme: "CuyPay-Prod",
       configuration: "Prod",
-      export_method: "app-store",
-      xcargs: "DEVELOPMENT_TEAM=#{ENV.fetch('CUYPAY_TEAM_ID', 'YRFDF3T7CQ')} CODE_SIGN_STYLE=Manual"
+      export_method: "app-store"
     )
     upload_to_testflight(api_key: api_key, skip_waiting_for_build_processing: true)
   end
