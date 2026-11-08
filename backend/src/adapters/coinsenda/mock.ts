@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Clock } from '../../lib/clock.js';
 import { AppError } from '../../lib/errors.js';
 import type { BrebAliasHolder, CoinsendaDeposit, CoinsendaGateway, WithdrawState } from '../../ports/index.js';
+import type { Currency } from '../../domain/types.js';
 
 /**
  * Coinsenda simulado. Directorio Bre-B en memoria con llaves de ejemplo:

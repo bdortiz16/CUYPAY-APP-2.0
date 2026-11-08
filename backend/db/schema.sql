@@ -7,6 +7,7 @@
 --   * Todas las fechas TIMESTAMPTZ (UTC). Los periodos de límites se calculan en America/Bogota.
 --   * IDs TEXT con prefijo (usr_, dev_, txn_, ...), ordenables por tiempo.
 -- ═══════════════════════════════════════════════════════════════════════════
+CREATE EXTENSION IF NOT EXISTS citext;
 
 CREATE TYPE currency_code    AS ENUM ('COP', 'BRL');
 CREATE TYPE kyc_status       AS ENUM ('not_started', 'pending', 'approved', 'rejected', 'retry');

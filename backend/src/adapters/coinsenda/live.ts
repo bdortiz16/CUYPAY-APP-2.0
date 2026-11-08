@@ -5,6 +5,7 @@ import type { Logger } from 'pino';
 import { AppError } from '../../lib/errors.js';
 import { majorStringToMinor, minorToMajorString } from '../../lib/money.js';
 import type { BrebAliasHolder, CoinsendaDeposit, CoinsendaGateway, WithdrawState } from '../../ports/index.js';
+import type { Currency } from '../../domain/types.js';
 
 // @coinsenda/sdk es CommonJS sin tipos: se carga con createRequire y se tipa lo mínimo.
 const require = createRequire(import.meta.url);

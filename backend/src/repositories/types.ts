@@ -3,6 +3,7 @@ import type {
   Beneficiary,
   BrebKey,
   BrebResolution,
+  Card,
   Challenge,
   Currency,
   Device,

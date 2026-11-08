@@ -1,0 +1,21 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo "Logging in to Amazon ECR..."
+      - aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin 433213575044.dkr.ecr.us-east-2.amazonaws.com
+      - echo "Installing PostgreSQL client..."
+      - dnf install -y postgresql15 || yum install -y postgresql
+      - echo "Applying database schema migrations..."
+      - PGPASSWORD="CuyPayPass7cb2876ff14e" psql -h cuypay-db.czwcge4ysv2o.us-east-2.rds.amazonaws.com -U cuypay_admin -d cuypay -f db/schema.sql || true
+  build:
+    commands:
+      - echo "Building backend Docker image..."
+      - docker build -t cuypay-backend:latest .
+      - docker tag cuypay-backend:latest 433213575044.dkr.ecr.us-east-2.amazonaws.com/cuypay-backend:latest
+  post_build:
+    commands:
+      - echo "Pushing Docker image to ECR..."
+      - docker push 433213575044.dkr.ecr.us-east-2.amazonaws.com/cuypay-backend:latest
+      - echo "Build and deployment artifact complete!"
