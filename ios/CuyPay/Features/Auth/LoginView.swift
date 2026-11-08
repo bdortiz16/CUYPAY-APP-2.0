@@ -9,52 +9,122 @@ struct LoginView: View {
     var body: some View {
         ZStack {
             BrandBackground()
-            VStack(spacing: 28) {
-                CuyPayLogo(size: 28)
-                    .padding(.top, 40)
+            VStack(spacing: 24) {
+                CuyPayLogo(size: 26)
+                    .padding(.top, 28)
+
+                Spacer()
+
+                // Hero Card biométrica de alta gama
+                VStack(spacing: 22) {
+                    ZStack {
+                        // Resplandor exterior sutil
+                        Circle()
+                            .fill(Theme.spruce.opacity(0.12))
+                            .frame(width: 140, height: 140)
+                            .scaleEffect(app.isAuthenticating ? 1.06 : 1.0)
+                            .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: app.isAuthenticating)
+
+                        Circle()
+                            .fill(Theme.spruce.opacity(0.08))
+                            .frame(width: 114, height: 114)
+
+                        Button {
+                            Task { await app.loginWithFaceID() }
+                        } label: {
+                            Image(systemName: "faceid")
+                                .font(.system(size: 50, weight: .light))
+                                .foregroundStyle(Theme.spruce)
+                                .frame(width: 90, height: 90)
+                                .symbolEffect(.pulse, options: .repeating, isActive: app.isAuthenticating)
+                        }
+                        .buttonStyle(.plain)
+                        .glassEffect(.regular.interactive(), in: .circle)
+                        .accessibilityLabel(Text("Ingresar con Face ID"))
+                    }
+
+                    VStack(spacing: 8) {
+                        Text("Hola de nuevo")
+                            .font(.system(.title2, design: .rounded).weight(.bold))
+                            .foregroundStyle(Theme.ink)
+
+                        Text("Ingresa con tu biometría segura")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.shield.fill")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.spruce)
+                        Text("Secure Enclave · Cifrado punto a punto")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Theme.spruce.opacity(0.08), in: .capsule)
+                }
+                .padding(.vertical, 28)
+                .padding(.horizontal, 20)
+                .frame(maxWidth: .infinity)
+                .glassEffect(.regular, in: .rect(cornerRadius: Theme.cardRadius))
+
+                if let error = app.loginError {
+                    GlassCard(tint: Theme.negative.opacity(0.08)) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: "exclamationmark.circle.fill")
+                                    .foregroundStyle(Theme.negative)
+                                    .font(.subheadline)
+                                    .padding(.top, 1)
+
+                                Text(error)
+                                    .font(.footnote)
+                                    .foregroundStyle(.primary)
+
+                                Spacer(minLength: 0)
+                            }
+
+                            Button {
+                                Task { await app.forgetDevice() }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.counterclockwise.circle.fill")
+                                    Text("Ingresar con número de celular")
+                                }
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(Theme.spruceSolid)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
                 Spacer()
 
                 VStack(spacing: 14) {
-                    Button {
-                        Task { await app.loginWithFaceID() }
-                    } label: {
-                        Image(systemName: "faceid")
-                            .font(.system(size: 64, weight: .light))
-                            .foregroundStyle(Theme.spruce)
-                            .frame(width: 132, height: 132)
-                            .symbolEffect(.pulse, options: .repeating, isActive: app.isAuthenticating)
-                    }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .circle)
-                    .accessibilityLabel(Text("Ingresar con Face ID"))
-
-                    Text("Hola de nuevo")
-                        .font(.system(.title, design: .rounded).weight(.bold))
-                    Text("Ingresa a CuyPay con Face ID. Sin contraseñas.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-
-                if let error = app.loginError {
-                    ErrorBanner(message: error)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-
-                Spacer()
-
-                VStack(spacing: 12) {
                     PrimaryButton(title: "Ingresar con Face ID", systemImage: "faceid", isLoading: app.isAuthenticating) {
                         Task { await app.loginWithFaceID() }
                     }
-                    Button("¿No eres tú? Usar otra cuenta") {
+
+                    Button {
                         showForgetConfirmation = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "person.crop.circle.badge.questionmark")
+                            Text("¿No eres tú? Usar otra cuenta")
+                        }
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 4)
                     }
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.secondary)
                 }
             }
-            .padding(24)
+            .padding(20)
             .animation(.smooth, value: app.loginError)
         }
         .sensoryFeedback(.error, trigger: app.loginError) { _, newValue in newValue != nil }
