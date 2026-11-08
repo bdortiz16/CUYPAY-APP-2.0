@@ -16,6 +16,15 @@ flowchart LR
 
 ---
 
+## Datos de la cuenta Apple
+
+| Dato | Valor | Estado |
+|---|---|---|
+| Team ID | `YRFDF3T7CQ` | ✅ Configurado en `ios/project.yml` y Fastlane |
+| D-U-N-S | `963698649` | ✅ Asignado |
+| Tipo de entidad | Individual → **Organization** | ⏳ Conversión por solicitar a Apple |
+| Bundle ID | `com.cuypay.app` | ⏳ Por registrar |
+
 ## 0. Cuentas y requisitos legales 🧑‍💼 (empezar YA, es lo más lento)
 
 | # | Tarea | Notas |
