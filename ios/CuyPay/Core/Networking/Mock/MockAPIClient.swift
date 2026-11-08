@@ -37,8 +37,8 @@ actor MockAPIClient: CuyPayAPI {
         let fixtures = MockFixtures(now: Date())
         self.user = startsVerified ? fixtures.user : fixtures.user.with(kycStatus: .notStarted, tier: .basic)
         self.walletsState = fixtures.wallets
-        self.brebKeyState = startsVerified ? fixtures.brebKey : nil
-        self.cardsState = startsVerified ? fixtures.cards : []
+        self.brebKeyState = nil
+        self.cardsState = []
         self.beneficiariesState = fixtures.beneficiaries
         self.transactionsState = fixtures.transactions
         self.limitsState = fixtures.limits
@@ -130,6 +130,7 @@ actor MockAPIClient: CuyPayAPI {
             createdAt: Date()
         )
         brebKeyState = nil
+        cardsState = []
         let session = AuthSession(accessToken: "mock.jwt", refreshToken: "mock-refresh", expiresIn: 900, deviceId: Self.newId("dev"), user: user)
         try? await tokens.store(session)
         return session
