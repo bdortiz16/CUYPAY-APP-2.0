@@ -97,6 +97,9 @@ const EnvSchema = z
     // Liquidez BRL (socio por definir). Por defecto sigue PROVIDERS_MODE.
     BRL_PROVIDER_MODE: z.enum(['mock', 'live']).optional(),
 
+    // OTP / SMS mode ('mock' para desarrollo y pruebas con código fijo 123456, 'live' para proveedor SMS real)
+    OTP_PROVIDER_MODE: z.enum(['mock', 'live']).default('mock'),
+
     // FX / tarifas
     FX_SPREAD_BPS: z.coerce.number().int().min(0).max(5000).default(150),
     CONVERSION_FEE_BPS: z.coerce.number().int().min(0).max(5000).default(100),

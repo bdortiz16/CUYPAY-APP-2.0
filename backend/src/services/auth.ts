@@ -39,8 +39,8 @@ export class AuthService {
   async requestOtp(phone: string) {
     const now = this.d.clock.now();
     const id = newId('otp', now);
-    const isProd = this.d.config.NODE_ENV === 'production';
-    const code = isProd ? String(randomBytes(4).readUInt32BE() % 1_000_000).padStart(6, '0') : DEV_OTP_CODE;
+    const isMockOtp = this.d.config.OTP_PROVIDER_MODE === 'mock' || this.d.config.NODE_ENV !== 'production';
+    const code = isMockOtp ? DEV_OTP_CODE : String(randomBytes(4).readUInt32BE() % 1_000_000).padStart(6, '0');
     const expiresAt = new Date(now.getTime() + this.d.config.OTP_TTL_SECONDS * 1000);
     await this.d.repos.otps.create({ id, phone, codeHash: this.hashOtp(id, code), attempts: 0, expiresAt, consumedAt: null, createdAt: now });
     await this.d.otp.send(phone, code);

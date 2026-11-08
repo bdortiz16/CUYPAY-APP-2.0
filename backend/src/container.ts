@@ -118,7 +118,7 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
   // salvo que se fuerce el mock con BRL_PROVIDER_MODE=mock.
   const brlMode = config.BRL_PROVIDER_MODE ?? config.PROVIDERS_MODE;
   const brl = o.brl ?? (brlMode === 'live' ? new LiveBrlLiquidityProvider() : new MockBrlLiquidityProvider(clock));
-  const otp = o.otp ?? (config.NODE_ENV === 'production' ? new UnconfiguredOtpSender() : new MockOtpSender(logger));
+  const otp = o.otp ?? (config.OTP_PROVIDER_MODE === 'live' ? new UnconfiguredOtpSender() : new MockOtpSender(logger));
 
   const repos = o.repos ?? createMemoryRepositories();
   const events = o.events ?? new EventBus(logger);
