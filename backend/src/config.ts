@@ -97,8 +97,12 @@ const EnvSchema = z
     // Liquidez BRL (socio por definir). Por defecto sigue PROVIDERS_MODE.
     BRL_PROVIDER_MODE: z.enum(['mock', 'live']).optional(),
 
-    // OTP / SMS mode ('mock' para desarrollo y pruebas con código fijo 123456, 'live' para proveedor SMS real)
-    OTP_PROVIDER_MODE: z.enum(['mock', 'live']).default('mock'),
+    // OTP mode ('mock' para código fijo 123456, 'twilio' para WhatsApp/SMS real con Twilio)
+    OTP_PROVIDER_MODE: z.enum(['mock', 'twilio', 'live']).default('mock'),
+    TWILIO_ACCOUNT_SID: z.string().optional(),
+    TWILIO_AUTH_TOKEN: z.string().optional(),
+    TWILIO_WHATSAPP_FROM: z.string().default('+14155238886'),
+    TWILIO_SMS_FROM: z.string().optional(),
 
     // FX / tarifas
     FX_SPREAD_BPS: z.coerce.number().int().min(0).max(5000).default(150),

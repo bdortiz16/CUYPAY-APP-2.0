@@ -11,6 +11,7 @@ import { LiveSumsubProvider, MockSumsubProvider } from './adapters/sumsub/provid
 import { LiveSartblockProvider, MockAmlProvider } from './adapters/sartblock/provider.js';
 import { LiveBrlLiquidityProvider, MockBrlLiquidityProvider } from './adapters/brl/provider.js';
 import { MockOtpSender, UnconfiguredOtpSender } from './adapters/otp/sender.js';
+import { TwilioWhatsAppOtpSender } from './adapters/otp/twilio.js';
 import { KeyedMutex, type ServiceDeps } from './services/deps.js';
 import { LedgerService } from './services/ledger.js';
 import { LimitsService } from './services/limits.js';
@@ -118,7 +119,19 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
   // salvo que se fuerce el mock con BRL_PROVIDER_MODE=mock.
   const brlMode = config.BRL_PROVIDER_MODE ?? config.PROVIDERS_MODE;
   const brl = o.brl ?? (brlMode === 'live' ? new LiveBrlLiquidityProvider() : new MockBrlLiquidityProvider(clock));
-  const otp = o.otp ?? (config.OTP_PROVIDER_MODE === 'live' ? new UnconfiguredOtpSender() : new MockOtpSender(logger));
+  const otp =
+    o.otp ??
+    (config.OTP_PROVIDER_MODE === 'twilio' && config.TWILIO_ACCOUNT_SID && config.TWILIO_AUTH_TOKEN
+      ? new TwilioWhatsAppOtpSender({
+          accountSid: config.TWILIO_ACCOUNT_SID,
+          authToken: config.TWILIO_AUTH_TOKEN,
+          whatsappFrom: config.TWILIO_WHATSAPP_FROM,
+          smsFrom: config.TWILIO_SMS_FROM,
+          logger,
+        })
+      : config.OTP_PROVIDER_MODE === 'live'
+        ? new UnconfiguredOtpSender()
+        : new MockOtpSender(logger));
 
   const repos = o.repos ?? createMemoryRepositories();
   const events = o.events ?? new EventBus(logger);
