@@ -9,6 +9,7 @@ import type {
   OtpSender,
 } from '../ports/index.js';
 import type { Repositories } from '../repositories/types.js';
+import type { EventBus } from './events.js';
 
 /** Dependencias compartidas por los servicios de dominio. */
 export interface ServiceDeps {
@@ -21,6 +22,8 @@ export interface ServiceDeps {
   aml: AmlProvider;
   brl: BrlLiquidityProvider;
   otp: OtpSender;
+  /** Bus de eventos interno (SSE del portal admin, alertas de cumplimiento). */
+  events: EventBus;
 }
 
 /**

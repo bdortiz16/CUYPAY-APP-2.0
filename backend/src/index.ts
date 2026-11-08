@@ -3,6 +3,7 @@ import { createContainer } from './container.js';
 import { buildApp } from './http/app.js';
 import { startPoller } from './jobs/poller.js';
 import { seedDemo } from './scripts/seed.js';
+import { seedAdmin } from './scripts/seed-admin.js';
 
 async function main() {
   const config = loadConfig();
@@ -13,13 +14,21 @@ async function main() {
     logger.warn('JWT_SECRET no definido: usando un secreto de desarrollo inseguro');
   }
   if (config.seedDemo) await seedDemo(container);
+  await seedAdmin(container);
 
   const app = await buildApp(container);
   const stopPoller = startPoller(container);
+  // Health checks periódicos de proveedores (portal admin).
+  const runHealth = () =>
+    void container.services.admin.providers.checkAll().catch((err) => logger.warn({ err }, 'provider health check failed'));
+  runHealth();
+  const healthTimer = setInterval(runHealth, config.PROVIDER_HEALTH_INTERVAL_MS);
+  healthTimer.unref();
 
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'shutting down');
     stopPoller();
+    clearInterval(healthTimer);
     await app.close();
     process.exit(0);
   };

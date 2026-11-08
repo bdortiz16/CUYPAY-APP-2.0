@@ -264,6 +264,23 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
     return w ? { state: mapWithdrawState(w.state), raw: w } : null;
   }
 
+  /** Saldo de la cuenta COP ómnibus. TODO(coinsenda): confirmar el campo de saldo disponible en `__get__accounts`. */
+  async getBalance() {
+    const res = await this.call('getBalance', (c) =>
+      (c as any).account.user.__get__accounts({ where: { id: this.opts.copAccountId }, limit: 1 }), // eslint-disable-line @typescript-eslint/no-explicit-any
+    );
+    if (!sdk.isHttpSuccess(res.status)) this.fail('getBalance', res);
+    const list: any[] = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.data) ? res.data.data : []; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const acc = list[0];
+    const raw = acc?.available ?? acc?.balance?.available ?? acc?.balance;
+    if (raw === undefined || raw === null) throw new AppError('PROVIDER_ERROR', 'Coinsenda no devolvió el saldo de la cuenta COP', { provider: 'coinsenda' });
+    return { currency: 'COP' as const, balanceMinor: majorStringToMinor(String(raw)), asOf: new Date() };
+  }
+
+  async healthCheck(): Promise<void> {
+    await this.ensureSession();
+  }
+
   async listDeposits(): Promise<CoinsendaDeposit[]> {
     // Los 200 más RECIENTES (sin `order` llegan los más viejos y los nuevos nunca aparecen).
     const res = await this.call('listDeposits', (c) => c.deposit.user.__get__deposits({ order: 'id DESC', limit: 200 }));

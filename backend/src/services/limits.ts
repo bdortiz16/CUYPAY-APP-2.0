@@ -3,6 +3,7 @@ import { newId } from '../lib/clock.js';
 import { AppError } from '../lib/errors.js';
 import { periodRange } from '../lib/time.js';
 import type { ServiceDeps } from './deps.js';
+import { getLimitsConfig } from './runtime-config.js';
 
 export interface LimitItemView {
   operation: LimitOperation;
@@ -24,14 +25,23 @@ export interface LimitsSnapshot {
 export class LimitsService {
   constructor(private readonly d: ServiceDeps) {}
 
-  private rules(user: User) {
-    return this.d.config.limits[user.tier];
+  /**
+   * Reglas vigentes: configuración por tier (editable en caliente desde el portal admin)
+   * + overrides individuales del cliente, que reemplazan (operation, period) o agregan reglas.
+   */
+  private async rules(user: User) {
+    const base = (await getLimitsConfig(this.d)).value[user.tier];
+    const overrides = (await this.d.repos.customerControls.get(user.id))?.limitOverrides ?? [];
+    if (!overrides.length) return base;
+    const merged = base.map((r) => overrides.find((o) => o.operation === r.operation && o.period === r.period) ?? r);
+    for (const o of overrides) if (!merged.some((r) => r.operation === o.operation && r.period === o.period)) merged.push(o);
+    return merged;
   }
 
   async snapshot(user: User): Promise<LimitsSnapshot> {
     const now = this.d.clock.now();
     const items: LimitItemView[] = [];
-    for (const r of this.rules(user)) {
+    for (const r of await this.rules(user)) {
       const { start, end } = periodRange(now, r.period);
       const used = await this.d.repos.limitUsage.sum(user.id, r.operation, start, end);
       items.push({ operation: r.operation, period: r.period, limitMinor: BigInt(r.limitMinor), usedMinor: used });
@@ -42,7 +52,7 @@ export class LimitsService {
   /** Primera regla que se excedería con `amountMinor` adicional, o null. */
   async firstExceeded(user: User, operation: LimitOperation, amountMinor: bigint) {
     const now = this.d.clock.now();
-    for (const r of this.rules(user)) {
+    for (const r of await this.rules(user)) {
       if (r.operation !== operation) continue;
       const { start, end } = periodRange(now, r.period);
       const used = await this.d.repos.limitUsage.sum(user.id, operation, start, end);

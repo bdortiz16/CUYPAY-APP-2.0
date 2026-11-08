@@ -33,7 +33,8 @@ PII se devuelve **enmascarada** si el rol no tiene permiso (`"documentNumber": "
 | POST | `/admin/auth/login` | `{ email, password }` | `{ mfaToken, mfaRequired: true }` |
 | POST | `/admin/auth/mfa` | `{ mfaToken, code }` | `{ accessToken, expiresIn: 1800, admin: Admin }` |
 | POST | `/admin/auth/logout` | – | `204` |
-| GET | `/admin/me` | – | `Admin` |
+| GET | `/admin/me` | – | `Admin & { permissions: string[] }` |
+| POST | `/admin/me/password` | `{ currentPassword, newPassword }` (mín. 12) | `204` |
 
 `Admin = { id, email, name, role: "owner|compliance|treasury|support|viewer", status: "active|disabled", lastLoginAt, createdAt }`
 
@@ -44,7 +45,7 @@ PII se devuelve **enmascarada** si el rol no tiene permiso (`"documentNumber": "
 | Evento | data |
 |---|---|
 | `transaction.created` / `transaction.updated` | `AdminTransaction` |
-| `customer.created` | `AdminCustomerSummary` |
+| `customer.created` / `customer.updated` | `AdminCustomerSummary` |
 | `kyc.updated` | `{ customerId, status, tier }` |
 | `compliance.alert` | `ComplianceAlert` |
 | `beneficiary.review_required` | `AdminBeneficiary` |
@@ -99,14 +100,15 @@ PII se devuelve **enmascarada** si el rol no tiene permiso (`"documentNumber": "
   "recentTransactions": [ AdminTransaction ],
   "notes": [ { "id": "...", "author": "...", "text": "...", "createdAt": "..." } ] }
 ```
-`POST /admin/customers/{id}/notes` `{ text }` → nota interna.
+`POST /admin/customers/{id}/notes` `{ text }` → `201` nota interna (el propio `text` cuenta como `reason` en el audit log).
+`documentType` / `documentNumber` son `null` mientras el KYC no los persista en el perfil del cliente.
 
 ## Transacciones
 | Método | Ruta | Notas |
 |---|---|---|
-| GET | `/admin/transactions?type=&status=&currency=&customerId=&from=&to=&minAmountMinor=&limit=&cursor=` | |
+| GET | `/admin/transactions?type=&status=&currency=&customerId=&from=&to=&minAmountMinor=&flagged=true\|false&limit=&cursor=` | `from`/`to` filtran `createdAt` (`to` exclusivo) |
 | GET | `/admin/transactions/{id}` | incluye `ledgerEntries`, `timeline`, `providerRefs` |
-| POST | `/admin/transactions/{id}/reverse` | `{ reason }` — solo `completed` o `pending` atascadas; crea asientos de reverso |
+| POST | `/admin/transactions/{id}/reverse` | `{ reason }` — solo `completed` o `pending` atascadas (> 15 min); crea asientos de reverso → `{ transaction, journalId, warnings }`. `409 CONFLICT` si ya está reversada/fallida; `422 INSUFFICIENT_FUNDS` si el cliente ya no tiene el saldo |
 | GET | `/admin/transactions/export.csv?from=&to=&type=` | CSV para contabilidad / reportes |
 
 ```jsonc
@@ -126,7 +128,7 @@ PII se devuelve **enmascarada** si el rol no tiene permiso (`"documentNumber": "
 | GET | `/admin/compliance/beneficiaries?status=pending_review` | cola de revisión AML |
 | POST | `/admin/compliance/beneficiaries/{id}/decision` | `{ decision: "approve\|reject", reason }` (approve registra la cuenta destino en Coinsenda) |
 | GET | `/admin/compliance/alerts?status=open\|resolved&type=` | |
-| POST | `/admin/compliance/alerts/{id}/resolve` | `{ resolution: "false_positive\|customer_contacted\|frozen\|reported", note, reportToUiaf: boolean }` |
+| POST | `/admin/compliance/alerts/{id}/resolve` | `{ resolution: "false_positive\|customer_contacted\|frozen\|reported", note, reportToUiaf: boolean }` — `note` (o `reason`) obligatorio; `frozen` congela al cliente |
 
 ```jsonc
 // AdminBeneficiary
@@ -135,7 +137,8 @@ PII se devuelve **enmascarada** si el rol no tiene permiso (`"documentNumber": "
 // ComplianceAlert
 { "id": "alr_...", "type": "deposit_over_limit|aml_hit|velocity|large_transaction|multiple_devices|structuring",
   "severity": "low|medium|high", "customerId": "...", "customerName": "...", "transactionId": "...|null",
-  "description": "...", "status": "open|resolved", "resolution": null, "createdAt": "...", "resolvedAt": null, "resolvedBy": null }
+  "description": "...", "uiafSuggested": false, "status": "open|resolved", "resolution": null, "resolutionNote": null, "reportToUiaf": false,
+  "createdAt": "...", "resolvedAt": null, "resolvedBy": null }
 ```
 Reglas iniciales de alertas: depósito que excede `deposit_in`, transacción individual ≥ COP 10.000.000, > 5 envíos en 1 hora,
 varios depósitos justo bajo el umbral en 24 h (*structuring*), AML `hit` / `review`, más de 3 dispositivos nuevos en 30 días.
@@ -146,19 +149,20 @@ varios depósitos justo bajo el umbral en 24 h (*structuring*), AML `hit` / `rev
 { "asOf": "...",
   "accounts": [
     { "id": "coinsenda_cop", "name": "Coinsenda · COP (Bre-B)", "provider": "coinsenda", "currency": "COP",
-      "providerBalanceMinor": 0, "lastSyncedAt": "...", "status": "ok|stale|error" },
+      "providerBalanceMinor": 0, "ledgerBalanceMinor": 0, "differenceMinor": 0, "lastSyncedAt": "...", "status": "ok|stale|error", "error": null },
+      // providerBalanceMinor/differenceMinor = null (y status "error") si el proveedor no responde o no expone saldo
     { "id": "brl_partner", "name": "Socio BRL / PIX", "provider": "brl_partner", "currency": "BRL", "providerBalanceMinor": 0, "lastSyncedAt": "...", "status": "ok" }
   ],
   "liabilities": { "COP": 0, "BRL": 0 },            // suma de saldos de clientes (ledger)
   "coverage": [ { "currency": "COP", "providerMinor": 0, "liabilitiesMinor": 0, "differenceMinor": 0, "ratio": 1.0 } ],
   "revenue": { "todayMinor": 0, "monthMinor": 0, "currency": "COP" },
-  "reconciliation": { "status": "ok|breaks|running|never", "lastRunAt": "...", "breaks": [ { "kind": "missing_in_ledger|missing_in_provider|amount_mismatch", "reference": "...", "amountMinor": 0, "currency": "COP" } ] } }
+  "reconciliation": { "status": "ok|breaks|running|never", "lastRunAt": "...", "breaks": [ { "kind": "missing_in_ledger|missing_in_provider|amount_mismatch|status_mismatch", "reference": "...", "amountMinor": 0, "currency": "COP", "detail": "..." } ] } }
 ```
 | Método | Ruta | Notas |
 |---|---|---|
 | POST | `/admin/treasury/reconcile` | `{ reason }` → corre conciliación ledger vs proveedores |
 | GET | `/admin/treasury/fx` | `{ pair: "COP/BRL", midRate, customerRate, spreadBps, feeBps, minFeeMinor, minAmountMinor, maxAmountMinor, enabled, updatedAt, updatedBy }` |
-| PUT | `/admin/treasury/fx` | mismos campos editables + `reason` |
+| PUT | `/admin/treasury/fx` | mismos campos editables (parciales) + `reason`. Con `enabled: false` las cotizaciones responden `503 PROVIDER_ERROR` `details.reason = "fx_disabled"` |
 
 ## Configuración de límites
 `GET /admin/limits-config` → `{ tiers: [ { tier: "basic|full", items: [ { operation, period, limitMinor } ] } ] }`
@@ -177,5 +181,23 @@ varios depósitos justo bajo el umbral en 24 h (*structuring*), AML `hit` / `rev
 `{ items: [ { id, at, actor: { id, email, role }, action: "customer.freeze|...", targetType, targetId, reason, before, after, ip, userAgent } ], nextCursor }`
 
 ## Usuarios admin (solo owner)
-`GET /admin/users` · `POST /admin/users { email, name, role }` (devuelve contraseña temporal + `otpauthUrl` para enrolar TOTP una sola vez) ·
-`PATCH /admin/users/{id} { role?, status? , reason }`.
+`GET /admin/users` · `POST /admin/users { email, name, role, reason }` (devuelve contraseña temporal + `otpauthUrl` para enrolar TOTP una sola vez) ·
+`PATCH /admin/users/{id} { role?, status?, name?, reason }` (deshabilitar revoca sesiones; `409` si se quitaría el último owner activo) ·
+`POST /admin/users/{id}/reset-credentials { reason }` → nueva contraseña temporal + nuevo TOTP (`otpauthUrl`), revoca sesiones.
+
+## Notas de implementación (backend v1)
+- **Errores nuevos:** `403 FORBIDDEN` (rol sin permiso o Cloudflare Access inválido; `details.permission`), `403 ACCOUNT_FROZEN`
+  (cliente congelado: login/refresh, envíos, cotizaciones y conversiones en la API de clientes), `409 CONFLICT`.
+- **`reason` obligatorio** (3–1000 caracteres) en toda mutación, incluida `POST /admin/users`; sin él → `400 VALIDATION_ERROR`.
+  Excepciones: login/mfa/logout y `POST /admin/me/password` (se auditan igual).
+- **Permisos** (claves devueltas en `/admin/me.permissions`): `dashboard:read` (todos), `pii:read`, `customers:freeze`,
+  `customers:limits`, `customers:support` (notas y revocar dispositivos: owner/compliance/support), `compliance:read`,
+  `compliance:decide`, `treasury:read`, `treasury:write` (FX, conciliar, reversar), `limits:write`, `providers:check`
+  (owner/compliance/treasury), `admins:manage`, `audit:read`.
+- **Login:** `mfaToken` válido 5 min y 5 intentos; un código TOTP no se acepta dos veces; 5 contraseñas erradas bloquean la cuenta 15 min.
+- **Congelamiento:** los depósitos entrantes se acreditan pero quedan retenidos (`heldMinor`) hasta `unfreeze`
+  (respuesta `{ status, releasedHeldMinor }`).
+- **Alertas:** umbral de transacción grande configurable (`ALERT_LARGE_TX_MINOR`, default COP 10.000.000); *structuring* = ≥ 3 depósitos
+  en 24 h entre el 90 % y el 100 % del umbral; velocidad = > 5 envíos en 1 h. `uiafSuggested` marca las que sugieren ROS a la UIAF.
+- **SSE:** `ping` cada 25 s; el stream se cierra al expirar/revocarse la sesión admin (el portal pide un token nuevo y reconecta).
+- **Legacy:** `POST /admin/beneficiaries/{id}/review` con `X-Admin-Key` sigue disponible si `ADMIN_API_KEY` está definido.

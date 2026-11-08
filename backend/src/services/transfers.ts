@@ -9,6 +9,7 @@ import type { IdempotencyService } from './idempotency.js';
 import { requireKycApproved } from './kyc.js';
 import type { LedgerService } from './ledger.js';
 import type { LimitsService } from './limits.js';
+import { assertNotFrozen } from './runtime-config.js';
 
 const FINAL_OK: WithdrawState[] = ['accepted'];
 const FINAL_FAIL: WithdrawState[] = ['rejected', 'canceled', 'failed'];
@@ -38,6 +39,7 @@ export class TransferService {
 
   async preview(user: User, beneficiaryId: string, amountMinor: number) {
     requireKycApproved(user);
+    await assertNotFrozen(this.d, user.id);
     await this.activeBeneficiary(user.id, beneficiaryId);
     const amount = BigInt(amountMinor);
     const fee = this.fee();
@@ -66,6 +68,7 @@ export class TransferService {
     user: User,
     input: { beneficiaryId: string; amountMinor: number; description?: string; idempotencyKey: string },
   ): Promise<Transaction> {
+    await assertNotFrozen(this.d, user.id);
     const b = await this.activeBeneficiary(user.id, input.beneficiaryId);
     const amount = BigInt(input.amountMinor);
     const fee = this.fee();
@@ -101,6 +104,7 @@ export class TransferService {
     await this.d.repos.transactions.create(txn);
     await this.ledger.hold(user.id, 'COP', total, txn.id);
     await this.limits.record(user.id, 'transfer_out', amount, txn.id);
+    await this.d.events.publish({ type: 'transaction.created', txn: { ...txn } });
 
     try {
       const w = await this.d.coinsenda.createWithdraw({ withdrawAccountId: b.providerWithdrawAccountId!, amountMinor: amount, reference: txn.id });
@@ -129,6 +133,7 @@ export class TransferService {
       txn.status = 'completed';
       txn.updatedAt = this.d.clock.now();
       await this.d.repos.transactions.update(txn);
+      await this.d.events.publish({ type: 'transaction.updated', txn: { ...txn } });
     } else if (FINAL_FAIL.includes(state)) {
       await this.fail(txn, `withdraw_${state}`);
     }
@@ -141,6 +146,7 @@ export class TransferService {
     txn.failureReason = reason;
     txn.updatedAt = this.d.clock.now();
     await this.d.repos.transactions.update(txn);
+    await this.d.events.publish({ type: 'transaction.updated', txn: { ...txn } });
   }
 
   /** Job: consulta en Coinsenda los envíos que siguen pendientes. */

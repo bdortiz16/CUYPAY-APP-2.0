@@ -21,6 +21,16 @@ import type {
   Transaction,
   User,
 } from '../domain/types.js';
+import type {
+  AdminSession,
+  AdminUser,
+  AuditEntry,
+  ComplianceAlert,
+  CustomerControl,
+  CustomerNote,
+  ReconciliationRun,
+  SettingRecord,
+} from '../domain/admin.js';
 import type { Repositories } from './types.js';
 
 /**
@@ -50,6 +60,18 @@ export function createMemoryRepositories(): Repositories {
   const idem = new Map<string, IdempotencyRecord>();
   const usage: LimitUsage[] = [];
   const processed = new Map<string, ProcessedDeposit>();
+  const adminUsers = new Map<string, AdminUser>();
+  const adminSessions = new Map<string, AdminSession>();
+  const audit: AuditEntry[] = [];
+  const alerts = new Map<string, ComplianceAlert>();
+  const notes: CustomerNote[] = [];
+  const controls = new Map<string, CustomerControl>();
+  const recons: ReconciliationRun[] = [];
+  const settings = new Map<string, SettingRecord>();
+  const byCreatedDesc = <T extends { createdAt: Date; id: string }>(a: T, b: T) =>
+    b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+  // Copia profunda simple para objetos con arrays / JSON anidado (Date se preserva con structuredClone).
+  const deep = <T,>(v: T): T => structuredClone(v);
 
   const find = <T>(m: Map<string, T>, pred: (v: T) => boolean): T | null => {
     for (const v of m.values()) if (pred(v)) return v;
@@ -73,6 +95,9 @@ export function createMemoryRepositories(): Repositories {
       },
       async byEmail(email) {
         return opt(find(users, (u) => u.email.toLowerCase() === email.toLowerCase()));
+      },
+      async listAll() {
+        return [...users.values()].sort(byCreatedDesc).map(clone);
       },
     },
     devices: {
@@ -191,6 +216,9 @@ export function createMemoryRepositories(): Repositories {
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
           .map(clone);
       },
+      async listAll() {
+        return [...beneficiaries.values()].sort(byCreatedDesc).map(clone);
+      },
     },
     aml: {
       async create(c) {
@@ -220,6 +248,12 @@ export function createMemoryRepositories(): Repositories {
       async allEntries() {
         return ledgerEntries.map(clone);
       },
+      async entriesByTransaction(transactionId) {
+        return ledgerEntries.filter((e) => e.transactionId === transactionId).map(clone);
+      },
+      async accounts() {
+        return [...ledgerAccounts.values()].map(clone);
+      },
     },
     transactions: {
       async create(t) {
@@ -246,6 +280,9 @@ export function createMemoryRepositories(): Repositories {
       },
       async listPendingTransfers() {
         return [...txns.values()].filter((t) => t.type === 'transfer' && t.status === 'pending').map(clone);
+      },
+      async listAll() {
+        return [...txns.values()].sort(byCreatedDesc).map(clone);
       },
     },
     quotes: {
@@ -305,6 +342,101 @@ export function createMemoryRepositories(): Repositories {
       },
       async get(id) {
         return opt(processed.get(id));
+      },
+    },
+    adminUsers: {
+      async create(a) {
+        adminUsers.set(a.id, clone(a));
+      },
+      async update(a) {
+        adminUsers.set(a.id, clone(a));
+      },
+      async byId(id) {
+        return opt(adminUsers.get(id));
+      },
+      async byEmail(email) {
+        return opt(find(adminUsers, (a) => a.email === email.toLowerCase()));
+      },
+      async list() {
+        return [...adminUsers.values()].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).map(clone);
+      },
+    },
+    adminSessions: {
+      async create(s) {
+        adminSessions.set(s.id, clone(s));
+      },
+      async byId(id) {
+        return opt(adminSessions.get(id));
+      },
+      async revoke(id, at) {
+        const s = adminSessions.get(id);
+        if (s && !s.revokedAt) s.revokedAt = at;
+      },
+      async revokeByAdmin(adminId, at) {
+        for (const s of adminSessions.values()) if (s.adminId === adminId && !s.revokedAt) s.revokedAt = at;
+      },
+    },
+    audit: {
+      async append(e) {
+        audit.push(deep(e));
+      },
+      async list() {
+        return audit
+          .map(deep)
+          .sort((a, b) => b.at.getTime() - a.at.getTime() || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      },
+    },
+    alerts: {
+      async create(a) {
+        alerts.set(a.id, clone(a));
+      },
+      async update(a) {
+        alerts.set(a.id, clone(a));
+      },
+      async byId(id) {
+        return opt(alerts.get(id));
+      },
+      async list() {
+        return [...alerts.values()].sort(byCreatedDesc).map(clone);
+      },
+    },
+    notes: {
+      async create(n) {
+        notes.push(clone(n));
+      },
+      async listByUser(userId) {
+        return notes.filter((n) => n.userId === userId).sort(byCreatedDesc).map(clone);
+      },
+    },
+    customerControls: {
+      async get(userId) {
+        const c = controls.get(userId);
+        return c ? deep(c) : null;
+      },
+      async upsert(c) {
+        controls.set(c.userId, deep(c));
+      },
+    },
+    reconciliations: {
+      async create(r) {
+        recons.push(deep(r));
+      },
+      async update(r) {
+        const i = recons.findIndex((x) => x.id === r.id);
+        if (i >= 0) recons[i] = deep(r);
+      },
+      async latest() {
+        const r = recons[recons.length - 1];
+        return r ? deep(r) : null;
+      },
+    },
+    settings: {
+      async get<T>(key: string) {
+        const r = settings.get(key);
+        return r ? (deep(r) as SettingRecord<T>) : null;
+      },
+      async set(rec) {
+        settings.set(rec.key, deep(rec));
       },
     },
   };

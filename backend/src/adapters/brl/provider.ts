@@ -15,6 +15,9 @@ export class MockBrlLiquidityProvider implements BrlLiquidityProvider {
   baseRate = parseRate('0.0013200');
   failNext = false;
   readonly executions: { reference: string; fromAmountMinor: bigint; toAmountMinor: bigint }[] = [];
+  /** Ajuste manual del saldo (tests de conciliación / cobertura). */
+  balanceAdjustmentMinor = 0n;
+  down = false;
 
   constructor(private readonly clock: Clock) {}
 
@@ -52,6 +55,17 @@ export class MockBrlLiquidityProvider implements BrlLiquidityProvider {
     return out;
   }
 
+  /** Saldo BRL simulado = BRL entregados por conversiones (+ ajuste). */
+  async getBalance() {
+    if (this.down) throw new AppError('PROVIDER_ERROR', 'Proveedor BRL (mock) caído', { provider: 'brl' });
+    const bal = this.executions.reduce((s, e) => s + e.toAmountMinor, this.balanceAdjustmentMinor);
+    return { currency: 'BRL' as const, balanceMinor: bal, asOf: this.clock.now() };
+  }
+
+  async healthCheck() {
+    if (this.down) throw new AppError('PROVIDER_ERROR', 'Proveedor BRL (mock) caído', { provider: 'brl' });
+  }
+
   async executeConversion(input: { reference: string; fromAmountMinor: bigint; toAmountMinor: bigint }) {
     if (this.failNext) {
       this.failNext = false;
@@ -77,6 +91,12 @@ export class LiveBrlLiquidityProvider implements BrlLiquidityProvider {
     return this.notConfigured();
   }
   async executeConversion(): Promise<{ providerRef: string }> {
+    return this.notConfigured();
+  }
+  async getBalance(): Promise<{ currency: Currency; balanceMinor: bigint; asOf: Date }> {
+    return this.notConfigured();
+  }
+  async healthCheck(): Promise<void> {
     return this.notConfigured();
   }
 }

@@ -285,3 +285,113 @@ CREATE TABLE limit_rules (
   limit_minor BIGINT NOT NULL CHECK (limit_minor >= 0),
   PRIMARY KEY (tier, operation, period)
 );
+
+-- ── Portal admin (/v1/admin/*) ─────────────────────────────────────────────
+-- Espejo de src/domain/admin.ts (repos en memoria en src/repositories/memory.ts).
+CREATE TYPE admin_role AS ENUM ('owner','compliance','treasury','support','viewer');
+
+CREATE TABLE admin_users (
+  id                 TEXT PRIMARY KEY,
+  email              TEXT NOT NULL UNIQUE,           -- en minúsculas
+  name               TEXT NOT NULL,
+  role               admin_role NOT NULL,
+  status             TEXT NOT NULL CHECK (status IN ('active','disabled')),
+  password_hash      TEXT NOT NULL,                  -- scrypt$N$r$p$salt$hash
+  totp_secret        TEXT NOT NULL,                  -- base32; cifrar en reposo (KMS) en producción
+  last_totp_step     BIGINT,                         -- anti-replay del código TOTP
+  failed_login_count INT NOT NULL DEFAULT 0,
+  locked_until       TIMESTAMPTZ,
+  last_login_at      TIMESTAMPTZ,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE admin_sessions (
+  id          TEXT PRIMARY KEY,                      -- claim `sid` del JWT admin
+  admin_id    TEXT NOT NULL REFERENCES admin_users(id),
+  ip          TEXT,
+  user_agent  TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at  TIMESTAMPTZ NOT NULL,
+  revoked_at  TIMESTAMPTZ
+);
+CREATE INDEX admin_sessions_admin_idx ON admin_sessions(admin_id) WHERE revoked_at IS NULL;
+
+-- Auditoría de toda mutación admin. Append-only: REVOKE UPDATE, DELETE al rol de la app.
+CREATE TABLE admin_audit_log (
+  id           TEXT PRIMARY KEY,
+  at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  actor_id     TEXT NOT NULL REFERENCES admin_users(id),
+  actor_email  TEXT NOT NULL,
+  actor_role   admin_role NOT NULL,
+  action       TEXT NOT NULL,                        -- p. ej. 'customer.freeze'
+  target_type  TEXT NOT NULL,
+  target_id    TEXT,
+  reason       TEXT,                                 -- obligatorio en mutaciones (validado en la API)
+  before       JSONB,
+  after        JSONB,
+  ip           TEXT,
+  user_agent   TEXT
+);
+CREATE INDEX admin_audit_target_idx ON admin_audit_log(target_type, target_id, at DESC);
+CREATE INDEX admin_audit_actor_idx ON admin_audit_log(actor_id, at DESC);
+-- REVOKE UPDATE, DELETE ON admin_audit_log FROM cuypay_app;
+
+CREATE TABLE compliance_alerts (
+  id               TEXT PRIMARY KEY,
+  type             TEXT NOT NULL CHECK (type IN ('deposit_over_limit','aml_hit','velocity','large_transaction','multiple_devices','structuring')),
+  severity         TEXT NOT NULL CHECK (severity IN ('low','medium','high')),
+  customer_id      TEXT NOT NULL REFERENCES users(id),
+  transaction_id   TEXT REFERENCES transactions(id),
+  description      TEXT NOT NULL,
+  uiaf_suggested   BOOLEAN NOT NULL DEFAULT false,   -- sugerencia de ROS a la UIAF
+  status           TEXT NOT NULL CHECK (status IN ('open','resolved')),
+  resolution       TEXT CHECK (resolution IN ('false_positive','customer_contacted','frozen','reported')),
+  resolution_note  TEXT,
+  report_to_uiaf   BOOLEAN NOT NULL DEFAULT false,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at      TIMESTAMPTZ,
+  resolved_by      TEXT REFERENCES admin_users(id)
+);
+CREATE INDEX compliance_alerts_status_idx ON compliance_alerts(status, created_at DESC);
+CREATE INDEX compliance_alerts_customer_idx ON compliance_alerts(customer_id, type, created_at DESC);
+
+CREATE TABLE customer_notes (
+  id            TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL REFERENCES users(id),
+  author_id     TEXT NOT NULL REFERENCES admin_users(id),
+  author_email  TEXT NOT NULL,
+  text          TEXT NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX customer_notes_user_idx ON customer_notes(user_id, created_at DESC);
+
+-- Controles operativos por cliente (congelamiento y overrides de límites, respetados por LimitsService).
+CREATE TABLE customer_controls (
+  user_id               TEXT PRIMARY KEY REFERENCES users(id),
+  status                TEXT NOT NULL CHECK (status IN ('active','frozen')),
+  frozen_at             TIMESTAMPTZ,
+  frozen_reason         TEXT,
+  limit_overrides       JSONB NOT NULL DEFAULT '[]',   -- [{operation, period, limitMinor}]
+  held_deposit_txn_ids  TEXT[] NOT NULL DEFAULT '{}',  -- depósitos retenidos mientras estuvo congelado
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE reconciliation_runs (
+  id            TEXT PRIMARY KEY,
+  status        TEXT NOT NULL CHECK (status IN ('running','ok','breaks','error')),
+  breaks        JSONB NOT NULL DEFAULT '[]',          -- [{kind, reference, amountMinor, currency, detail}]
+  triggered_by  TEXT NOT NULL,                        -- admin id o 'system'
+  error         TEXT,
+  started_at    TIMESTAMPTZ NOT NULL,
+  finished_at   TIMESTAMPTZ
+);
+CREATE INDEX reconciliation_runs_started_idx ON reconciliation_runs(started_at DESC);
+
+-- Configuración editable en runtime (fx.COP/BRL, limits.config, ...).
+CREATE TABLE settings (
+  key         TEXT PRIMARY KEY,
+  value       JSONB NOT NULL,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by  TEXT                                    -- email del admin
+);

@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { z } from 'zod';
 
 /**
@@ -11,14 +12,14 @@ const bool = z
 
 const DEV_JWT_SECRET = 'dev-only-insecure-jwt-secret-change-me-0123456789';
 
-const LimitItemSchema = z.object({
+export const LimitItemSchema = z.object({
   operation: z.enum(['transfer_out', 'conversion', 'deposit_in']),
   period: z.enum(['daily', 'monthly', 'annual']),
-  limitMinor: z.number().int().nonnegative(),
+  limitMinor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
 });
 export type LimitRule = z.infer<typeof LimitItemSchema>;
 
-const LimitsConfigSchema = z.object({
+export const LimitsConfigSchema = z.object({
   basic: z.array(LimitItemSchema),
   full: z.array(LimitItemSchema),
 });
@@ -106,10 +107,28 @@ const EnvSchema = z
     LIMITS_CONFIG_JSON: z.string().optional(),
     SEED_DEMO: bool.optional(),
     ENABLE_DEV_ROUTES: bool.optional(),
+
+    // Portal admin (docs/ADMIN_API.md)
+    ADMIN_JWT_SECRET: z.string().min(32).optional(), // por defecto se deriva de JWT_SECRET (HMAC), nunca es la misma clave
+    ADMIN_JWT_AUDIENCE: z.string().default('cuypay-admin'),
+    ADMIN_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().max(86_400).default(1800),
+    ADMIN_ORIGINS: z.string().optional(), // p. ej. https://www.cuypay.com (coma-separado)
+    ADMIN_TOTP_ISSUER: z.string().default('CuyPay Admin'),
+    ADMIN_SEED_EMAIL: z.string().email().optional(),
+    ADMIN_SEED_PASSWORD: z.string().min(12).optional(),
+    ADMIN_SEED_TOTP_SECRET: z.string().regex(/^[A-Z2-7]{16,64}$/, 'base32 (A-Z, 2-7), 16-64 caracteres').optional(),
+    ADMIN_SEED_NAME: z.string().default('CuyPay Owner'),
+    CF_ACCESS_TEAM_DOMAIN: z.string().optional(), // p. ej. cuypay.cloudflareaccess.com
+    CF_ACCESS_AUD: z.string().optional(),
+    ALERT_LARGE_TX_MINOR: z.coerce.number().int().positive().default(1_000_000_000), // COP 10.000.000,00
+    PROVIDER_HEALTH_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && !env.JWT_SECRET) {
       ctx.addIssue({ code: 'custom', path: ['JWT_SECRET'], message: 'JWT_SECRET es obligatorio en producción' });
+    }
+    if (Boolean(env.CF_ACCESS_TEAM_DOMAIN) !== Boolean(env.CF_ACCESS_AUD)) {
+      ctx.addIssue({ code: 'custom', path: ['CF_ACCESS_AUD'], message: 'CF_ACCESS_TEAM_DOMAIN y CF_ACCESS_AUD van juntos' });
     }
     if (env.PROVIDERS_MODE === 'live') {
       const required = [
@@ -131,13 +150,18 @@ const EnvSchema = z
 
 export type Env = z.infer<typeof EnvSchema>;
 
-export interface AppConfig extends Omit<Env, 'JWT_SECRET' | 'LIMITS_CONFIG_JSON' | 'SEED_DEMO' | 'ENABLE_DEV_ROUTES'> {
+export interface AppConfig extends Omit<Env, 'JWT_SECRET' | 'LIMITS_CONFIG_JSON' | 'SEED_DEMO' | 'ENABLE_DEV_ROUTES' | 'ADMIN_JWT_SECRET'> {
   JWT_SECRET: string;
+  /** Clave HS256 de los tokens admin (distinta de la de clientes). */
+  ADMIN_JWT_SECRET: string;
   limits: LimitsConfig;
   seedDemo: boolean;
   devRoutes: boolean;
   corsOrigins: string[];
+  adminOrigins: string[];
 }
+
+const splitList = (v: string | undefined) => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : []);
 
 export function loadConfig(source: Record<string, string | undefined> = process.env): AppConfig {
   // Las cadenas vacías se tratan como "no definida".
@@ -152,14 +176,17 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     ? LimitsConfigSchema.parse(JSON.parse(env.LIMITS_CONFIG_JSON))
     : DEFAULT_LIMITS;
   const isProd = env.NODE_ENV === 'production';
-  const { LIMITS_CONFIG_JSON: _l, SEED_DEMO, ENABLE_DEV_ROUTES, JWT_SECRET, ...rest } = env;
+  const { LIMITS_CONFIG_JSON: _l, SEED_DEMO, ENABLE_DEV_ROUTES, JWT_SECRET, ADMIN_JWT_SECRET, ...rest } = env;
+  const jwtSecret = JWT_SECRET ?? DEV_JWT_SECRET;
   return {
     ...rest,
-    JWT_SECRET: JWT_SECRET ?? DEV_JWT_SECRET,
+    JWT_SECRET: jwtSecret,
+    ADMIN_JWT_SECRET: ADMIN_JWT_SECRET ?? createHmac('sha256', jwtSecret).update('cuypay-admin-jwt-v1').digest('base64url'),
     limits,
     seedDemo: SEED_DEMO ?? (env.NODE_ENV === 'development' && env.PROVIDERS_MODE === 'mock'),
     // Las rutas /v1/dev/* nunca se habilitan en producción ni en modo live.
     devRoutes: !isProd && env.PROVIDERS_MODE === 'mock' && (ENABLE_DEV_ROUTES ?? true),
-    corsOrigins: env.CORS_ORIGINS ? env.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean) : [],
+    corsOrigins: splitList(env.CORS_ORIGINS),
+    adminOrigins: splitList(env.ADMIN_ORIGINS),
   };
 }

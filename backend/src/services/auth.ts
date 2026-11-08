@@ -5,6 +5,7 @@ import { newId } from '../lib/clock.js';
 import { p256PublicKeyFromX963, sha256Hex, verifyP256Der } from '../lib/crypto.js';
 import { AppError } from '../lib/errors.js';
 import type { ServiceDeps } from './deps.js';
+import { assertNotFrozen } from './runtime-config.js';
 
 export interface AuthSessionResult {
   accessToken: string;
@@ -82,7 +83,9 @@ export class AuthService {
     const now = this.d.clock.now();
 
     let user = await this.d.repos.users.byPhone(input.phone);
+    let created = false;
     if (user) {
+      await assertNotFrozen(this.d, user.id);
       // Re-enrolamiento: el teléfono ya existe (p. ej. cambió Face ID y la clave del Secure Enclave quedó inválida).
       // TODO(security): para usuarios con KYC aprobado, exigir re-verificación biométrica (Sumsub liveness) antes de vincular.
       this.d.logger.warn({ userId: user.id }, 'device re-enrollment via OTP');
@@ -102,6 +105,7 @@ export class AuthService {
         updatedAt: now,
       };
       await this.d.repos.users.create(user);
+      created = true;
     }
     const device: Device = {
       id: newId('dev', now),
@@ -113,6 +117,8 @@ export class AuthService {
       revokedAt: null,
     };
     await this.d.repos.devices.create(device);
+    if (created) await this.d.events.publish({ type: 'customer.created', user });
+    await this.d.events.publish({ type: 'device.created', device });
     return this.issueSession(user, device, newId('sfm', now));
   }
 
@@ -146,6 +152,7 @@ export class AuthService {
     }
     const user = await this.d.repos.users.byId(device.userId);
     if (!user) throw new AppError('UNAUTHORIZED', 'Usuario inexistente');
+    await assertNotFrozen(this.d, user.id);
     device.lastUsedAt = now;
     await this.d.repos.devices.update(device);
     return this.issueSession(user, device, newId('sfm', now));
@@ -166,6 +173,7 @@ export class AuthService {
     const device = await this.d.repos.devices.byId(rec.deviceId);
     const user = await this.d.repos.users.byId(rec.userId);
     if (!device || device.revokedAt || !user) throw new AppError('UNAUTHORIZED', 'Sesión revocada');
+    await assertNotFrozen(this.d, user.id);
     device.lastUsedAt = now;
     await this.d.repos.devices.update(device);
     return this.issueSession(user, device, rec.familyId);

@@ -16,6 +16,9 @@ export class MockOtpSender implements OtpSender {
  * TODO(otp): proveedor SMS/WhatsApp real (p. ej. Twilio Verify / Infobip) para producción.
  */
 export class UnconfiguredOtpSender implements OtpSender {
+  async healthCheck(): Promise<void> {
+    throw new Error('Proveedor OTP/SMS no configurado');
+  }
   async send(): Promise<void> {
     throw new Error('OtpSender real no configurado');
   }

@@ -109,6 +109,8 @@ export class BeneficiaryService {
       beneficiary.providerWithdrawAccountId = await this.registerWithdrawAccount(res, beneficiary);
     }
     await this.d.repos.beneficiaries.create(beneficiary);
+    await this.d.events.publish({ type: 'beneficiary.screened', beneficiary, aml });
+    if (beneficiary.status === 'pending_review') await this.d.events.publish({ type: 'beneficiary.review_required', beneficiary });
 
     if (beneficiary.status === 'rejected') {
       // TODO(compliance): notificar al oficial de cumplimiento / evaluar ROS ante la UIAF.

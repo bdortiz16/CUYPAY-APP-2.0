@@ -116,5 +116,6 @@ export class KycService {
     user.updatedAt = now;
     await this.d.repos.users.update(user);
     this.d.logger.info({ userId: user.id, kycStatus: status }, 'kyc status updated');
+    await this.d.events.publish({ type: 'kyc.updated', userId: user.id, status: user.kycStatus, tier: user.tier });
   }
 }

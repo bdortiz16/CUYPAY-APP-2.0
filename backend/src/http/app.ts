@@ -12,6 +12,7 @@ import { registerAccountRoutes } from './routes/account.js';
 import { registerKycRoutes } from './routes/kyc.js';
 import { registerMoneyRoutes } from './routes/money.js';
 import { registerDevRoutes } from './routes/dev.js';
+import { registerAdminRoutes } from './routes/admin.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -66,8 +67,21 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   });
 
   await app.register(helmet, { global: true, contentSecurityPolicy: false });
-  // CORS desactivado por defecto (la app iOS no lo necesita). Solo si CORS_ORIGINS está definido.
-  if (config.corsOrigins.length) await app.register(cors, { origin: config.corsOrigins });
+  // CORS desactivado por defecto (la app iOS no lo necesita). Solo si CORS_ORIGINS o ADMIN_ORIGINS están definidos.
+  // Los orígenes de ADMIN_ORIGINS solo se aceptan para /v1/admin/*.
+  if (config.corsOrigins.length || config.adminOrigins.length) {
+    await app.register(cors, {
+      methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      delegator: (req, cb) => {
+        const origin = req.headers.origin;
+        const path = req.url ?? '';
+        const allowed =
+          !!origin &&
+          (config.corsOrigins.includes(origin) || (config.adminOrigins.includes(origin) && path.startsWith('/v1/admin')));
+        cb(null, { origin: allowed ? origin : false, methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] });
+      },
+    });
+  }
   await app.register(rateLimit, {
     global: false,
     errorResponseBuilder: (_req, ctx) =>
@@ -147,6 +161,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
       registerAccountRoutes(v1, container, helpers);
       registerKycRoutes(v1, container, helpers);
       registerMoneyRoutes(v1, container, helpers);
+      registerAdminRoutes(v1, container, helpers);
       if (config.devRoutes || config.ADMIN_API_KEY) registerDevRoutes(v1, container, helpers);
     },
     { prefix: '/v1' },

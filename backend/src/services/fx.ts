@@ -8,6 +8,7 @@ import type { IdempotencyService } from './idempotency.js';
 import { requireKycApproved } from './kyc.js';
 import type { LedgerService } from './ledger.js';
 import type { LimitsService } from './limits.js';
+import { assertNotFrozen, getFxSettings } from './runtime-config.js';
 
 const assertPair = (from: string, to: string) => {
   // Fase 1: solo COP→BRL (BRL→COP queda preparado en el modelo).
@@ -26,10 +27,11 @@ export class FxService {
     private readonly mutex: KeyedMutex,
   ) {}
 
-  /** Tasa al cliente = media con spread (BRL por 1 COP), escalada. */
-  private async clientRate(from: Currency, to: Currency) {
+  /** Tasa al cliente = media con spread (BRL por 1 COP), escalada. El spread es editable desde el portal admin. */
+  async clientRate(from: Currency, to: Currency, spreadBps?: number) {
+    const spread = spreadBps ?? (await getFxSettings(this.d)).value.spreadBps;
     const mid = await this.d.brl.getMidRate(from, to);
-    return { mid: mid.rateScaled, rate: applySpread(mid.rateScaled, this.d.config.FX_SPREAD_BPS), updatedAt: mid.updatedAt };
+    return { mid: mid.rateScaled, rate: applySpread(mid.rateScaled, spread), updatedAt: mid.updatedAt, spreadBps: spread };
   }
 
   async rate(from: string, to: string) {
@@ -44,16 +46,28 @@ export class FxService {
       // COP por 1 BRL, redondeado a 2 decimales para presentación.
       inverseRate: Number((inv * 100n / 10n ** 10n).toString()) / 100,
       updatedAt: r.updatedAt.toISOString(),
-      history: history.map((h) => ({ date: h.date, rate: rateToNumber(applySpread(h.rateScaled, this.d.config.FX_SPREAD_BPS)) })),
+      history: history.map((h) => ({ date: h.date, rate: rateToNumber(applySpread(h.rateScaled, r.spreadBps)) })),
     };
   }
 
   async quote(user: User, input: { fromCurrency: string; toCurrency: string; amountMinor: number }): Promise<Quote> {
     assertPair(input.fromCurrency, input.toCurrency);
+    await assertNotFrozen(this.d, user.id);
+    const fx = (await getFxSettings(this.d)).value;
+    if (!fx.enabled) {
+      throw new AppError('PROVIDER_ERROR', 'Las conversiones están temporalmente deshabilitadas', { reason: 'fx_disabled' }, 503);
+    }
     const from = BigInt(input.amountMinor);
-    const fee = computeFee(from, this.d.config.CONVERSION_FEE_BPS, this.d.config.CONVERSION_FEE_MIN_MINOR);
+    if (from < BigInt(fx.minAmountMinor) || (fx.maxAmountMinor !== null && from > BigInt(fx.maxAmountMinor))) {
+      throw new AppError('VALIDATION_ERROR', 'Monto fuera del rango permitido para conversiones', {
+        field: 'amountMinor',
+        minAmountMinor: fx.minAmountMinor,
+        maxAmountMinor: fx.maxAmountMinor,
+      });
+    }
+    const fee = computeFee(from, fx.feeBps, fx.minFeeMinor);
     if (fee >= from) throw new AppError('VALIDATION_ERROR', 'El monto no cubre la comisión', { feeMinor: Number(fee) });
-    const r = await this.clientRate('COP', 'BRL');
+    const r = await this.clientRate('COP', 'BRL', fx.spreadBps);
     const to = convertMinor(from, fee, r.rate);
     if (to <= 0n) throw new AppError('VALIDATION_ERROR', 'Monto demasiado pequeño para convertir');
     const now = this.d.clock.now();
@@ -91,6 +105,10 @@ export class FxService {
     if (!q || q.userId !== user.id) throw new AppError('NOT_FOUND', 'Cotización no encontrada');
     if (q.usedAt) throw new AppError('QUOTE_EXPIRED', 'La cotización ya fue utilizada', { reason: 'used' });
     if (q.expiresAt <= now) throw new AppError('QUOTE_EXPIRED', 'La cotización venció, solicita una nueva', { reason: 'expired' });
+    await assertNotFrozen(this.d, user.id);
+    if (!(await getFxSettings(this.d)).value.enabled) {
+      throw new AppError('PROVIDER_ERROR', 'Las conversiones están temporalmente deshabilitadas', { reason: 'fx_disabled' }, 503);
+    }
 
     await this.limits.assertWithin(user, 'conversion', q.fromAmountMinor);
     const wallet = await this.ledger.wallet(user.id, q.fromCurrency);
@@ -145,6 +163,7 @@ export class FxService {
     await this.limits.record(user.id, 'conversion', q.fromAmountMinor, txn.id);
     q.usedAt = now;
     await this.d.repos.quotes.update(q);
+    await this.d.events.publish({ type: 'transaction.created', txn });
     return txn;
   }
 }

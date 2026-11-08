@@ -35,6 +35,17 @@ export class LiveSartblockProvider implements AmlProvider {
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
+  /** TODO(sartblock): usar el endpoint de estado real cuando se conozca la especificación. */
+  async healthCheck(): Promise<void> {
+    let res: Response;
+    try {
+      res = await this.fetchImpl(this.opts.baseUrl, { method: 'GET', headers: { Authorization: `Bearer ${this.opts.apiKey}` }, signal: AbortSignal.timeout(10_000) });
+    } catch (err) {
+      throw new AppError('PROVIDER_ERROR', `Sartblock no respondió: ${(err as Error).message}`, { provider: 'sartblock' });
+    }
+    if (res.status >= 500) throw new AppError('PROVIDER_ERROR', `Sartblock respondió ${res.status}`, { provider: 'sartblock' });
+  }
+
   async screen(input: AmlScreenInput) {
     let res: Response;
     try {

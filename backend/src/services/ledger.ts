@@ -71,6 +71,44 @@ export class LedgerService {
     return Promise.all(CURRENCIES.map((c) => this.wallet(userId, c)));
   }
 
+  /**
+   * Asientos compensatorios: un journal nuevo con cada pata de la transacción negada
+   * (mismas cuentas). Deja el efecto neto de la transacción en cero sin borrar historia.
+   */
+  async reverseTransaction(transactionId: string): Promise<string | null> {
+    const entries = await this.d.repos.ledger.entriesByTransaction(transactionId);
+    if (!entries.length) return null;
+    const now = this.d.clock.now();
+    const journalId = newId('jnl', now);
+    const net = new Map<string, LedgerEntry>();
+    for (const e of entries) {
+      const prev = net.get(e.accountId);
+      if (prev) prev.amountMinor += e.amountMinor;
+      else net.set(e.accountId, { ...e });
+    }
+    const out: LedgerEntry[] = [];
+    for (const e of net.values()) {
+      if (e.amountMinor === 0n) continue;
+      out.push({ id: newId('len', now), journalId, accountId: e.accountId, currency: e.currency, amountMinor: -e.amountMinor, transactionId, createdAt: now });
+    }
+    if (!out.length) return null;
+    const sums = new Map<Currency, bigint>();
+    for (const e of out) sums.set(e.currency, (sums.get(e.currency) ?? 0n) + e.amountMinor);
+    for (const [cur, s] of sums) if (s !== 0n) throw new AppError('INTERNAL_ERROR', `Reverso desbalanceado en ${cur}: ${s}`);
+    await this.d.repos.ledger.insertEntries(out);
+    return journalId;
+  }
+
+  /** Efecto neto actual de una transacción sobre cada cuenta (para validar reversos). */
+  async netByAccount(transactionId: string): Promise<Map<string, { currency: Currency; amountMinor: bigint }>> {
+    const net = new Map<string, { currency: Currency; amountMinor: bigint }>();
+    for (const e of await this.d.repos.ledger.entriesByTransaction(transactionId)) {
+      const prev = net.get(e.accountId);
+      net.set(e.accountId, { currency: e.currency, amountMinor: (prev?.amountMinor ?? 0n) + e.amountMinor });
+    }
+    return net;
+  }
+
   // ── Movimientos tipados ──
 
   /** Depósito Bre-B entrante: la cuenta de liquidación en Coinsenda (activo) ↔ bolsillo COP. */

@@ -1,5 +1,6 @@
 import type { Container } from '../container.js';
 import { MockCoinsendaGateway } from '../adapters/coinsenda/mock.js';
+import { MockBrlLiquidityProvider } from '../adapters/brl/provider.js';
 import type { Transaction, User } from '../domain/types.js';
 import { newId } from '../lib/clock.js';
 import { AppError } from '../lib/errors.js';
@@ -89,6 +90,9 @@ export async function seedDemo(container: Container): Promise<User> {
   ];
   for (const [amount, payer, ago] of deposits) {
     const t = mkTxn({ type: 'deposit', direction: 'in', currency: 'COP', amountMinor: amount, title: payer, subtitle: `Bre-B · ${key.alias}`, providerRef: `dep_seed_${ago}` }, ago);
+    // Registro equivalente en el mock de Coinsenda para que la conciliación del portal admin cuadre.
+    gw.deposits.push({ id: `dep_seed_${ago}`, providerKeyId: key.providerKeyId, amountMinor: amount, currency: 'COP', state: 'accepted', payerName: payer, createdAt: at(ago), raw: { mock: true, seed: true } });
+    await repos.processedDeposits.tryInsert({ providerDepositId: `dep_seed_${ago}`, userId: user.id, transactionId: t.id, processedAt: at(ago), note: null });
     await repos.transactions.create(t);
     await services.ledger.credit(user.id, 'COP', amount, t.id);
     await repos.limitUsage.add({ id: newId('lmu', t.createdAt), userId: user.id, operation: 'deposit_in', amountMinor: amount, transactionId: t.id, occurredAt: t.createdAt, voidedAt: null });
@@ -117,7 +121,9 @@ export async function seedDemo(container: Container): Promise<User> {
   });
 
   // Envío completado.
-  const sent = mkTxn({ type: 'transfer', direction: 'out', currency: 'COP', amountMinor: 5_000_000n, title: 'Juan', subtitle: 'Bre-B · 3001234567', beneficiaryId: benId, providerRef: 'wd_seed_1' }, 60 * 24 * 2);
+  const sentWd = await gw.createWithdraw({ withdrawAccountId: wa.withdrawAccountId, amountMinor: 5_000_000n, reference: 'seed_sent_1' });
+  gw.setWithdrawState(sentWd.withdrawId, 'accepted');
+  const sent = mkTxn({ type: 'transfer', direction: 'out', currency: 'COP', amountMinor: 5_000_000n, title: 'Juan', subtitle: 'Bre-B · 3001234567', beneficiaryId: benId, providerRef: sentWd.withdrawId }, 60 * 24 * 2);
   await repos.transactions.create(sent);
   await services.ledger.hold(user.id, 'COP', 5_000_000n, sent.id);
   await services.ledger.settleHold(user.id, 'COP', 5_000_000n, 0n, sent.id);
@@ -142,6 +148,7 @@ export async function seedDemo(container: Container): Promise<User> {
     },
     60 * 24,
   );
+  if (deps.brl instanceof MockBrlLiquidityProvider) deps.brl.executions.push({ reference: conv.id, fromAmountMinor: convFrom - convFee, toAmountMinor: convTo });
   await repos.transactions.create(conv);
   await services.ledger.convert(user.id, { from: 'COP', to: 'BRL', fromAmount: convFrom, fee: convFee, toAmount: convTo }, conv.id);
   await repos.limitUsage.add({ id: newId('lmu', conv.createdAt), userId: user.id, operation: 'conversion', amountMinor: convFrom, transactionId: conv.id, occurredAt: conv.createdAt, voidedAt: null });

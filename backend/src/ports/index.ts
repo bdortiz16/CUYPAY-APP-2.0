@@ -54,6 +54,10 @@ export interface CoinsendaGateway {
   getWithdraw(withdrawId: string): Promise<{ state: WithdrawState; raw: unknown } | null>;
   /** Los depósitos más recientes de la cuenta (ventana de 200, order id DESC). */
   listDeposits(): Promise<CoinsendaDeposit[]>;
+  /** Saldo disponible de la cuenta COP ómnibus (tesorería del portal admin). */
+  getBalance?(): Promise<{ currency: Currency; balanceMinor: bigint; asOf: Date }>;
+  /** Health check liviano (portal admin). Lanza si el proveedor no responde. */
+  healthCheck?(): Promise<void>;
 }
 
 // ───────────────────────── KYC (Sumsub) ─────────────────────────
@@ -69,6 +73,7 @@ export interface KycProvider {
     country: string;
   }): Promise<{ applicantId: string }>;
   createSdkAccessToken(input: { externalUserId: string; levelName: string; ttlInSecs: number }): Promise<{ token: string }>;
+  healthCheck?(): Promise<void>;
 }
 
 // ───────────────────────── AML (Sartblock) ─────────────────────────
@@ -81,6 +86,7 @@ export interface AmlScreenInput {
 }
 export interface AmlProvider {
   screen(input: AmlScreenInput): Promise<{ result: AmlResult; referenceId: string; raw: unknown }>;
+  healthCheck?(): Promise<void>;
 }
 
 // ───────────────────────── Liquidez BRL ─────────────────────────
@@ -99,10 +105,14 @@ export interface BrlLiquidityProvider {
     toAmountMinor: bigint;
     rateScaled: bigint;
   }): Promise<{ providerRef: string }>;
+  /** Saldo BRL de CuyPay en el socio (respaldo de los bolsillos BRL). */
+  getBalance?(): Promise<{ currency: Currency; balanceMinor: bigint; asOf: Date }>;
+  healthCheck?(): Promise<void>;
 }
 
 // ───────────────────────── OTP ─────────────────────────
 
 export interface OtpSender {
   send(phone: string, code: string): Promise<void>;
+  healthCheck?(): Promise<void>;
 }

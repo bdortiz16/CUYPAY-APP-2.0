@@ -15,7 +15,7 @@ cd backend
 npm install
 cp .env.example .env        # todo funciona en modo mock sin credenciales
 npm run dev                 # tsx watch → http://127.0.0.1:8080/v1
-npm test                    # vitest (56 pruebas)
+npm test                    # vitest (82 pruebas)
 npm run typecheck           # tsc --noEmit (src + tests)
 npm run build && npm start  # compila a dist/ y ejecuta node dist/src/index.js
 curl localhost:8080/health
@@ -49,13 +49,35 @@ La app iOS se registra con ese teléfono + OTP `123456` (`/auth/otp/request` →
 | `@pedrobloqueado` | AML `hit` → `AML_REJECTED` |
 | cualquier otra | `BREB_ALIAS_NOT_FOUND` |
 
+### Portal admin (`/v1/admin/*`)
+
+Contrato: [`../docs/ADMIN_API.md`](../docs/ADMIN_API.md). Usuarios admin propios (separados de los clientes), contraseña scrypt + **TOTP obligatorio** (RFC 6238, SHA1, 30 s, ±1 paso, anti-replay), JWT admin de 30 min con secreto y `aud` propios (`cuypay-admin`), sesiones revocables, RBAC (`owner`, `compliance`, `treasury`, `support`, `viewer`), **audit log** de toda mutación (`reason` obligatorio → 400 si falta) y PII enmascarada para roles sin permiso.
+
+Al arrancar, si no existe ningún admin se crea un **owner**. Fuera de producción usa estas credenciales (sobrescribibles con `ADMIN_SEED_*`) y las imprime en el log:
+
+| Dato | Valor (solo desarrollo) |
+|---|---|
+| Correo | `admin@cuypay.com` |
+| Contraseña | `CuyPay-Admin-Dev-2026!` |
+| Secreto TOTP (base32) | `CUYPAYDEVADMINTOTPSECRET234567AB` (agrégalo a Google Authenticator / 1Password, o `otpauth://` del log) |
+
+En producción el owner inicial solo se crea si `ADMIN_SEED_EMAIL`, `ADMIN_SEED_PASSWORD` y `ADMIN_SEED_TOTP_SECRET` están definidos, y nunca se loguean.
+
+Piezas principales:
+- `src/http/routes/admin.ts` (rutas + RBAC por permiso), `src/http/cf-access.ts` (Cloudflare Access opcional: `CF_ACCESS_TEAM_DOMAIN` + `CF_ACCESS_AUD`).
+- `src/services/admin/*`: `auth` (login → mfa → JWT, bloqueo tras 5 fallos), `rbac`, `audit`, `customers` (congelar, tier, overrides de límites, revocar dispositivos, notas), `transactions` (filtros, detalle con asientos, reverso con asientos compensatorios, CSV), `compliance` (reglas de alertas: transacción grande, velocidad, structuring, AML, dispositivos; sugerencia UIAF), `treasury` (saldos proveedor vs ledger, cobertura, conciliación, FX en runtime), `providers` (health checks), `dashboard`, `stream` (SSE con token de un solo uso).
+- `src/services/events.ts`: bus de eventos interno (los servicios existentes publican `transaction.*`, `customer.*`, `kyc.updated`, `beneficiary.*`, ...) que alimenta las alertas y el SSE.
+- `src/services/runtime-config.ts`: FX y límites editables en runtime (tabla `settings`), usados por `FxService` y `LimitsService`; congelamiento de clientes (`ACCOUNT_FROZEN` 403 en login/refresh, envíos y cotizaciones; los depósitos se acreditan retenidos y se liberan al descongelar).
+- CORS: `ADMIN_ORIGINS` (p. ej. `https://www.cuypay.com`) solo para `/v1/admin/*`; `CORS_ORIGINS` para todo.
+- Tablas nuevas en `db/schema.sql`: `admin_users`, `admin_sessions`, `admin_audit_log` (append-only), `compliance_alerts`, `customer_notes`, `customer_controls`, `reconciliation_runs`, `settings`.
+
 ### Rutas fuera del contrato
 
 - **Solo modo mock y no producción** (`ENABLE_DEV_ROUTES`):
   - `POST /v1/dev/kyc/approve` (JWT): aprueba el KYC del usuario actual.
   - `POST /v1/dev/deposits/simulate` `{ amountMinor, payerName? }` (JWT): simula un depósito Bre-B entrante, que pasa por el mismo flujo de ingesta del poller.
-- **Solo si `ADMIN_API_KEY` está definido:**
-  - `POST /v1/admin/beneficiaries/:id/review` `{ decision: "approve" | "reject" }` con el header `X-Admin-Key`. Es la resolución manual de cumplimiento para beneficiarios `pending_review`.
+- **Solo si `ADMIN_API_KEY` está definido (legacy, compatibilidad):**
+  - `POST /v1/admin/beneficiaries/:id/review` `{ decision: "approve" | "reject" }` con el header `X-Admin-Key`. Es la resolución manual de cumplimiento para beneficiarios `pending_review`. El portal admin usa `POST /v1/admin/compliance/beneficiaries/:id/decision`.
 - `GET /health` y `GET /v1/health`.
 
 ---
@@ -74,6 +96,7 @@ Todas están documentadas en [`.env.example`](.env.example) y se validan con zod
 | Sartblock (AML) | `SARTBLOCK_BASE_URL`, `SARTBLOCK_API_KEY` |
 | FX / tarifas | `FX_SPREAD_BPS` (150), `CONVERSION_FEE_BPS` (100), `CONVERSION_FEE_MIN_MINOR`, `QUOTE_TTL_SECONDS` (30), `TRANSFER_FEE_MINOR` (0) |
 | Límites | `LIMITS_CONFIG_JSON`: sobrescribe los límites por tier y tipo (ver `DEFAULT_LIMITS` en `config.ts`) |
+| Portal admin | `ADMIN_JWT_SECRET` (si falta se deriva de `JWT_SECRET`), `ADMIN_JWT_AUDIENCE` (`cuypay-admin`), `ADMIN_TOKEN_TTL_SECONDS` (1800), `ADMIN_ORIGINS`, `ADMIN_TOTP_ISSUER`, `ADMIN_SEED_EMAIL`, `ADMIN_SEED_PASSWORD`, `ADMIN_SEED_TOTP_SECRET`, `ADMIN_SEED_NAME`, `CF_ACCESS_TEAM_DOMAIN` + `CF_ACCESS_AUD` (opcional), `ALERT_LARGE_TX_MINOR` (1.000.000.000), `PROVIDER_HEALTH_INTERVAL_MS` (60000) |
 
 ---
 
@@ -253,6 +276,8 @@ Cada puerto tiene un adaptador **Mock**, que se usa por defecto en desarrollo y 
 | `money.test.ts` | Aritmética entera de FX y dinero |
 | `seed.test.ts` | Datos demo consistentes |
 | `coinsenda-live.test.ts` | Auth RS256, re-auth en 401, `withdrawaccount_23` → no encontrado |
+| `admin-auth.test.ts` | Vectores RFC 6238, scrypt, login + TOTP, anti-replay, bloqueo, logout, usuarios admin (solo owner, último owner), Cloudflare Access |
+| `admin-ops.test.ts` | RBAC (403), PII enmascarada, `reason` obligatorio + audit log, congelar bloquea envíos/cotizaciones y retiene depósitos, overrides y límites runtime, FX runtime en cotizaciones, conciliación (ok/breaks, seed), reverso, CSV, alertas + UIAF, SSE con token de un solo uso, ruta legacy `X-Admin-Key` |
 
 ---
 

@@ -21,7 +21,11 @@ export type ErrorCode =
   | 'PROVIDER_ERROR'
   | 'NOT_FOUND'
   | 'RATE_LIMITED'
-  | 'INTERNAL_ERROR';
+  | 'INTERNAL_ERROR'
+  // Portal admin / cuenta congelada (docs/ADMIN_API.md)
+  | 'FORBIDDEN'
+  | 'ACCOUNT_FROZEN'
+  | 'CONFLICT';
 
 const STATUS: Record<ErrorCode, number> = {
   VALIDATION_ERROR: 400,
@@ -46,6 +50,9 @@ const STATUS: Record<ErrorCode, number> = {
   NOT_FOUND: 404,
   RATE_LIMITED: 429,
   INTERNAL_ERROR: 500,
+  FORBIDDEN: 403,
+  ACCOUNT_FROZEN: 403,
+  CONFLICT: 409,
 };
 
 export class AppError extends Error {

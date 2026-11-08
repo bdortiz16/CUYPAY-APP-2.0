@@ -1,3 +1,4 @@
+import type { JWTVerifyGetKey } from 'jose';
 import { pino, type Logger } from 'pino';
 import type { AppConfig } from './config.js';
 import { systemClock, type Clock } from './lib/clock.js';
@@ -23,6 +24,17 @@ import { TransferService } from './services/transfers.js';
 import { FxService } from './services/fx.js';
 import { DepositService } from './services/deposits.js';
 import { DeviceService, TransactionService } from './services/feed.js';
+import { EventBus } from './services/events.js';
+import { AuditService } from './services/admin/audit.js';
+import { AdminAuthService } from './services/admin/auth.js';
+import { AdminCustomerService } from './services/admin/customers.js';
+import { AdminTransactionService } from './services/admin/transactions.js';
+import { ComplianceService } from './services/admin/compliance.js';
+import { ProviderHealthService } from './services/admin/providers.js';
+import { LimitsConfigService, TreasuryService } from './services/admin/treasury.js';
+import { DashboardService } from './services/admin/dashboard.js';
+import { StreamService } from './services/admin/stream.js';
+import { createCfAccessVerifier } from './http/cf-access.js';
 
 /** Rutas de log con secretos/PII que pino debe ocultar. */
 export const LOG_REDACT_PATHS = [
@@ -30,6 +42,14 @@ export const LOG_REDACT_PATHS = [
   'req.headers["x-cuypay-signature"]',
   'req.headers["x-payload-digest"]',
   'req.headers["x-admin-key"]',
+  'req.headers["cf-access-jwt-assertion"]',
+  'req.headers.cookie',
+  '*.password',
+  '*.currentPassword',
+  '*.newPassword',
+  '*.mfaToken',
+  '*.totpSecret',
+  '*.temporaryPassword',
   '*.otpCode',
   '*.code',
   '*.devicePublicKey',
@@ -60,6 +80,9 @@ export interface ContainerOverrides {
   aml?: AmlProvider;
   brl?: BrlLiquidityProvider;
   otp?: OtpSender;
+  events?: EventBus;
+  /** JWKS de Cloudflare Access (tests); por defecto el remoto del equipo. */
+  cfAccessKeySet?: JWTVerifyGetKey;
 }
 
 export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
@@ -95,12 +118,35 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
   const otp = o.otp ?? (config.NODE_ENV === 'production' ? new UnconfiguredOtpSender() : new MockOtpSender(logger));
 
   const repos = o.repos ?? createMemoryRepositories();
-  const deps: ServiceDeps = { config, repos, clock, logger, coinsenda, kyc, aml, brl, otp };
+  const events = o.events ?? new EventBus(logger);
+  const deps: ServiceDeps = { config, repos, clock, logger, coinsenda, kyc, aml, brl, otp, events };
   const mutex = new KeyedMutex();
   const ledger = new LedgerService(deps);
   const limits = new LimitsService(deps);
   const idempotency = new IdempotencyService(deps);
   const beneficiaries = new BeneficiaryService(deps);
+  const devices = new DeviceService(deps);
+
+  // ── Portal admin ──
+  const audit = new AuditService(deps);
+  const adminCustomers = new AdminCustomerService(deps, audit, ledger, limits, devices, mutex);
+  const compliance = new ComplianceService(deps, audit, beneficiaries, adminCustomers);
+  compliance.start();
+  const providers = new ProviderHealthService(deps);
+  const treasury = new TreasuryService(deps, audit);
+  const admin = {
+    audit,
+    auth: new AdminAuthService(deps, audit),
+    customers: adminCustomers,
+    transactions: new AdminTransactionService(deps, audit, ledger, limits, mutex),
+    compliance,
+    providers,
+    treasury,
+    limitsConfig: new LimitsConfigService(deps, audit),
+    dashboard: new DashboardService(deps, treasury, providers),
+    stream: new StreamService(deps),
+    cfAccess: createCfAccessVerifier(config, clock, o.cfAccessKeySet),
+  };
 
   const services = {
     ledger,
@@ -115,7 +161,8 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
     fx: new FxService(deps, ledger, limits, idempotency, mutex),
     deposits: new DepositService(deps, ledger, limits, mutex),
     transactions: new TransactionService(deps),
-    devices: new DeviceService(deps),
+    devices,
+    admin,
   };
   return { config, deps, services };
 }

@@ -4,6 +4,7 @@ import type { CoinsendaDeposit } from '../ports/index.js';
 import type { KeyedMutex, ServiceDeps } from './deps.js';
 import type { LedgerService } from './ledger.js';
 import type { LimitsService } from './limits.js';
+import { getCustomerControl } from './runtime-config.js';
 
 /**
  * Ingesta de depósitos Bre-B: sondea Coinsenda (`__get__deposits`, 200 más recientes),
@@ -90,6 +91,16 @@ export class DepositService {
       await this.d.repos.transactions.create(txn);
       await this.ledger.credit(user.id, 'COP', dep.amountMinor, txn.id);
       await this.limits.record(user.id, 'deposit_in', dep.amountMinor, txn.id);
+      const control = await getCustomerControl(this.d, user.id);
+      if (control.status === 'frozen') {
+        // Cuenta congelada por cumplimiento: el dinero entra pero queda retenido hasta descongelar.
+        await this.ledger.hold(user.id, 'COP', dep.amountMinor, txn.id);
+        control.heldDepositTxnIds.push(txn.id);
+        control.updatedAt = now;
+        await this.d.repos.customerControls.upsert(control);
+        this.d.logger.warn({ userId: user.id, txnId }, 'deposit to frozen account held');
+      }
+      await this.d.events.publish({ type: 'transaction.created', txn });
       if (exceeded) {
         // TODO(compliance): alerta al oficial de cumplimiento / posible ROS UIAF; evaluar bloqueo de la llave.
         this.d.logger.warn({ userId: user.id, txnId, period: exceeded.period }, 'deposit_in limit exceeded (flagged)');

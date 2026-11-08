@@ -48,6 +48,16 @@ export class LiveSumsubProvider implements KycProvider {
     return { status: res.status, json };
   }
 
+  /**
+   * Health check: consulta firmada de un applicant inexistente. 404 = Sumsub responde y la firma es válida;
+   * 401/403 = credenciales inválidas; 5xx / red = caído.
+   */
+  async healthCheck(): Promise<void> {
+    const { status } = await this.request('GET', '/resources/applicants/-;externalUserId=cuypay-healthcheck/one');
+    if (status === 401 || status === 403) throw new AppError('PROVIDER_ERROR', 'Sumsub rechazó las credenciales', { provider: 'sumsub', status });
+    if (status >= 500) throw new AppError('PROVIDER_ERROR', `Sumsub respondió ${status}`, { provider: 'sumsub', status });
+  }
+
   async createApplicant(input: {
     externalUserId: string;
     levelName: string;

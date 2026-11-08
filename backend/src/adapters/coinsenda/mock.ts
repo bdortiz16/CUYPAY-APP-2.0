@@ -19,6 +19,10 @@ export class MockCoinsendaGateway implements CoinsendaGateway {
   confirmResultState: WithdrawState = 'accepted';
   /** Si es true, el próximo createWithdraw falla (simula caída del proveedor). */
   failNextWithdraw = false;
+  /** Ajuste manual del saldo (tests de conciliación / cobertura). */
+  balanceAdjustmentMinor = 0n;
+  /** Si es true, el health check falla (simula caída). */
+  down = false;
 
   constructor(private readonly clock: Clock) {
     const add = (alias: string, firstName: string, lastName: string, doc: string, bank: string) =>
@@ -93,6 +97,19 @@ export class MockCoinsendaGateway implements CoinsendaGateway {
   setWithdrawState(withdrawId: string, state: WithdrawState) {
     const w = this.withdraws.get(withdrawId);
     if (w) w.state = state;
+  }
+
+  /** Saldo simulado = depósitos aceptados − retiros aceptados (+ ajuste). */
+  async getBalance() {
+    if (this.down) throw new AppError('PROVIDER_ERROR', 'Coinsenda (mock) caído', { provider: 'coinsenda' });
+    let bal = this.balanceAdjustmentMinor;
+    for (const d of this.deposits) if (d.state === 'accepted' && d.currency === 'COP') bal += d.amountMinor;
+    for (const w of this.withdraws.values()) if (w.state === 'accepted') bal -= w.amountMinor;
+    return { currency: 'COP' as const, balanceMinor: bal, asOf: this.clock.now() };
+  }
+
+  async healthCheck() {
+    if (this.down) throw new AppError('PROVIDER_ERROR', 'Coinsenda (mock) caído', { provider: 'coinsenda' });
   }
 
   async listDeposits() {

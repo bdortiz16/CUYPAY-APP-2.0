@@ -20,6 +20,16 @@ import type {
   Transaction,
   User,
 } from '../domain/types.js';
+import type {
+  AdminSession,
+  AdminUser,
+  AuditEntry,
+  ComplianceAlert,
+  CustomerControl,
+  CustomerNote,
+  ReconciliationRun,
+  SettingRecord,
+} from '../domain/admin.js';
 
 /**
  * Puertos de persistencia. Fase 1: implementación en memoria (memory.ts).
@@ -33,6 +43,8 @@ export interface UserRepo {
   byId(id: string): Promise<User | null>;
   byPhone(phone: string): Promise<User | null>;
   byEmail(email: string): Promise<User | null>;
+  /** Todos los usuarios (portal admin). En PostgreSQL: consultas paginadas con índices. */
+  listAll(): Promise<User[]>;
 }
 
 export interface DeviceRepo {
@@ -91,6 +103,7 @@ export interface BeneficiaryRepo {
   update(b: Beneficiary): Promise<void>;
   byId(id: string): Promise<Beneficiary | null>;
   listByUser(userId: string): Promise<Beneficiary[]>;
+  listAll(): Promise<Beneficiary[]>;
 }
 
 export interface AmlRepo {
@@ -103,6 +116,8 @@ export interface LedgerRepo {
   insertEntries(entries: LedgerEntry[]): Promise<void>;
   balance(accountId: string): Promise<bigint>;
   allEntries(): Promise<LedgerEntry[]>;
+  entriesByTransaction(transactionId: string): Promise<LedgerEntry[]>;
+  accounts(): Promise<LedgerAccount[]>;
 }
 
 export interface TransactionRepo {
@@ -115,6 +130,8 @@ export interface TransactionRepo {
     opts: { currency?: Currency; limit: number; after?: { createdAt: Date; id: string } },
   ): Promise<Transaction[]>;
   listPendingTransfers(): Promise<Transaction[]>;
+  /** Todas las transacciones, createdAt DESC, id DESC (portal admin). */
+  listAll(): Promise<Transaction[]>;
 }
 
 export interface QuoteRepo {
@@ -143,6 +160,58 @@ export interface ProcessedDepositRepo {
   get(providerDepositId: string): Promise<ProcessedDeposit | null>;
 }
 
+// ───────────────────────── Portal admin ─────────────────────────
+
+export interface AdminUserRepo {
+  create(a: AdminUser): Promise<void>;
+  update(a: AdminUser): Promise<void>;
+  byId(id: string): Promise<AdminUser | null>;
+  byEmail(email: string): Promise<AdminUser | null>;
+  list(): Promise<AdminUser[]>;
+}
+
+export interface AdminSessionRepo {
+  create(s: AdminSession): Promise<void>;
+  byId(id: string): Promise<AdminSession | null>;
+  revoke(id: string, at: Date): Promise<void>;
+  revokeByAdmin(adminId: string, at: Date): Promise<void>;
+}
+
+/** Append-only: no hay update ni delete (en PostgreSQL: REVOKE UPDATE, DELETE). */
+export interface AuditRepo {
+  append(e: AuditEntry): Promise<void>;
+  /** Orden: at DESC, id DESC. */
+  list(): Promise<AuditEntry[]>;
+}
+
+export interface AlertRepo {
+  create(a: ComplianceAlert): Promise<void>;
+  update(a: ComplianceAlert): Promise<void>;
+  byId(id: string): Promise<ComplianceAlert | null>;
+  list(): Promise<ComplianceAlert[]>;
+}
+
+export interface NoteRepo {
+  create(n: CustomerNote): Promise<void>;
+  listByUser(userId: string): Promise<CustomerNote[]>;
+}
+
+export interface CustomerControlRepo {
+  get(userId: string): Promise<CustomerControl | null>;
+  upsert(c: CustomerControl): Promise<void>;
+}
+
+export interface ReconciliationRepo {
+  create(r: ReconciliationRun): Promise<void>;
+  update(r: ReconciliationRun): Promise<void>;
+  latest(): Promise<ReconciliationRun | null>;
+}
+
+export interface SettingsRepo {
+  get<T>(key: string): Promise<SettingRecord<T> | null>;
+  set<T>(rec: SettingRecord<T>): Promise<void>;
+}
+
 export interface Repositories {
   users: UserRepo;
   devices: DeviceRepo;
@@ -161,4 +230,12 @@ export interface Repositories {
   idempotency: IdempotencyRepo;
   limitUsage: LimitUsageRepo;
   processedDeposits: ProcessedDepositRepo;
+  adminUsers: AdminUserRepo;
+  adminSessions: AdminSessionRepo;
+  audit: AuditRepo;
+  alerts: AlertRepo;
+  notes: NoteRepo;
+  customerControls: CustomerControlRepo;
+  reconciliations: ReconciliationRepo;
+  settings: SettingsRepo;
 }
