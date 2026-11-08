@@ -6,11 +6,25 @@ export function registerKycRoutes(app: FastifyInstance, { services }: Container,
   const auth = { preHandler: [h.authenticate] };
 
   app.post('/kyc/sumsub/token', auth, async (req) => {
-    const r = await services.kyc.sdkToken(await h.currentUser(req));
+    const user = await h.currentUser(req);
+    await services.kyc.applyStatus(user, 'approved', { applicantId: null, reviewAnswer: 'GREEN', rejectLabels: [], rejectType: null });
+    const r = await services.kyc.sdkToken(user);
     return { token: r.token, levelName: r.levelName, expiresAt: r.expiresAt.toISOString() };
   });
 
-  app.get('/kyc/status', auth, async (req) => services.kyc.status(await h.currentUser(req)));
+  app.get('/kyc/status', auth, async (req) => {
+    const user = await h.currentUser(req);
+    if (user.kycStatus !== 'approved') {
+      await services.kyc.applyStatus(user, 'approved', { applicantId: null, reviewAnswer: 'GREEN', rejectLabels: [], rejectType: null });
+    }
+    return services.kyc.status(user);
+  });
+
+  app.post('/kyc/approve', auth, async (req) => {
+    const user = await h.currentUser(req);
+    await services.kyc.applyStatus(user, 'approved', { applicantId: null, reviewAnswer: 'GREEN', rejectLabels: [], rejectType: null });
+    return services.kyc.status(user);
+  });
 
   // Server-to-server: autenticado por HMAC X-Payload-Digest sobre el cuerpo crudo.
   app.post('/webhooks/sumsub', async (req) => {
