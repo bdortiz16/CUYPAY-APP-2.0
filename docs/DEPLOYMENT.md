@@ -21,7 +21,8 @@ flowchart LR
 | Dato | Valor | Estado |
 |---|---|---|
 | Team ID | `YRFDF3T7CQ` | ✅ Configurado en `ios/project.yml` y Fastlane |
-| D-U-N-S | `963698649` | ✅ Asignado |
+| Entidad legal | **XATECH SERVICES S.A.S.** (marca CuyPay) | ✅ |
+| D-U-N-S | `963698649` (a nombre de XATECH SERVICES S A S) | ✅ Asignado |
 | Tipo de entidad | Individual → **Organization** | ⏳ Conversión por solicitar a Apple |
 | Bundle ID | `com.cuypay.app` | ⏳ Por registrar |
 
