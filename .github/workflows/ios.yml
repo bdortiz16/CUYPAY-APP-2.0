@@ -18,7 +18,7 @@ jobs:
       run:
         working-directory: ios
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Usar el Xcode más reciente
         run: |
           XCODE=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)

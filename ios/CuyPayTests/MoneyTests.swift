@@ -100,11 +100,13 @@ struct AmountInputTests {
     @Test("COP: enteros, sin ceros a la izquierda ni decimales")
     func copInput() {
         var input = AmountInput(currency: .cop)
-        #expect(!input.append(digit: 0))
+        let accepted1 = input.append(digit: 0)
+        #expect(!accepted1)
         for digit in [1, 2, 5, 0, 0, 0, 0] { input.append(digit: digit) }
         #expect(input.minorUnits == 125_000_000)
         #expect(input.displayString == "1.250.000")
-        #expect(!input.appendDecimalSeparator())
+        let accepted2 = input.appendDecimalSeparator()
+        #expect(!accepted2)
         input.deleteBackward()
         #expect(input.displayString == "125.000")
         input.clear()
@@ -117,13 +119,16 @@ struct AmountInputTests {
     func brlInput() {
         var input = AmountInput(currency: .brl)
         for digit in [1, 8, 2, 3] { input.append(digit: digit) }
-        #expect(input.appendDecimalSeparator())
-        #expect(!input.appendDecimalSeparator())
+        let accepted3 = input.appendDecimalSeparator()
+        #expect(accepted3)
+        let accepted4 = input.appendDecimalSeparator()
+        #expect(!accepted4)
         input.append(digit: 5)
         #expect(input.displayString == "1.823,5")
         #expect(input.minorUnits == 182_350)
         input.append(digit: 7)
-        #expect(!input.append(digit: 9))
+        let accepted5 = input.append(digit: 9)
+        #expect(!accepted5)
         #expect(input.minorUnits == 182_357)
         input.deleteBackward()
         input.deleteBackward()
@@ -134,8 +139,12 @@ struct AmountInputTests {
     @Test("Respeta el tope máximo")
     func maximum() {
         var input = AmountInput(currency: .cop, maxMinorUnits: 10_000_000) // $ 100.000
-        for digit in [1, 0, 0, 0, 0, 0] { #expect(input.append(digit: digit)) }
-        #expect(!input.append(digit: 0))
+        for digit in [1, 0, 0, 0, 0, 0] {
+            let accepted = input.append(digit: digit)
+            #expect(accepted)
+        }
+        let accepted6 = input.append(digit: 0)
+        #expect(!accepted6)
         #expect(input.minorUnits == 10_000_000)
     }
 

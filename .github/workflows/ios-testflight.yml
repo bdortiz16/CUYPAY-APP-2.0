@@ -21,7 +21,7 @@ jobs:
       MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
       MATCH_READONLY: ${{ inputs.create_certificates && 'false' || 'true' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Preparar acceso al repo de certificados
         env:
           MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
@@ -39,4 +39,13 @@ jobs:
           XCODE=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
           echo "Usando $XCODE"; sudo xcode-select -s "$XCODE"; xcodebuild -version
       - run: brew install xcodegen
-      - run: bundle exec fastlane beta
+      - name: Fastlane beta
+        run: |
+          set -o pipefail
+          bundle exec fastlane beta 2>&1 | tee fastlane.log || {
+            # Publica las líneas de error como anotaciones visibles en el resumen del run.
+            grep -E "\[!\]|error:|Error|ERROR|Could not|Couldn't|failed" fastlane.log | grep -v "^\s*$" | tail -15 | while IFS= read -r line; do
+              echo "::error title=fastlane::${line//%/%25}"
+            done
+            exit 1
+          }
