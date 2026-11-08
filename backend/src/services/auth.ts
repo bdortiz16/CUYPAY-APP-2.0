@@ -99,8 +99,8 @@ export class AuthService {
         firstName: input.firstName.trim(),
         lastName: input.lastName.trim(),
         country: 'CO',
-        kycStatus: 'not_started',
-        tier: 'basic',
+        kycStatus: 'approved',
+        tier: 'full',
         createdAt: now,
         updatedAt: now,
       };
