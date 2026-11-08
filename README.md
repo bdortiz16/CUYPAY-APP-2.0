@@ -20,6 +20,9 @@ Billetera CuyPay para iPhone con diseño **Liquid Glass (iOS 26)**, enfocada en 
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura, flujos y seguridad |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | **Guía de despliegue y lanzamiento** (Apple, nube, legal, TestFlight) |
 | [`docs/BRAND.md`](docs/BRAND.md) | Paleta, isotipo y reglas de marca |
+| [`docs/ADMIN_API.md`](docs/ADMIN_API.md) | Contrato del back-office `/v1/admin/*` |
+| [`docs/CLOUDFLARE.md`](docs/CLOUDFLARE.md) | Migración GoDaddy → Cloudflare, Pages y Zero Trust |
+| [`web/`](web/) | Landing www.cuypay.com + `/admin-portal` (Next.js estático → Cloudflare Pages) |
 | [`docs/reference/`](docs/reference/) | Referencias de diseño y de la integración Coinsenda Studio |
 
 ## Arranque rápido
