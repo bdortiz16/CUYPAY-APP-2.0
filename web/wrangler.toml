@@ -1,0 +1,6 @@
+name = "cuypay-web"
+compatibility_date = "2026-11-01"
+pages_build_output_dir = "out"
+
+# Variables de build (NEXT_PUBLIC_*) se definen en el entorno del build (GitHub Actions / panel de Pages),
+# porque Next.js las incrusta en el bundle estático al compilar.

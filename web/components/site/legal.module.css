@@ -1,0 +1,160 @@
+.page {
+  background: var(--white);
+}
+
+.hero {
+  background: var(--onyx);
+  color: var(--on-dark);
+  padding: clamp(56px, 7vw, 88px) 0 clamp(40px, 5vw, 56px);
+}
+
+.hero h1 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(36px, 5vw, 56px);
+  letter-spacing: -0.03em;
+  color: var(--white);
+}
+
+.meta {
+  margin-top: 14px;
+  color: var(--on-dark-3);
+  font-size: 14px;
+}
+
+.draft {
+  margin-top: 24px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  max-width: 760px;
+  padding: 14px 18px;
+  border-radius: var(--radius-m);
+  background: rgba(250, 100, 101, 0.1);
+  color: var(--on-dark);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.draft strong {
+  color: var(--coral);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 12px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: clamp(32px, 5vw, 72px);
+  padding-top: clamp(40px, 6vw, 72px);
+  padding-bottom: clamp(64px, 8vw, 112px);
+}
+
+.toc {
+  position: sticky;
+  top: 96px;
+  align-self: start;
+  font-size: 14px;
+}
+
+.toc p {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 12px;
+}
+
+.toc ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.toc a {
+  text-decoration: none;
+  color: var(--ink-2);
+}
+
+.toc a:hover {
+  color: var(--spruce);
+}
+
+.content {
+  max-width: 72ch;
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--ink-2);
+}
+
+.content h2 {
+  font-size: 22px;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  margin: 48px 0 12px;
+  scroll-margin-top: 96px;
+}
+
+.content h2:first-child {
+  margin-top: 0;
+}
+
+.content h3 {
+  font-size: 17px;
+  color: var(--ink);
+  margin: 24px 0 8px;
+}
+
+.content p + p {
+  margin-top: 12px;
+}
+
+.content ul {
+  padding-left: 20px;
+  margin: 12px 0;
+}
+
+.content li + li {
+  margin-top: 6px;
+}
+
+.content a {
+  color: var(--spruce);
+  font-weight: 600;
+}
+
+.content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 14px;
+}
+
+.content th,
+.content td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--hairline-light);
+  vertical-align: top;
+}
+
+.content th {
+  color: var(--ink);
+  font-weight: 700;
+  background: #f5f6f8;
+}
+
+@media (max-width: 860px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  .toc {
+    position: static;
+  }
+}
