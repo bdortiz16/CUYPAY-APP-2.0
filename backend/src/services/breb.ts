@@ -83,4 +83,71 @@ export class BrebService {
     await this.d.repos.brebKeys.create(key);
     return key;
   }
+
+  async list(userId: string): Promise<BrebKey[]> {
+    const keys = await this.d.repos.brebKeys.listByUser(userId);
+    return keys;
+  }
+
+  async change(user: User, newPreferredAlias: string): Promise<BrebKey> {
+    requireKycApproved(user);
+    const existing = await this.d.repos.brebKeys.byUser(user.id);
+    if (!existing) {
+      return this.create(user, newPreferredAlias);
+    }
+
+    const alias = this.normalizeAlias(newPreferredAlias);
+    if (alias === existing.alias) {
+      return existing;
+    }
+    if (!(await this.isFree(alias))) {
+      throw new AppError('BREB_ALIAS_TAKEN', 'Esa llave ya está tomada', { alias });
+    }
+
+    // Cancelar en Coinsenda
+    if (this.d.coinsenda.cancelBrebKey) {
+      try {
+        await this.d.coinsenda.cancelBrebKey(existing.providerKeyId);
+      } catch {
+        // Mejor esfuerzo
+      }
+    }
+    await this.d.repos.brebKeys.delete(existing.id);
+
+    // Crear la nueva
+    const holderName = `${user.firstName} ${user.lastName}`.trim();
+    let created;
+    try {
+      created = await this.d.coinsenda.createBrebKey({ alias, holderName, userRef: user.id });
+    } catch (err) {
+      if (isAppError(err)) throw err;
+      throw new AppError('PROVIDER_ERROR', 'No se pudo crear la nueva llave en Coinsenda', { provider: 'coinsenda' });
+    }
+    const now = this.d.clock.now();
+    const newKey: BrebKey = {
+      id: newId('brk', now),
+      userId: user.id,
+      alias: created.alias,
+      status: created.status,
+      holderName,
+      providerKeyId: created.providerKeyId,
+      createdAt: now,
+    };
+    await this.d.repos.brebKeys.create(newKey);
+    return newKey;
+  }
+
+  async delete(user: User): Promise<void> {
+    const existing = await this.d.repos.brebKeys.byUser(user.id);
+    if (!existing) throw new AppError('NOT_FOUND', 'No tienes llave Bre-B registrada');
+
+    if (this.d.coinsenda.cancelBrebKey) {
+      try {
+        await this.d.coinsenda.cancelBrebKey(existing.providerKeyId);
+      } catch {
+        // Mejor esfuerzo
+      }
+    }
+    await this.d.repos.brebKeys.delete(existing.id);
+  }
 }

@@ -33,6 +33,22 @@ struct MockFixtures: Sendable {
         BrebKey(id: "brk_a1b2c3", alias: "@cuypayana123", status: .active, holderName: "Ana Gómez", createdAt: ago(days: 100))
     }
 
+    var cards: [CardItem] {
+        [
+            CardItem(
+                id: "crd_mock_ana",
+                cardType: "virtual",
+                status: .active,
+                label: "CuyPay Virtual",
+                lastFour: "4242",
+                brand: "Mastercard",
+                currency: .cop,
+                createdAt: ago(days: 15),
+                updatedAt: ago(days: 15)
+            )
+        ]
+    }
+
     var beneficiaries: [Beneficiary] {
         [
             Beneficiary(id: "ben_juan", alias: "3001234567", holderName: "Juan Pérez", nickname: "Juan", bankName: "Bancolombia",

@@ -1,7 +1,7 @@
 import { rateToNumber, toSafeNumber } from '../lib/money.js';
 import type { LimitsSnapshot } from '../services/limits.js';
 import type { WalletBalance } from '../services/ledger.js';
-import type { AmlCheck, Beneficiary, BrebKey, BrebResolution, Device, Quote, Transaction, User } from './types.js';
+import type { AmlCheck, Beneficiary, BrebKey, BrebResolution, Card, Device, Quote, Transaction, User } from './types.js';
 import { maskDocument, maskHolderName } from '../services/beneficiaries.js';
 
 /** Serialización a los JSON del contrato (camelCase, ISO-8601, enteros en unidades menores). */
@@ -46,10 +46,23 @@ export const presentWallet = (w: WalletBalance) => ({
 
 export const presentBrebKey = (k: BrebKey) => ({
   id: k.id,
+  type: k.type ?? 'alias',
   alias: k.alias,
   status: k.status,
   holderName: k.holderName,
   createdAt: iso(k.createdAt),
+});
+
+export const presentCard = (c: Card) => ({
+  id: c.id,
+  cardType: c.cardType,
+  status: c.status,
+  label: c.label,
+  lastFour: c.lastFour,
+  brand: c.brand,
+  currency: c.currency,
+  createdAt: iso(c.createdAt),
+  updatedAt: iso(c.updatedAt),
 });
 
 export const presentResolution = (r: BrebResolution) => ({

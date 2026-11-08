@@ -71,15 +71,34 @@ export interface KycApplicant {
   updatedAt: Date;
 }
 
+export type BrebKeyType = 'phone' | 'email' | 'national_id' | 'alias';
 export type BrebKeyStatus = 'active' | 'blocked' | 'pending';
 export interface BrebKey {
   id: string;
   userId: string;
+  type?: BrebKeyType;
   alias: string;
   status: BrebKeyStatus;
   holderName: string;
   providerKeyId: string; // deposit_provider_id en Coinsenda
   createdAt: Date;
+}
+
+export type CardType = 'virtual' | 'physical';
+export type CardStatus = 'active' | 'frozen' | 'canceled';
+export interface Card {
+  id: string;
+  userId: string;
+  cardType: CardType;
+  status: CardStatus;
+  label: string;
+  lastFour: string;
+  brand: string;
+  currency: Currency;
+  providerCardId: string;
+  ledgerAccountId: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface BrebResolution {

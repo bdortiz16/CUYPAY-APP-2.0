@@ -8,7 +8,12 @@ struct ReceiveView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var preferredAlias = ""
+    @State private var newAlias = ""
     @State private var isCreating = false
+    @State private var isChanging = false
+    @State private var isDeleting = false
+    @State private var showChangeKey = false
+    @State private var showDeleteConfirm = false
     @State private var errorMessage: String?
     @State private var copied = false
     @State private var createdCount = 0
@@ -49,6 +54,57 @@ struct ReceiveView: View {
             }
             .sensoryFeedback(.success, trigger: copied) { _, newValue in newValue }
             .sensoryFeedback(.success, trigger: createdCount)
+            .sheet(isPresented: $showChangeKey) {
+                NavigationStack {
+                    ZStack {
+                        BrandBackground()
+                        VStack(spacing: 20) {
+                            Text("Cambiar mi llave Bre-B")
+                                .font(.system(.title3, design: .serif).weight(.semibold))
+                                .padding(.top, 24)
+                            Text("Ingresa tu nuevo alias preferido. Tu llave anterior quedará cancelada.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+
+                            HStack(spacing: 4) {
+                                Text(verbatim: "@")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                TextField("nuevalleve", text: $newAlias)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                            }
+                            .formFieldStyle()
+
+                            PrimaryButton(title: "Confirmar con Face ID", systemImage: "faceid", isLoading: isChanging) {
+                                Task { await changeKey() }
+                            }
+                            .disabled(newAlias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                            Spacer()
+                        }
+                        .padding(.horizontal, 20)
+                    }
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            CloseToolbarButton { showChangeKey = false }
+                        }
+                    }
+                }
+                .presentationDetents([.height(320)])
+            }
+            .confirmationDialog(
+                "¿Eliminar tu llave Bre-B?",
+                isPresented: $showDeleteConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Eliminar llave", role: .destructive) {
+                    Task { await deleteKey() }
+                }
+            } message: {
+                Text("Ya no podrás recibir dinero por Bre-B hasta que crees una nueva llave. Se confirmará con Face ID.")
+            }
         }
     }
 
@@ -124,6 +180,29 @@ struct ReceiveView: View {
                 }
             }
 
+            HStack(spacing: 12) {
+                Button {
+                    showChangeKey = true
+                } label: {
+                    Label("Cambiar llave", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.subheadline.weight(.medium))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.glass)
+
+                Button(role: .destructive) {
+                    showDeleteConfirm = true
+                } label: {
+                    Label("Eliminar", systemImage: "trash")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Theme.negative)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.glass)
+            }
+
             GlassCard {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Recibe desde cualquier banco o billetera conectada a Bre-B.", systemImage: "building.columns")
@@ -197,6 +276,38 @@ struct ReceiveView: View {
                 store.brebKey = key
             }
             createdCount += 1
+        } catch {
+            errorMessage = error.userMessage
+        }
+    }
+
+    private func changeKey() async {
+        isChanging = true
+        errorMessage = nil
+        defer { isChanging = false }
+        let alias = newAlias.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !alias.isEmpty else { return }
+        do {
+            let clean = "@" + alias.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
+            let key = try await app.api.changeBrebKey(preferredAlias: clean)
+            withAnimation(.smooth) {
+                store.brebKey = key
+                showChangeKey = false
+            }
+        } catch {
+            errorMessage = error.userMessage
+        }
+    }
+
+    private func deleteKey() async {
+        isDeleting = true
+        errorMessage = nil
+        defer { isDeleting = false }
+        do {
+            try await app.api.deleteBrebKey()
+            withAnimation(.smooth) {
+                store.brebKey = nil
+            }
         } catch {
             errorMessage = error.userMessage
         }

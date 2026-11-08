@@ -19,6 +19,7 @@ import { AuthService } from './services/auth.js';
 import { SignatureService } from './services/signature.js';
 import { KycService } from './services/kyc.js';
 import { BrebService } from './services/breb.js';
+import { CardService } from './services/cards.js';
 import { BeneficiaryService } from './services/beneficiaries.js';
 import { TransferService } from './services/transfers.js';
 import { FxService } from './services/fx.js';
@@ -156,6 +157,7 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
     signature: new SignatureService(deps),
     kyc: new KycService(deps),
     breb: new BrebService(deps),
+    cards: new CardService(deps),
     beneficiaries,
     transfers: new TransferService(deps, ledger, limits, beneficiaries, idempotency, mutex),
     fx: new FxService(deps, ledger, limits, idempotency, mutex),

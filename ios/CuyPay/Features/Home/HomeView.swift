@@ -6,6 +6,7 @@ enum HomeDestination: Hashable {
     case limits
     case profile
     case allTransactions(Currency)
+    case card
 }
 
 /// Hojas presentadas desde el inicio.
@@ -13,6 +14,7 @@ enum HomeSheet: Identifiable, Hashable {
     case send(preselected: Beneficiary?)
     case receive
     case convert
+    case card
     case menu
     case addBeneficiary
     case kyc
@@ -23,6 +25,7 @@ enum HomeSheet: Identifiable, Hashable {
         case .send(let beneficiary): "send-\(beneficiary?.id ?? "none")"
         case .receive: "receive"
         case .convert: "convert"
+        case .card: "card"
         case .menu: "menu"
         case .addBeneficiary: "addBeneficiary"
         case .kyc: "kyc"
@@ -68,10 +71,10 @@ struct HomeView: View {
 
                         HStack(alignment: .top, spacing: 12) {
                             RateChartCard(rate: store.fxRate)
-                            BeneficiariesQuickCard(
-                                beneficiaries: store.activeBeneficiaries,
-                                onSelect: { beneficiary in openGated(.send(preselected: beneficiary)) },
-                                onAdd: { openGated(.addBeneficiary) }
+                            CardQuickCard(
+                                card: store.cards.first { $0.status != .canceled } ?? store.cards.first,
+                                isLoading: !store.cardsLoaded,
+                                onTap: { openGated(.card) }
                             )
                         }
 
@@ -110,6 +113,8 @@ struct HomeView: View {
                     ProfileView()
                 case .allTransactions(let currency):
                     AllTransactionsView(pocket: currency)
+                case .card:
+                    CardView()
                 }
             }
             .sheet(item: $sheet, onDismiss: runPendingAction) { sheet in
@@ -157,12 +162,14 @@ struct HomeView: View {
             ReceiveView()
         case .convert:
             ConvertView()
+        case .card:
+            CardView()
         case .menu:
             MainMenuSheet { action in
                 pendingAction = action
                 self.sheet = nil
             }
-            .presentationDetents([.height(360)])
+            .presentationDetents([.height(390)])
         case .addBeneficiary:
             AddBeneficiaryFlowView()
         case .kyc:
@@ -186,6 +193,7 @@ struct HomeView: View {
         guard let action = pendingAction else { return }
         pendingAction = nil
         switch action {
+        case .card: openGated(.card)
         case .convert: openGated(.convert)
         case .brebKey: sheet = .receive
         case .beneficiaries: path.append(.beneficiaries)
@@ -333,7 +341,7 @@ extension WalletTransaction {
 // MARK: - Menú (⊞)
 
 enum MenuAction: Hashable {
-    case convert, brebKey, beneficiaries, limits, profile
+    case card, convert, brebKey, beneficiaries, limits, profile
 }
 
 struct MainMenuSheet: View {
@@ -348,6 +356,7 @@ struct MainMenuSheet: View {
                 .padding(.top, 24)
             GlassEffectContainer(spacing: 12) {
                 LazyVGrid(columns: columns, spacing: 12) {
+                    tile("Mi Tarjeta", "creditcard.fill", .card)
                     tile("Convertir", "arrow.left.arrow.right", .convert)
                     tile("Mi llave Bre-B", "key.fill", .brebKey)
                     tile("Beneficiarios", "person.2.fill", .beneficiaries)

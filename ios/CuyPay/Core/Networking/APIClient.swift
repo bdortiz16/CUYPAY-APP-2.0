@@ -245,6 +245,53 @@ actor APIClient: CuyPayAPI {
         try await send(.post("/breb/key", body: CreateBrebKeyRequest(preferredAlias: preferredAlias), signReason: SignReason.createBrebKey))
     }
 
+    func changeBrebKey(preferredAlias: String) async throws -> BrebKey {
+        try await send(.put("/breb/key", body: CreateBrebKeyRequest(preferredAlias: preferredAlias), signReason: SignReason.changeBrebKey))
+    }
+
+    func deleteBrebKey() async throws {
+        let _: EmptyResponse = try await send(.delete("/breb/key", signReason: SignReason.deleteBrebKey))
+    }
+
+    // MARK: - Tarjetas (Cards & Apple Pay)
+
+    func cards() async throws -> [CardItem] {
+        let response: ItemsResponse<CardItem> = try await send(.get("/cards"))
+        return response.items
+    }
+
+    func card(id: String) async throws -> CardItem {
+        try await send(.get("/cards/\(id)"))
+    }
+
+    func issueVirtualCard(label: String?) async throws -> CardItem {
+        try await send(.post("/cards/virtual", body: IssueCardRequest(label: label), signReason: SignReason.issueCard))
+    }
+
+    func cardLookUrl(id: String) async throws -> String {
+        let response: CardLookUrlResponse = try await send(.get("/cards/\(id)/look-url"))
+        return response.url
+    }
+
+    func updateCardStatus(id: String, state: String) async throws -> CardItem {
+        try await send(.put("/cards/\(id)/status", body: UpdateCardStatusRequest(state: state), signReason: SignReason.updateCardStatus))
+    }
+
+    func updateCardLabel(id: String, label: String) async throws -> CardItem {
+        try await send(.put("/cards/\(id)/label", body: UpdateCardLabelRequest(label: label)))
+    }
+
+    func tokenizeApplePay(id: String, certificates: [String], nonce: String, nonceSignature: String) async throws -> ApplePayTokenizeResponse {
+        let body = ApplePayTokenizeRequest(certificates: certificates, nonce: nonce, nonceSignature: nonceSignature)
+        return try await send(.post("/cards/\(id)/apple-pay/tokenize", body: body, signReason: SignReason.tokenizeApplePay))
+    }
+
+    // MARK: - Seguridad
+
+    func securitySettings() async throws -> SecuritySettingsResponse {
+        try await send(.get("/me/security"))
+    }
+
     // MARK: - Beneficiarios
 
     func resolveAlias(_ alias: String) async throws -> AliasResolution {

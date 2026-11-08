@@ -118,6 +118,7 @@ struct ItemsResponse<Item: Codable & Sendable>: Codable, Sendable {
 
 struct BrebKey: Codable, Hashable, Sendable, Identifiable {
     var id: String
+    var type: String? = "alias"
     var alias: String
     var status: BrebKeyStatus
     var holderName: String
@@ -138,6 +139,67 @@ enum BrebKeyStatus: String, Codable, Hashable, Sendable {
 
 struct CreateBrebKeyRequest: Codable, Hashable, Sendable {
     var preferredAlias: String?
+}
+
+// MARK: - Tarjetas (Cards & Apple Pay)
+
+struct CardItem: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var cardType: String
+    var status: CardItemStatus
+    var label: String
+    var lastFour: String
+    var brand: String
+    var currency: Currency
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+enum CardItemStatus: String, Codable, Hashable, Sendable {
+    case active
+    case frozen
+    case canceled
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = CardItemStatus(rawValue: raw) ?? .unknown
+    }
+}
+
+struct IssueCardRequest: Codable, Hashable, Sendable {
+    var label: String?
+}
+
+struct UpdateCardStatusRequest: Codable, Hashable, Sendable {
+    var state: String
+}
+
+struct UpdateCardLabelRequest: Codable, Hashable, Sendable {
+    var label: String
+}
+
+struct CardLookUrlResponse: Codable, Hashable, Sendable {
+    var url: String
+}
+
+struct ApplePayTokenizeRequest: Codable, Hashable, Sendable {
+    var certificates: [String]
+    var nonce: String
+    var nonceSignature: String
+}
+
+struct ApplePayTokenizeResponse: Codable, Hashable, Sendable {
+    var activationData: String
+    var encryptedPassData: String
+    var ephemeralPublicKey: String
+}
+
+struct SecuritySettingsResponse: Codable, Hashable, Sendable {
+    var idleTimeoutMinutes: Int
+    var autoLockSeconds: Int
+    var biometryRequired: Bool
+    var allowedIdleOptions: [Int]
 }
 
 // MARK: - Beneficiarios

@@ -16,6 +16,7 @@ actor MockAPIClient: CuyPayAPI {
     private var user: User
     private var walletsState: [Wallet]
     private var brebKeyState: BrebKey?
+    private var cardsState: [CardItem]
     private var beneficiariesState: [Beneficiary]
     private var transactionsState: [WalletTransaction]
     private var limitsState: LimitsSnapshot
@@ -37,6 +38,7 @@ actor MockAPIClient: CuyPayAPI {
         self.user = startsVerified ? fixtures.user : fixtures.user.with(kycStatus: .notStarted, tier: .basic)
         self.walletsState = fixtures.wallets
         self.brebKeyState = startsVerified ? fixtures.brebKey : nil
+        self.cardsState = startsVerified ? fixtures.cards : []
         self.beneficiariesState = fixtures.beneficiaries
         self.transactionsState = fixtures.transactions
         self.limitsState = fixtures.limits
@@ -213,7 +215,107 @@ actor MockAPIClient: CuyPayAPI {
         return key
     }
 
-    // MARK: - Beneficiarios
+    func changeBrebKey(preferredAlias: String) async throws -> BrebKey {
+        try requireKYC()
+        try await requireSignature(SignReason.changeBrebKey)
+        await simulateLatency(1.5)
+        let alias = preferredAlias.hasPrefix("@") ? preferredAlias : "@" + preferredAlias
+        let key = BrebKey(id: Self.newId("brk"), alias: alias, status: .active, holderName: user.fullName, createdAt: Date())
+        brebKeyState = key
+        return key
+    }
+
+    func deleteBrebKey() async throws {
+        try requireKYC()
+        try await requireSignature(SignReason.deleteBrebKey)
+        await simulateLatency(1)
+        brebKeyState = nil
+    }
+
+    // MARK: - Tarjetas (Cards & Apple Pay)
+
+    func cards() async throws -> [CardItem] {
+        await simulateLatency(0.5)
+        return cardsState
+    }
+
+    func card(id: String) async throws -> CardItem {
+        await simulateLatency(0.5)
+        guard let card = cardsState.first(where: { $0.id == id }) else {
+            throw APIError.server(status: 404, code: .notFound, message: nil, limit: nil)
+        }
+        return card
+    }
+
+    func issueVirtualCard(label: String?) async throws -> CardItem {
+        try requireKYC()
+        try await requireSignature(SignReason.issueCard)
+        await simulateLatency(2)
+        let newCard = CardItem(
+            id: Self.newId("crd"),
+            cardType: "virtual",
+            status: .active,
+            label: label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "CuyPay Virtual",
+            lastFour: "4242",
+            brand: "Mastercard",
+            currency: .cop,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        cardsState.append(newCard)
+        return newCard
+    }
+
+    func cardLookUrl(id: String) async throws -> String {
+        await simulateLatency(1)
+        guard cardsState.contains(where: { $0.id == id }) else {
+            throw APIError.server(status: 404, code: .notFound, message: nil, limit: nil)
+        }
+        return "https://cards.coinsenda.com/look/demo?card=\(id)"
+    }
+
+    func updateCardStatus(id: String, state: String) async throws -> CardItem {
+        try await requireSignature(SignReason.updateCardStatus)
+        await simulateLatency(1)
+        guard let index = cardsState.firstIndex(where: { $0.id == id }) else {
+            throw APIError.server(status: 404, code: .notFound, message: nil, limit: nil)
+        }
+        let status = CardItemStatus(rawValue: state) ?? .unknown
+        cardsState[index].status = status
+        cardsState[index].updatedAt = Date()
+        return cardsState[index]
+    }
+
+    func updateCardLabel(id: String, label: String) async throws -> CardItem {
+        await simulateLatency(0.8)
+        guard let index = cardsState.firstIndex(where: { $0.id == id }) else {
+            throw APIError.server(status: 404, code: .notFound, message: nil, limit: nil)
+        }
+        cardsState[index].label = label
+        cardsState[index].updatedAt = Date()
+        return cardsState[index]
+    }
+
+    func tokenizeApplePay(id: String, certificates: [String], nonce: String, nonceSignature: String) async throws -> ApplePayTokenizeResponse {
+        try await requireSignature(SignReason.tokenizeApplePay)
+        await simulateLatency(2)
+        return ApplePayTokenizeResponse(
+            activationData: "mock_act_data".data(using: .utf8)!.base64EncodedString(),
+            encryptedPassData: "mock_pass_data".data(using: .utf8)!.base64EncodedString(),
+            ephemeralPublicKey: "mock_pub_key".data(using: .utf8)!.base64EncodedString()
+        )
+    }
+
+    // MARK: - Seguridad
+
+    func securitySettings() async throws -> SecuritySettingsResponse {
+        SecuritySettingsResponse(
+            idleTimeoutMinutes: 15,
+            autoLockSeconds: 60,
+            biometryRequired: true,
+            allowedIdleOptions: [60, 300, 900]
+        )
+    }
 
     func resolveAlias(_ alias: String) async throws -> AliasResolution {
         await simulateLatency(2)

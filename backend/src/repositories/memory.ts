@@ -4,6 +4,7 @@ import type {
   Beneficiary,
   BrebKey,
   BrebResolution,
+  Card,
   Challenge,
   Currency,
   Device,
@@ -49,6 +50,7 @@ export function createMemoryRepositories(): Repositories {
   const nonces = new Map<string, Date>();
   const kyc = new Map<string, KycApplicant>();
   const brebKeys = new Map<string, BrebKey>();
+  const cards = new Map<string, Card>();
   const resolutions = new Map<string, BrebResolution>();
   const beneficiaries = new Map<string, Beneficiary>();
   const aml = new Map<string, AmlCheck>();
@@ -182,14 +184,43 @@ export function createMemoryRepositories(): Repositories {
       async create(k) {
         brebKeys.set(k.id, clone(k));
       },
+      async update(k) {
+        brebKeys.set(k.id, clone(k));
+      },
+      async delete(id) {
+        brebKeys.delete(id);
+      },
       async byUser(userId) {
         return opt(find(brebKeys, (k) => k.userId === userId));
+      },
+      async listByUser(userId) {
+        return [...brebKeys.values()].filter((k) => k.userId === userId).map(clone);
       },
       async byProviderKeyId(pid) {
         return opt(find(brebKeys, (k) => k.providerKeyId === pid));
       },
       async byAlias(alias) {
         return opt(find(brebKeys, (k) => k.alias === alias));
+      },
+      async byId(id) {
+        return opt(brebKeys.get(id));
+      },
+    },
+    cards: {
+      async create(c) {
+        cards.set(c.id, clone(c));
+      },
+      async update(c) {
+        cards.set(c.id, clone(c));
+      },
+      async byId(id) {
+        return opt(cards.get(id));
+      },
+      async listByUser(userId) {
+        return [...cards.values()].filter((c) => c.userId === userId).map(clone);
+      },
+      async byProviderCardId(pid) {
+        return opt(find(cards, (c) => c.providerCardId === pid));
       },
     },
     resolutions: {

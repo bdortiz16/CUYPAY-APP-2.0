@@ -75,6 +75,17 @@ struct ProfileView: View {
                         Text(usesSoftwareKey ? LocalizedStringKey("Software (solo desarrollo)") : LocalizedStringKey("Secure Enclave"))
                             .foregroundStyle(usesSoftwareKey ? Theme.warning : .secondary)
                     }
+                    Picker(selection: Binding(
+                        get: { UserDefaults.standard.integer(forKey: AppModel.autoLockKey).clampedToOptions() },
+                        set: { UserDefaults.standard.set($0, forKey: AppModel.autoLockKey) }
+                    )) {
+                        Text("Inmediato").tag(0)
+                        Text("1 minuto").tag(60)
+                        Text("5 minutos").tag(300)
+                        Text("15 minutos").tag(900)
+                    } label: {
+                        Label("Bloqueo automático", systemImage: "timer")
+                    }
                 } header: {
                     Text("Seguridad")
                 } footer: {
@@ -193,6 +204,13 @@ struct ProfileView: View {
         } catch {
             errorMessage = error.userMessage
         }
+    }
+}
+
+private extension Int {
+    func clampedToOptions() -> Int {
+        let valid = [0, 60, 300, 900]
+        return valid.contains(self) ? self : 60
     }
 }
 

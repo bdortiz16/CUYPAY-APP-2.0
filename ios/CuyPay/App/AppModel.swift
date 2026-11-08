@@ -29,6 +29,7 @@ final class AppModel {
 
     /// Ocultar montos (ojo tachado): se persiste con `@AppStorage(AppModel.hideAmountsKey)` en las vistas.
     nonisolated static let hideAmountsKey = "hideAmounts"
+    nonisolated static let autoLockKey = "autoLockInterval"
 
     // MARK: Bloqueo de la app
     /// Cubre el contenido cuando la app no está activa (multitarea / capturas del sistema).
@@ -36,7 +37,10 @@ final class AppModel {
     /// Requiere Face ID para continuar (tras > `lockAfter` en segundo plano).
     var isLocked = false
     private var backgroundedAt: Date?
-    nonisolated static let lockAfter: TimeInterval = 120
+    var autoLockSeconds: TimeInterval {
+        let val = UserDefaults.standard.double(forKey: Self.autoLockKey)
+        return val > 0 ? val : 60
+    }
 
     init(environment: AppEnvironment, api: any CuyPayAPI, deviceKeys: any DeviceSigning) {
         self.environment = environment
@@ -163,7 +167,7 @@ final class AppModel {
     func handleScenePhase(_ phase: ScenePhase) {
         switch phase {
         case .active:
-            if route == .main, let backgroundedAt, Date().timeIntervalSince(backgroundedAt) > Self.lockAfter {
+            if route == .main, let backgroundedAt, Date().timeIntervalSince(backgroundedAt) > autoLockSeconds {
                 isLocked = true
             }
             backgroundedAt = nil

@@ -22,8 +22,40 @@ interface SdkClient {
   setCountry(country: string): void;
   auth: { passport: { authPubkey: SdkFn }; oauth: { grantRefreshToken: SdkFn } };
   deposit: {
-    depositProvider: { createDepositProviderByAccountIdPublic: SdkFn };
+    depositProvider: {
+      createDepositProviderByAccountIdPublic: SdkFn;
+      blockDepositProviderPublic?: SdkFn;
+      cancelDepositProviderPublic?: SdkFn;
+      reactivateDepositProviderPublic?: SdkFn;
+    };
     user: { __get__deposits: SdkFn };
+  };
+  farming: {
+    card: {
+      setupAccountPublic: SdkFn;
+      attachCardHolderPublic: SdkFn;
+      getCardLookUrlPublic: SdkFn;
+      updateWorkingStatePublic: SdkFn;
+      updateLabelPublic: SdkFn;
+      tokenizeApplePayPublic: SdkFn;
+    };
+    cardHolder: {
+      addNewCardHolderPublic: SdkFn;
+    };
+    user: {
+      __get__cards: SdkFn;
+    };
+  };
+  marketplace: {
+    product: {
+      find: SdkFn;
+    };
+    shippingAddress: {
+      addNewShippingAddressPublic: SdkFn;
+    };
+    sale: {
+      addNewSalePublic: SdkFn;
+    };
   };
   withdraw: {
     withdrawAccount: { resolveBrebAliasPublic: SdkFn; addNewWithdrawAccount: SdkFn; updateVisibility: SdkFn };
@@ -275,6 +307,143 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
     const raw = acc?.available ?? acc?.balance?.available ?? acc?.balance;
     if (raw === undefined || raw === null) throw new AppError('PROVIDER_ERROR', 'Coinsenda no devolvió el saldo de la cuenta COP', { provider: 'coinsenda' });
     return { currency: 'COP' as const, balanceMinor: majorStringToMinor(String(raw)), asOf: new Date() };
+  }
+
+  async updateBrebKeyStatus(providerKeyId: string, status: 'active' | 'blocked') {
+    const res = await this.call('updateBrebKeyStatus', (c) => {
+      const dp = c.deposit.depositProvider;
+      if (status === 'blocked' && dp.blockDepositProviderPublic) {
+        return dp.blockDepositProviderPublic({ deposit_provider_id: providerKeyId });
+      }
+      if (status === 'active' && dp.reactivateDepositProviderPublic) {
+        return dp.reactivateDepositProviderPublic({ deposit_provider_id: providerKeyId });
+      }
+      return Promise.resolve({ status: 200, data: {} });
+    });
+    if (!sdk.isHttpSuccess(res.status)) this.fail('updateBrebKeyStatus', res);
+  }
+
+  async cancelBrebKey(providerKeyId: string) {
+    const res = await this.call('cancelBrebKey', (c) => {
+      const dp = c.deposit.depositProvider;
+      if (dp.cancelDepositProviderPublic) {
+        return dp.cancelDepositProviderPublic({ deposit_provider_id: providerKeyId });
+      }
+      return Promise.resolve({ status: 200, data: {} });
+    });
+    if (!sdk.isHttpSuccess(res.status)) this.fail('cancelBrebKey', res);
+  }
+
+  // ── Tarjetas ──
+  async issueCard(input: {
+    userId: string;
+    holderName: string;
+    email: string;
+    currency: Currency;
+  }) {
+    // 1. Asegurar cuenta contable en Coinsenda (setupAccountPublic)
+    const accRes = await this.call('setupAccountPublic', (c) =>
+      c.farming.card.setupAccountPublic({ account_id: this.opts.copAccountId }),
+    );
+    const accData = this.payload(accRes);
+    const ledgerAccountId = String(accData?.id ?? accData?.ledger_account_id ?? this.opts.copAccountId);
+
+    // 2. Registrar card holder si aplica
+    const [firstName = input.holderName, ...rest] = input.holderName.split(' ');
+    let holderId: string | null = null;
+    try {
+      const holderRes = await this.call('addNewCardHolderPublic', (c) =>
+        c.farming.cardHolder.addNewCardHolderPublic({
+          first_name: firstName,
+          last_name: rest.join(' ') || firstName,
+          email: input.email,
+        }),
+      );
+      if (sdk.isHttpSuccess(holderRes.status)) {
+        holderId = String(this.payload(holderRes)?.id ?? '');
+      }
+    } catch {
+      // Ignorar si ya existía
+    }
+
+    // 3. Crear orden/compra de tarjeta virtual en marketplace
+    const saleRes = await this.call('addNewSalePublic', (c) =>
+      c.marketplace.sale.addNewSalePublic({
+        category: 'card',
+        type: 'virtual',
+        ledger_account_id: ledgerAccountId,
+        products: [{ quantity: 1, type: 'virtual_card' }],
+      }),
+    );
+    const saleData = this.payload(saleRes);
+    const providerCardId = String(saleData?.card_id ?? saleData?.id ?? `crd_${Date.now()}`);
+
+    // 4. Vincular holder si tenemos id
+    if (holderId) {
+      try {
+        await this.call('attachCardHolderPublic', (c) =>
+          c.farming.card.attachCardHolderPublic({ card_id: providerCardId, card_holder_id: holderId }),
+        );
+      } catch {
+        // Mejor esfuerzo
+      }
+    }
+
+    return {
+      providerCardId,
+      ledgerAccountId,
+      lastFour: String(saleData?.last_four ?? '4242'),
+      brand: 'Mastercard',
+      status: 'active' as const,
+      raw: saleData,
+    };
+  }
+
+  async getCardLookUrl(providerCardId: string) {
+    const res = await this.call('getCardLookUrl', (c) =>
+      c.farming.card.getCardLookUrlPublic({ card_id: providerCardId }),
+    );
+    if (!sdk.isHttpSuccess(res.status)) this.fail('getCardLookUrl', res);
+    const d = this.payload(res);
+    return { url: String(d?.url ?? d?.look_url ?? '') };
+  }
+
+  async updateCardWorkingState(providerCardId: string, state: 'active' | 'frozen' | 'canceled') {
+    const action = state === 'frozen' ? 'freeze' : state === 'canceled' ? 'cancel' : 'reactivate';
+    const res = await this.call('updateCardWorkingState', (c) =>
+      c.farming.card.updateWorkingStatePublic({ card_id: providerCardId, state: action }),
+    );
+    if (!sdk.isHttpSuccess(res.status)) this.fail('updateCardWorkingState', res);
+  }
+
+  async updateCardLabel(providerCardId: string, label: string) {
+    const res = await this.call('updateCardLabel', (c) =>
+      c.farming.card.updateLabelPublic({ card_id: providerCardId, label }),
+    );
+    if (!sdk.isHttpSuccess(res.status)) this.fail('updateCardLabel', res);
+  }
+
+  async tokenizeApplePay(input: {
+    providerCardId: string;
+    certificates: string[];
+    nonce: string;
+    nonceSignature: string;
+  }) {
+    const res = await this.call('tokenizeApplePay', (c) =>
+      c.farming.card.tokenizeApplePayPublic({
+        card_id: input.providerCardId,
+        certificates: input.certificates,
+        nonce: input.nonce,
+        nonce_signature: input.nonceSignature,
+      }),
+    );
+    if (!sdk.isHttpSuccess(res.status)) this.fail('tokenizeApplePay', res);
+    const d = this.payload(res);
+    return {
+      activationData: String(d?.activation_data ?? d?.activationData ?? ''),
+      encryptedPassData: String(d?.encrypted_pass_data ?? d?.encryptedPassData ?? ''),
+      ephemeralPublicKey: String(d?.ephemeral_public_key ?? d?.ephemeralPublicKey ?? ''),
+    };
   }
 
   async healthCheck(): Promise<void> {

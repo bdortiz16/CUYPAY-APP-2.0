@@ -88,9 +88,21 @@ export interface KycRepo {
 
 export interface BrebKeyRepo {
   create(k: BrebKey): Promise<void>;
+  update(k: BrebKey): Promise<void>;
+  delete(id: string): Promise<void>;
   byUser(userId: string): Promise<BrebKey | null>;
+  listByUser(userId: string): Promise<BrebKey[]>;
   byProviderKeyId(providerKeyId: string): Promise<BrebKey | null>;
   byAlias(alias: string): Promise<BrebKey | null>;
+  byId(id: string): Promise<BrebKey | null>;
+}
+
+export interface CardRepo {
+  create(c: Card): Promise<void>;
+  update(c: Card): Promise<void>;
+  byId(id: string): Promise<Card | null>;
+  listByUser(userId: string): Promise<Card[]>;
+  byProviderCardId(providerCardId: string): Promise<Card | null>;
 }
 
 export interface ResolutionRepo {
@@ -221,6 +233,7 @@ export interface Repositories {
   nonces: NonceRepo;
   kyc: KycRepo;
   brebKeys: BrebKeyRepo;
+  cards: CardRepo;
   resolutions: ResolutionRepo;
   beneficiaries: BeneficiaryRepo;
   aml: AmlRepo;

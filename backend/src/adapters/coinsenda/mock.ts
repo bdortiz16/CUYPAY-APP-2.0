@@ -116,6 +116,57 @@ export class MockCoinsendaGateway implements CoinsendaGateway {
     return [...this.deposits].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 200);
   }
 
+  async updateBrebKeyStatus(providerKeyId: string, status: 'active' | 'blocked') {
+    // Simulado
+  }
+
+  async cancelBrebKey(providerKeyId: string) {
+    // Simulado: cancela y libera el alias
+    for (const [alias, holder] of this.directory.entries()) {
+      if ((holder.raw as any)?.userRef === providerKeyId) {
+        this.directory.delete(alias);
+      }
+    }
+  }
+
+  // ── Tarjetas ──
+  async issueCard(input: { userId: string; holderName: string; email: string; currency: Currency }) {
+    const cardId = `crd_cs_${randomUUID().slice(0, 8)}`;
+    return {
+      providerCardId: cardId,
+      ledgerAccountId: `acc_card_${randomUUID().slice(0, 8)}`,
+      lastFour: '4242',
+      brand: 'Mastercard',
+      status: 'active' as const,
+      raw: { mock: true, ...input },
+    };
+  }
+
+  async getCardLookUrl(providerCardId: string) {
+    return { url: `https://cards.coinsenda.com/look/mock?card=${providerCardId}` };
+  }
+
+  async updateCardWorkingState(providerCardId: string, state: 'active' | 'frozen' | 'canceled') {
+    // Simulado
+  }
+
+  async updateCardLabel(providerCardId: string, label: string) {
+    // Simulado
+  }
+
+  async tokenizeApplePay(input: {
+    providerCardId: string;
+    certificates: string[];
+    nonce: string;
+    nonceSignature: string;
+  }) {
+    return {
+      activationData: Buffer.from(`mock_activation_${input.providerCardId}`).toString('base64'),
+      encryptedPassData: Buffer.from('mock_encrypted_pass_data').toString('base64'),
+      ephemeralPublicKey: Buffer.from('mock_ephemeral_public_key').toString('base64'),
+    };
+  }
+
   /** Simula un depósito Bre-B entrante a una llave. */
   simulateDeposit(input: { providerKeyId: string; amountMinor: bigint; payerName?: string; id?: string }): CoinsendaDeposit {
     const dep: CoinsendaDeposit = {

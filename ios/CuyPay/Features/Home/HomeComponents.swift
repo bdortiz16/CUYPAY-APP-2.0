@@ -215,6 +215,124 @@ struct RateChartCard: View {
     }
 }
 
+// MARK: - Tarjeta CuyPay (acceso rápido en Inicio)
+
+struct CardQuickCard: View {
+    let card: CardItem?
+    let isLoading: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Tarjeta")
+                        .font(.system(.subheadline, design: .serif).weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    if let card {
+                        Circle()
+                            .fill(card.status == .active ? Theme.positive : Theme.coral)
+                            .frame(width: 7, height: 7)
+                    }
+                }
+
+                if isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 110)
+                } else if let card {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("CuyPay")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                            Spacer()
+                            Image(systemName: "wave.3.forward")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.white.opacity(0.8))
+                        }
+
+                        Spacer(minLength: 0)
+
+                        Text(card.maskedPan)
+                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.white)
+
+                        HStack {
+                            Text(card.label)
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.8))
+                                .lineLimit(1)
+                            Spacer()
+                            Text(card.status == .active ? "Activa" : "Congelada")
+                                .font(.system(size: 8, weight: .semibold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(card.status == .active ? Theme.positive.opacity(0.3) : Theme.coral.opacity(0.3), in: Capsule())
+                                .foregroundStyle(.white)
+                        }
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, minHeight: 90)
+                    .background(
+                        LinearGradient(
+                            colors: card.status == .active
+                                ? [Theme.onyx, Theme.spruce.opacity(0.85)]
+                                : [Theme.onyx.opacity(0.7), Color.gray.opacity(0.6)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        in: RoundedRectangle(cornerRadius: 12)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(.white.opacity(0.18), lineWidth: 0.8)
+                    )
+
+                    HStack(spacing: 4) {
+                        Text("Administrar")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 2)
+                } else {
+                    VStack(spacing: 8) {
+                        Image(systemName: "creditcard.and.123")
+                            .font(.system(size: 26))
+                            .foregroundStyle(Theme.spruce)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 6)
+
+                        Text("Pide tu tarjeta virtual gratis")
+                            .font(.caption2)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+
+                        Text("Solicitar")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Theme.onyx, in: Capsule())
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 190, alignment: .top)
+            .contentShape(.rect(cornerRadius: Theme.cardRadius))
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: Theme.cardRadius))
+        .accessibilityLabel(Text(card != nil ? "Tarjeta CuyPay \(card!.maskedPan)" : "Solicitar Tarjeta CuyPay"))
+    }
+}
+
 // MARK: - Beneficiarios (acciones rápidas)
 
 struct BeneficiariesQuickCard: View {

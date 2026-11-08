@@ -5,6 +5,7 @@ struct Endpoint<Response: Decodable & Sendable>: Sendable {
     enum Method: String, Sendable {
         case get = "GET"
         case post = "POST"
+        case put = "PUT"
         case delete = "DELETE"
     }
 
@@ -37,6 +38,10 @@ extension Endpoint {
     /// POST sin body (`/auth/logout`, `/kyc/sumsub/token`).
     static func post(_ path: String, auth: Bool = true, signReason: String? = nil) -> Endpoint {
         Endpoint(method: .post, path: path, body: nil, requiresAuth: auth, signReason: signReason)
+    }
+
+    static func put<Body: Encodable>(_ path: String, body: Body, auth: Bool = true, signReason: String? = nil) throws -> Endpoint {
+        Endpoint(method: .put, path: path, body: try JSONCoding.makeEncoder().encode(body), requiresAuth: auth, signReason: signReason)
     }
 
     static func delete(_ path: String, signReason: String? = nil) -> Endpoint {

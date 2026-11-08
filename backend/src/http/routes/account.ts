@@ -36,4 +36,13 @@ export function registerAccountRoutes(app: FastifyInstance, { services }: Contai
     await services.devices.revoke(req.auth!.userId, id);
     return reply.status(204).send();
   });
+
+  app.get('/me/security', auth, async () => {
+    return {
+      idleTimeoutMinutes: 15,
+      autoLockSeconds: 60,
+      biometryRequired: true,
+      allowedIdleOptions: [60, 300, 900],
+    };
+  });
 }

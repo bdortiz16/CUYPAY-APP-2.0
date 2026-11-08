@@ -54,7 +54,44 @@ export interface CoinsendaGateway {
   getWithdraw(withdrawId: string): Promise<{ state: WithdrawState; raw: unknown } | null>;
   /** Los depósitos más recientes de la cuenta (ventana de 200, order id DESC). */
   listDeposits(): Promise<CoinsendaDeposit[]>;
-  /** Saldo disponible de la cuenta COP ómnibus (tesorería del portal admin). */
+  /** Bloquea o reactiva una llave Bre-B propia. */
+  updateBrebKeyStatus?(providerKeyId: string, status: 'active' | 'blocked'): Promise<void>;
+  /** Cancela definitivamente una llave Bre-B propia. */
+  cancelBrebKey?(providerKeyId: string): Promise<void>;
+
+  // ── Tarjetas (farming + marketplace) ──
+  /** Emite o vincula una tarjeta virtual/física en Coinsenda. */
+  issueCard(input: {
+    userId: string;
+    holderName: string;
+    email: string;
+    currency: Currency;
+  }): Promise<{
+    providerCardId: string;
+    ledgerAccountId: string;
+    lastFour: string;
+    brand: string;
+    status: 'active' | 'frozen';
+    raw: unknown;
+  }>;
+  /** Obtiene la URL segura (iframe del emisor) donde el usuario ve PAN, fecha y CVV. */
+  getCardLookUrl(providerCardId: string): Promise<{ url: string }>;
+  /** Actualiza el estado operativo: congelada (freeze), activa (reactivate) o cancelada. */
+  updateCardWorkingState(providerCardId: string, state: 'active' | 'frozen' | 'canceled'): Promise<void>;
+  /** Renombra la tarjeta. */
+  updateCardLabel(providerCardId: string, label: string): Promise<void>;
+  /** Tokenización in-app provisioning para Apple Pay. */
+  tokenizeApplePay(input: {
+    providerCardId: string;
+    certificates: string[];
+    nonce: string;
+    nonceSignature: string;
+  }): Promise<{
+    activationData: string;
+    encryptedPassData: string;
+    ephemeralPublicKey: string;
+  }>;
+  /** Consulta el saldo disponible de la cuenta COP ómnibus (tesorería del portal admin). */
   getBalance?(): Promise<{ currency: Currency; balanceMinor: bigint; asOf: Date }>;
   /** Health check liviano (portal admin). Lanza si el proveedor no responde. */
   healthCheck?(): Promise<void>;

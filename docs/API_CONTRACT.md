@@ -95,7 +95,9 @@ Sin `kycStatus = approved` no se puede crear llave Bre-B, enviar ni convertir (`
 | Método | Ruta | Body | Respuesta |
 |---|---|---|---|
 | GET | `/breb/key` | – | `BrebKey` o `404 NOT_FOUND` |
-| POST 🔐 | `/breb/key` | `{ preferredAlias? }` (si no, se genera con prefijo `@cuypay...`) | `BrebKey` |
+| POST 🔐 | `/breb/key` | `{ preferredAlias? }` (si no, se genera con prefijo `@cuypay...`) | `201 BrebKey` |
+| PUT 🔐 | `/breb/key` | `{ preferredAlias? }` (reemplazo atómico de alias en Coinsenda) | `200 BrebKey` |
+| DELETE 🔐 | `/breb/key` | – | `204` |
 
 ```json
 { "id": "brk_...", "alias": "@cuypayana123", "status": "active|blocked|pending", "holderName": "Ana Gómez", "createdAt": "..." }
@@ -183,7 +185,57 @@ Excederlos → `422 LIMIT_EXCEEDED` con `details: { operation, period, limitMino
 
 `GET /devices` → `{ items: [{ id, name, createdAt, lastUsedAt, current }] }` · `DELETE 🔐 /devices/{id}` → `204`.
 
-## 12. Códigos HTTP por error (implementados en el backend)
+## 12. Tarjetas CuyPay (Virtuales respaldadas por Coinsenda)
+
+CuyPay permite la emisión y gestión de tarjetas virtuales internacionales conectadas al saldo COP de la cuenta.
+
+> [!IMPORTANT]
+> **Seguridad PCI-DSS**: El backend de CuyPay **nunca** almacena ni procesa el PAN completo ni el CVV de las tarjetas. Los datos sensibles se muestran exclusivamente al usuario final mediante un iframe o SafariViewController protegido generado por Coinsenda (`look-url`).
+
+| Método | Ruta | Body | Respuesta |
+|---|---|---|---|
+| GET | `/cards` | – | `{ items: [Card] }` |
+| GET | `/cards/:id` | – | `Card` |
+| POST 🔐 | `/cards/virtual` | `{ label? }` | `201 Card` (máximo 3 tarjetas activas por usuario, requiere KYC aprobado) |
+| GET | `/cards/:id/look-url` | – | `{ lookUrl: string, expiresAt: string }` |
+| PUT 🔐 | `/cards/:id/status` | `{ workingState: "active" \| "inactive" }` | `Card` (congelar / reactivar) |
+| PUT | `/cards/:id/label` | `{ label: string }` | `Card` (renombrar tarjeta) |
+| POST 🔐 | `/cards/:id/apple-pay/tokenize` | `{ certificates: string[], nonce: string, nonceSignature: string }` | `{ encryptedPassData: string, activationData: string, ephemeralPublicKey: string }` |
+| DELETE 🔐 | `/cards/:id` | – | `Card` (estado `canceled`, irreversible) |
+
+```jsonc
+// Card
+{
+  "id": "crd_...",
+  "type": "virtual",
+  "status": "active", // "active" | "inactive" | "canceled"
+  "last4": "4321",
+  "maskedPan": "•••• 4321",
+  "expiryMonth": "12",
+  "expiryYear": "28",
+  "cardholderName": "ANA GOMEZ",
+  "label": "Compras Online",
+  "currency": "COP",
+  "limits": {
+    "dailyPurchaseMinor": 500000000,
+    "monthlyPurchaseMinor": 2000000000
+  },
+  "createdAt": "..."
+}
+```
+
+## 13. Seguridad, Bloqueo por Inactividad y Sesión
+
+- **Auto-lock configurable**: La app iOS implementa bloqueo automático configurable por el usuario (`inmediato`, `1 min`, `5 min`, `15 min`) usando `@AppStorage("cuypay_auto_lock_seconds")`.
+- **Cortina de privacidad**: Al pasar a segundo plano (`scenePhase == .background`), la app superpone una cortina de privacidad borrosa para proteger saldos y tarjetas en la vista multitarea de iOS.
+- **Biometría continua**: Al reanudar tras expirar el tiempo de inactividad, se exige autenticación biométrica (Face ID / Touch ID / PIN) para remover la cortina y reactivar la sesión.
+- **Configuración del backend**:
+
+| Método | Ruta | Respuesta |
+|---|---|---|
+| GET | `/me/security` | `{ idleTimeoutSeconds: 300, maxSessionHours: 24, biometricsRequired: true }` |
+
+## 14. Códigos HTTP por error (implementados en el backend)
 
 | HTTP | Códigos |
 |---|---|
@@ -198,3 +250,4 @@ Excederlos → `422 LIMIT_EXCEEDED` con `details: { operation, period, limitMino
 
 Notas: un resultado AML `review` responde `201` con `status: "pending_review"` (no se emite `AML_REVIEW`).
 Los límites se calculan sobre `amountMinor` (sin comisión). Un envío puede quedar `pending` hasta que Coinsenda lo liquide.
+

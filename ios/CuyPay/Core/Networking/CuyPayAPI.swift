@@ -31,6 +31,25 @@ protocol CuyPayAPI: Sendable {
     func brebKey() async throws -> BrebKey?
     /// 🔐
     func createBrebKey(preferredAlias: String?) async throws -> BrebKey
+    /// 🔐
+    func changeBrebKey(preferredAlias: String) async throws -> BrebKey
+    /// 🔐
+    func deleteBrebKey() async throws
+
+    // MARK: Tarjetas (Coinsenda Farming & Marketplace)
+    func cards() async throws -> [CardItem]
+    func card(id: String) async throws -> CardItem
+    /// 🔐
+    func issueVirtualCard(label: String?) async throws -> CardItem
+    func cardLookUrl(id: String) async throws -> String
+    /// 🔐
+    func updateCardStatus(id: String, state: String) async throws -> CardItem
+    func updateCardLabel(id: String, label: String) async throws -> CardItem
+    /// 🔐
+    func tokenizeApplePay(id: String, certificates: [String], nonce: String, nonceSignature: String) async throws -> ApplePayTokenizeResponse
+
+    // MARK: Seguridad y sesión
+    func securitySettings() async throws -> SecuritySettingsResponse
 
     // MARK: Beneficiarios
     func resolveAlias(_ alias: String) async throws -> AliasResolution
@@ -67,6 +86,11 @@ protocol CuyPayAPI: Sendable {
 enum SignReason {
     static var login: String { String(localized: "Ingresa a CuyPay") }
     static var createBrebKey: String { String(localized: "Confirma la creación de tu llave Bre-B") }
+    static var changeBrebKey: String { String(localized: "Confirma el cambio de tu llave Bre-B") }
+    static var deleteBrebKey: String { String(localized: "Confirma la eliminación de tu llave Bre-B") }
+    static var issueCard: String { String(localized: "Autoriza la emisión de tu tarjeta virtual") }
+    static var updateCardStatus: String { String(localized: "Confirma el cambio de estado de tu tarjeta") }
+    static var tokenizeApplePay: String { String(localized: "Autoriza vincular tu tarjeta a Apple Pay") }
     static var createBeneficiary: String { String(localized: "Confirma la inscripción del beneficiario") }
     static var deleteBeneficiary: String { String(localized: "Confirma la eliminación del beneficiario") }
     static var transfer: String { String(localized: "Autoriza el envío") }

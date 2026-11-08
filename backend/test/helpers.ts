@@ -69,7 +69,7 @@ export class TestClient {
     public session: Session,
   ) {}
 
-  async call(method: 'GET' | 'POST' | 'DELETE', url: string, body?: unknown, extraHeaders: Record<string, string> = {}) {
+  async call(method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, body?: unknown, extraHeaders: Record<string, string> = {}) {
     const payload = body === undefined ? undefined : JSON.stringify(body);
     const res = await this.env.app.inject({
       method,
@@ -96,7 +96,7 @@ export class TestClient {
     };
   }
 
-  async signed(method: 'POST' | 'DELETE', url: string, body?: unknown, opts: Parameters<TestClient['signHeaders']>[3] = {}) {
+  async signed(method: 'POST' | 'PUT' | 'DELETE', url: string, body?: unknown, opts: Parameters<TestClient['signHeaders']>[3] = {}) {
     const payload = body === undefined ? undefined : JSON.stringify(body);
     const headers = this.signHeaders(method, url, payload, opts);
     return this.call(method, url, body, headers);

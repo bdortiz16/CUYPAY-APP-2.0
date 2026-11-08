@@ -15,6 +15,8 @@ final class WalletStore {
     var limits: LimitsSnapshot?
     var brebKey: BrebKey?
     var brebKeyLoaded = false
+    var cards: [CardItem] = []
+    var cardsLoaded = false
 
     var isLoading = false
     var hasLoadedOnce = false
@@ -51,6 +53,7 @@ final class WalletStore {
         async let rateTask = api.fxRate(from: .cop, to: .brl)
         async let limitsTask = api.limits()
         async let keyTask = api.brebKey()
+        async let cardsTask = api.cards()
 
         do {
             wallets = try await walletsTask
@@ -70,6 +73,10 @@ final class WalletStore {
             brebKeyLoaded = true
         } catch {
             // Se reintenta al abrir "Recibir".
+        }
+        if let cardList = try? await cardsTask {
+            cards = cardList
+            cardsLoaded = true
         }
     }
 
@@ -110,6 +117,15 @@ final class WalletStore {
         }
     }
 
+    func refreshCards() async {
+        do {
+            cards = try await api.cards()
+            cardsLoaded = true
+        } catch {
+            cardsLoaded = true
+        }
+    }
+
     /// Después de un envío o conversión.
     func refreshAfterMovement() async {
         async let w: Void = refreshWallets()
@@ -127,6 +143,8 @@ final class WalletStore {
         limits = nil
         brebKey = nil
         brebKeyLoaded = false
+        cards = []
+        cardsLoaded = false
         hasLoadedOnce = false
         errorMessage = nil
     }

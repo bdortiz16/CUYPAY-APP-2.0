@@ -4,6 +4,7 @@ import type { Container } from '../../container.js';
 import {
   presentBeneficiary,
   presentBrebKey,
+  presentCard,
   presentLimits,
   presentQuote,
   presentResolution,
@@ -17,6 +18,15 @@ const IdemKey = z.string().min(8).max(128).regex(/^[A-Za-z0-9_\-:.]+$/);
 const Id = z.string().min(1).max(64);
 
 const CreateKey = z.object({ preferredAlias: z.string().min(1).max(32).optional() });
+const ChangeKey = z.object({ preferredAlias: z.string().min(1).max(32) });
+const IssueCard = z.object({ label: z.string().min(1).max(30).optional() });
+const UpdateCardState = z.object({ state: z.enum(['active', 'frozen', 'canceled']) });
+const UpdateCardLabel = z.object({ label: z.string().min(1).max(30) });
+const ApplePayTokenize = z.object({
+  certificates: z.array(z.string()),
+  nonce: z.string(),
+  nonceSignature: z.string(),
+});
 const Resolve = z.object({ alias: z.string().trim().min(1).max(64) });
 const CreateBen = z.object({ resolutionId: Id, nickname: z.string().trim().max(60).optional() });
 const Preview = z.object({ beneficiaryId: Id, amountMinor: Amount });
@@ -35,6 +45,56 @@ export function registerMoneyRoutes(app: FastifyInstance, { services }: Containe
   app.post('/breb/key', signed, async (req) => {
     const { preferredAlias } = parse(CreateKey, req.body);
     return presentBrebKey(await services.breb.create(await h.currentUser(req), preferredAlias));
+  });
+
+  app.put('/breb/key', signed, async (req) => {
+    const { preferredAlias } = parse(ChangeKey, req.body);
+    return presentBrebKey(await services.breb.change(await h.currentUser(req), preferredAlias));
+  });
+
+  app.delete('/breb/key', signed, async (req, reply) => {
+    await services.breb.delete(await h.currentUser(req));
+    return reply.status(204).send();
+  });
+
+  // ── Tarjetas (Coinsenda Farming & Marketplace) ──
+  app.get('/cards', auth, async (req) => {
+    const cards = await services.cards.list(req.auth!.userId);
+    return { items: cards.map(presentCard) };
+  });
+
+  app.get('/cards/:id', auth, async (req) => {
+    const { id } = parse(z.object({ id: Id }), req.params);
+    return presentCard(await services.cards.get(req.auth!.userId, id));
+  });
+
+  app.post('/cards/virtual', signed, async (req, reply) => {
+    const body = parse(IssueCard, req.body ?? {});
+    const card = await services.cards.issueVirtual(await h.currentUser(req), body);
+    return reply.status(201).send(presentCard(card));
+  });
+
+  app.get('/cards/:id/look-url', auth, async (req) => {
+    const { id } = parse(z.object({ id: Id }), req.params);
+    return services.cards.getLookUrl(req.auth!.userId, id);
+  });
+
+  app.put('/cards/:id/status', signed, async (req) => {
+    const { id } = parse(z.object({ id: Id }), req.params);
+    const { state } = parse(UpdateCardState, req.body);
+    return presentCard(await services.cards.updateWorkingState(req.auth!.userId, id, state));
+  });
+
+  app.put('/cards/:id/label', auth, async (req) => {
+    const { id } = parse(z.object({ id: Id }), req.params);
+    const { label } = parse(UpdateCardLabel, req.body);
+    return presentCard(await services.cards.updateLabel(req.auth!.userId, id, label));
+  });
+
+  app.post('/cards/:id/apple-pay/tokenize', signed, async (req) => {
+    const { id } = parse(z.object({ id: Id }), req.params);
+    const body = parse(ApplePayTokenize, req.body);
+    return services.cards.tokenizeApplePay(req.auth!.userId, id, body);
   });
 
   // ── Beneficiarios ──
