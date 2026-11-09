@@ -115,6 +115,30 @@ final class AppModel {
         }
     }
 
+    func loginWithPassword(phone: String, password: String) async -> Bool {
+        guard !isAuthenticating else { return false }
+        isAuthenticating = true
+        loginError = nil
+        defer { isAuthenticating = false }
+
+        do {
+            let digits = phone.filter(\.isASCIIDigit)
+            let formattedPhone = phone.hasPrefix("+") ? phone : (digits.count == 10 ? "+57\(digits)" : phone)
+            let pubKey = try? await deviceKeys.createKey()
+            let session = try await api.loginWithPassword(
+                phone: formattedPhone,
+                password: password,
+                deviceName: UIDevice.current.name,
+                devicePublicKey: pubKey
+            )
+            didAuthenticate(session.user)
+            return true
+        } catch {
+            loginError = error.userMessage
+            return false
+        }
+    }
+
     /// Se llama tras login o registro exitoso.
     func didAuthenticate(_ user: User) {
         self.user = user

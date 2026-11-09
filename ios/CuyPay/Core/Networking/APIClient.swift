@@ -198,6 +198,13 @@ actor APIClient: CuyPayAPI {
         return session
     }
 
+    func loginWithPassword(phone: String, password: String, deviceName: String?, devicePublicKey: String?) async throws -> AuthSession {
+        let body = LoginPasswordRequest(phone: phone, password: password, deviceName: deviceName, devicePublicKey: devicePublicKey)
+        let session: AuthSession = try await send(.post("/auth/login/password", body: body, auth: false))
+        try await tokens.store(session)
+        return session
+    }
+
     func logout() async throws {
         do {
             let _: EmptyResponse = try await send(.post("/auth/logout"))

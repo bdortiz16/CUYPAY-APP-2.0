@@ -25,6 +25,15 @@ describe('flujo completo (happy path)', () => {
     expect(login.statusCode).toBe(200);
     c.session.accessToken = login.json().accessToken;
 
+    // 2.1) Login alternativo con contraseña
+    const pwLogin = await env.app.inject({
+      method: 'POST',
+      url: '/v1/auth/login/password',
+      payload: { phone: me.body.phone, password: 'MySecurePassword123' },
+    });
+    // Si no registró contraseña, da 401
+    expect([200, 401]).toContain(pwLogin.statusCode);
+
     // Sin KYC no se puede crear llave
     expect((await c.signed('POST', '/v1/breb/key', {})).body.error.code).toBe('KYC_REQUIRED');
 

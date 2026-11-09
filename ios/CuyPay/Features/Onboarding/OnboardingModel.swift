@@ -9,6 +9,7 @@ final class OnboardingModel {
     enum Step: Hashable {
         case phone
         case otp
+        case password
         case profile
         case faceID
         case kycIntro
@@ -21,6 +22,8 @@ final class OnboardingModel {
     var otpId: String?
     var otpExpiresAt: Date?
     var otpCode = ""
+    var password = ""
+    var confirmPassword = ""
     var firstName = ""
     var lastName = ""
     var email = ""
@@ -51,6 +54,7 @@ final class OnboardingModel {
         return "+57 \(String(d[0..<3])) \(String(d[3..<6])) \(String(d[6..<10]))"
     }
     var isOTPComplete: Bool { otpCode.count == 6 }
+    var isPasswordValid: Bool { password.count >= 4 && password == confirmPassword }
     var isEmailValid: Bool {
         let parts = email.trimmingCharacters(in: .whitespaces).split(separator: "@")
         return parts.count == 2 && parts[1].contains(".") && !parts[0].isEmpty && parts[1].last != "."
@@ -81,6 +85,19 @@ final class OnboardingModel {
 
     func confirmOTP() {
         guard isOTPComplete else { return }
+        errorMessage = nil
+        path.append(.password)
+    }
+
+    func confirmPasswordStep() {
+        guard isPasswordValid else {
+            if password.count < 4 {
+                errorMessage = String(localized: "La contraseña debe tener al menos 4 caracteres.")
+            } else if password != confirmPassword {
+                errorMessage = String(localized: "Las contraseñas no coinciden.")
+            }
+            return
+        }
         errorMessage = nil
         path.append(.profile)
     }
@@ -115,7 +132,8 @@ final class OnboardingModel {
                 lastName: lastName.trimmingCharacters(in: .whitespaces),
                 country: "CO",
                 deviceName: UIDevice.current.name,
-                devicePublicKey: publicKey
+                devicePublicKey: publicKey,
+                password: password
             )
             let session = try await app.api.register(request)
             app.user = session.user

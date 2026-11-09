@@ -34,12 +34,16 @@ export class AuthService {
     return createHmac('sha256', this.d.config.JWT_SECRET).update(`${otpId}:${code}`).digest('hex');
   }
 
+  private hashPassword(userId: string, password: string): string {
+    return createHmac('sha256', this.d.config.JWT_SECRET).update(`${userId}:${password}`).digest('hex');
+  }
+
   // ───────────── OTP ─────────────
 
   async requestOtp(phone: string) {
     const now = this.d.clock.now();
     const id = newId('otp', now);
-    const isMockOtp = this.d.config.OTP_PROVIDER_MODE === 'mock' || this.d.config.NODE_ENV !== 'production';
+    const isMockOtp = this.d.config.OTP_PROVIDER_MODE === 'mock';
     const code = isMockOtp ? DEV_OTP_CODE : String(randomBytes(4).readUInt32BE() % 1_000_000).padStart(6, '0');
     const expiresAt = new Date(now.getTime() + this.d.config.OTP_TTL_SECONDS * 1000);
     await this.d.repos.otps.create({ id, phone, codeHash: this.hashOtp(id, code), attempts: 0, expiresAt, consumedAt: null, createdAt: now });
@@ -76,6 +80,7 @@ export class AuthService {
     country: 'CO';
     deviceName: string;
     devicePublicKey: string;
+    password?: string;
   }): Promise<AuthSessionResult> {
     // Validar la clave antes de consumir el OTP para no quemarlo por un error del cliente.
     p256PublicKeyFromX963(input.devicePublicKey);
@@ -86,14 +91,18 @@ export class AuthService {
     let created = false;
     if (user) {
       await assertNotFrozen(this.d, user.id);
-      // Re-enrolamiento: el teléfono ya existe (p. ej. cambió Face ID y la clave del Secure Enclave quedó inválida).
-      // TODO(security): para usuarios con KYC aprobado, exigir re-verificación biométrica (Sumsub liveness) antes de vincular.
+      if (input.password) {
+        user.passwordHash = this.hashPassword(user.id, input.password);
+        user.updatedAt = now;
+        await this.d.repos.users.update(user);
+      }
       this.d.logger.warn({ userId: user.id }, 'device re-enrollment via OTP');
     } else {
       const byEmail = await this.d.repos.users.byEmail(input.email);
       if (byEmail) throw new AppError('VALIDATION_ERROR', 'El correo ya está registrado', { field: 'email' });
+      const userId = newId('usr', now);
       user = {
-        id: newId('usr', now),
+        id: userId,
         phone: input.phone,
         email: input.email.toLowerCase(),
         firstName: input.firstName.trim(),
@@ -101,6 +110,7 @@ export class AuthService {
         country: 'CO',
         kycStatus: process.env.AUTO_APPROVE_KYC === 'true' ? 'approved' : 'not_started',
         tier: process.env.AUTO_APPROVE_KYC === 'true' ? 'full' : 'basic',
+        passwordHash: input.password ? this.hashPassword(userId, input.password) : undefined,
         createdAt: now,
         updatedAt: now,
       };
@@ -119,6 +129,63 @@ export class AuthService {
     await this.d.repos.devices.create(device);
     if (created) await this.d.events.publish({ type: 'customer.created', user });
     await this.d.events.publish({ type: 'device.created', device });
+    return this.issueSession(user, device, newId('sfm', now));
+  }
+
+  // ───────────── Login con contraseña ─────────────
+
+  async loginWithPassword(input: {
+    phone: string;
+    password: string;
+    deviceName?: string;
+    devicePublicKey?: string;
+  }): Promise<AuthSessionResult> {
+    const user = await this.d.repos.users.byPhone(input.phone);
+    if (!user || !user.passwordHash) {
+      throw new AppError('UNAUTHORIZED', 'Celular o contraseña incorrectos');
+    }
+    await assertNotFrozen(this.d, user.id);
+
+    const expectedHash = Buffer.from(user.passwordHash, 'hex');
+    const actualHash = Buffer.from(this.hashPassword(user.id, input.password), 'hex');
+    if (expectedHash.length !== actualHash.length || !timingSafeEqual(expectedHash, actualHash)) {
+      throw new AppError('UNAUTHORIZED', 'Celular o contraseña incorrectos');
+    }
+
+    const now = this.d.clock.now();
+    let device: Device | null = null;
+    if (input.devicePublicKey) {
+      p256PublicKeyFromX963(input.devicePublicKey);
+      device = {
+        id: newId('dev', now),
+        userId: user.id,
+        name: (input.deviceName || 'iPhone').trim(),
+        publicKey: input.devicePublicKey.trim(),
+        createdAt: now,
+        lastUsedAt: now,
+        revokedAt: null,
+      };
+      await this.d.repos.devices.create(device);
+      await this.d.events.publish({ type: 'device.created', device });
+    } else {
+      const devices = await this.d.repos.devices.byUserId(user.id);
+      device = devices.find(d => !d.revokedAt) || null;
+      if (!device) {
+        device = {
+          id: newId('dev', now),
+          userId: user.id,
+          name: (input.deviceName || 'iPhone').trim(),
+          publicKey: '',
+          createdAt: now,
+          lastUsedAt: now,
+          revokedAt: null,
+        };
+        await this.d.repos.devices.create(device);
+      }
+    }
+
+    device.lastUsedAt = now;
+    await this.d.repos.devices.update(device);
     return this.issueSession(user, device, newId('sfm', now));
   }
 

@@ -15,6 +15,7 @@ export interface User {
   country: 'CO';
   kycStatus: KycStatus;
   tier: Tier;
+  passwordHash?: string;
   createdAt: Date;
   updatedAt: Date;
 }

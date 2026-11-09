@@ -17,12 +17,19 @@ const Register = z.object({
   country: z.literal('CO'),
   deviceName: z.string().trim().min(1).max(100),
   devicePublicKey: z.string().min(80).max(120),
+  password: z.string().min(4).max(64).optional(),
 });
 const ChallengeReq = z.object({ deviceId: z.string().min(1).max(64) });
 const LoginReq = z.object({
   challengeId: z.string().min(1).max(64),
   deviceId: z.string().min(1).max(64),
   signature: z.string().min(8).max(200),
+});
+const LoginPasswordReq = z.object({
+  phone: Phone,
+  password: z.string().min(4).max(64),
+  deviceName: z.string().trim().max(100).optional(),
+  devicePublicKey: z.string().min(80).max(120).optional(),
 });
 const RefreshReq = z.object({ refreshToken: z.string().min(16).max(200) });
 
@@ -38,6 +45,11 @@ export function registerAuthRoutes(app: FastifyInstance, { services }: Container
   app.post('/auth/register', rl, async (req) => {
     const body = parse(Register, req.body);
     return presentSession(await services.auth.register(body));
+  });
+
+  app.post('/auth/login/password', rl, async (req) => {
+    const body = parse(LoginPasswordReq, req.body);
+    return presentSession(await services.auth.loginWithPassword(body));
   });
 
   app.post('/auth/challenge', rl, async (req) => {

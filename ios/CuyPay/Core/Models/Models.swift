@@ -73,6 +73,14 @@ struct RegisterRequest: Codable, Hashable, Sendable {
     var country: String = "CO"
     var deviceName: String
     var devicePublicKey: String
+    var password: String? = nil
+}
+
+struct LoginPasswordRequest: Codable, Hashable, Sendable {
+    var phone: String
+    var password: String
+    var deviceName: String?
+    var devicePublicKey: String?
 }
 
 struct AuthChallenge: Codable, Hashable, Sendable {

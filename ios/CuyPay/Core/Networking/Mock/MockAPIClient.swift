@@ -148,6 +148,13 @@ actor MockAPIClient: CuyPayAPI {
         return session
     }
 
+    func loginWithPassword(phone: String, password: String, deviceName: String?, devicePublicKey: String?) async throws -> AuthSession {
+        await simulateLatency()
+        let session = AuthSession(accessToken: "mock.jwt", refreshToken: "mock-refresh", expiresIn: 900, deviceId: devicePublicKey ?? "mock-dev-id", user: user)
+        try? await tokens.store(session)
+        return session
+    }
+
     func logout() async throws {
         await simulateLatency(0.5)
         await tokens.clearSession()

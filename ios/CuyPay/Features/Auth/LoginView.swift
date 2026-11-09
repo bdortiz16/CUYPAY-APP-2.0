@@ -5,6 +5,7 @@ struct LoginView: View {
     @Environment(AppModel.self) private var app
     @State private var attemptedAutomatically = false
     @State private var showForgetConfirmation = false
+    @State private var showPasswordLogin = false
 
     var body: some View {
         ZStack {
@@ -88,11 +89,11 @@ struct LoginView: View {
                             }
 
                             Button {
-                                Task { await app.forgetDevice() }
+                                showPasswordLogin = true
                             } label: {
                                 HStack(spacing: 6) {
-                                    Image(systemName: "arrow.counterclockwise.circle.fill")
-                                    Text("Ingresar con número de celular")
+                                    Image(systemName: "key.fill")
+                                    Text("Ingresar con contraseña")
                                 }
                                 .font(.caption.weight(.bold))
                                 .foregroundStyle(Theme.spruceSolid)
@@ -112,6 +113,18 @@ struct LoginView: View {
                     }
 
                     Button {
+                        showPasswordLogin = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "key.horizontal")
+                            Text("Ingresar con contraseña")
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.spruceSolid)
+                        .padding(.vertical, 6)
+                    }
+
+                    Button {
                         showForgetConfirmation = true
                     } label: {
                         HStack(spacing: 6) {
@@ -128,6 +141,9 @@ struct LoginView: View {
             .animation(.smooth, value: app.loginError)
         }
         .sensoryFeedback(.error, trigger: app.loginError) { _, newValue in newValue != nil }
+        .sheet(isPresented: $showPasswordLogin) {
+            PasswordLoginSheet()
+        }
         .confirmationDialog(
             "¿Desvincular este dispositivo?",
             isPresented: $showForgetConfirmation,
@@ -145,6 +161,96 @@ struct LoginView: View {
             try? await Task.sleep(for: .milliseconds(400))
             await app.loginWithFaceID()
         }
+    }
+}
+
+// MARK: - Hoja de login con contraseña
+
+struct PasswordLoginSheet: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.dismiss) private var dismiss
+    @State private var phoneDigits = ""
+    @State private var password = ""
+    @State private var errorMessage: String?
+    @FocusState private var focused: Field?
+
+    private enum Field { case phone, password }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                BrandBackground()
+                VStack(spacing: 20) {
+                    VStack(spacing: 8) {
+                        Image(systemName: "lock.shield.fill")
+                            .font(.system(size: 40))
+                            .foregroundStyle(Theme.spruce)
+                        Text("Ingresar con contraseña")
+                            .font(.title2.weight(.bold))
+                        Text("Escribe tu número de celular y contraseña de CuyPay")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.top, 16)
+
+                    VStack(spacing: 14) {
+                        HStack(spacing: 10) {
+                            Text(verbatim: "🇨🇴 +57")
+                                .font(.body.weight(.semibold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 14)
+                                .glassEffect(.regular, in: .rect(cornerRadius: 16))
+
+                            TextField("300 123 4567", text: $phoneDigits)
+                                .keyboardType(.numberPad)
+                                .textContentType(.telephoneNumber)
+                                .focused($focused, equals: .phone)
+                                .padding(14)
+                                .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                        }
+
+                        SecureField("Contraseña o PIN", text: $password)
+                            .textContentType(.password)
+                            .focused($focused, equals: .password)
+                            .padding(14)
+                            .glassEffect(.regular, in: .rect(cornerRadius: 16))
+
+                        if let error = errorMessage {
+                            ErrorBanner(message: error)
+                        }
+                    }
+
+                    Spacer()
+
+                    PrimaryButton(
+                        title: "Ingresar",
+                        isLoading: app.isAuthenticating,
+                        isEnabled: phoneDigits.filter(\.isASCIIDigit).count >= 10 && password.count >= 4
+                    ) {
+                        Task {
+                            errorMessage = nil
+                            let success = await app.loginWithPassword(phone: phoneDigits, password: password)
+                            if success {
+                                dismiss()
+                            } else {
+                                errorMessage = app.loginError ?? "Celular o contraseña incorrectos"
+                            }
+                        }
+                    }
+                }
+                .padding(24)
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancelar") { dismiss() }
+                        .foregroundStyle(Theme.spruceSolid)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .onAppear { focused = .phone }
     }
 }
 

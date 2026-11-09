@@ -14,6 +14,8 @@ struct OnboardingFlowView: View {
                         PhoneEntryView(model: model)
                     case .otp:
                         OTPEntryView(model: model)
+                    case .password:
+                        PasswordSetupView(model: model)
                     case .profile:
                         ProfileFormView(model: model)
                     case .faceID:
@@ -159,7 +161,7 @@ struct PhoneEntryView: View {
     var body: some View {
         OnboardingScaffold(
             title: "¿Cuál es tu celular?",
-            subtitle: "Te enviaremos un código por SMS para verificarlo."
+            subtitle: "Te enviaremos un código de 6 dígitos por WhatsApp para verificarlo."
         ) {
             HStack(spacing: 12) {
                 Text(verbatim: "🇨🇴 +57")
@@ -200,7 +202,7 @@ struct OTPEntryView: View {
     var body: some View {
         OnboardingScaffold(
             title: "Ingresa el código",
-            subtitle: "Lo enviamos al \(model.formattedPhone)."
+            subtitle: "Lo enviamos a tu WhatsApp \(model.formattedPhone)."
         ) {
             ZStack {
                 TextField("", text: $model.otpCode)
@@ -251,6 +253,60 @@ struct OTPEntryView: View {
             }
         }
         .onAppear { focused = true }
+    }
+}
+
+// MARK: - Contraseña / PIN
+
+struct PasswordSetupView: View {
+    @Bindable var model: OnboardingModel
+    @FocusState private var focusedField: Field?
+
+    private enum Field {
+        case password
+        case confirm
+    }
+
+    var body: some View {
+        OnboardingScaffold(
+            title: "Crea tu contraseña",
+            subtitle: "La usarás para ingresar a CuyPay si Face ID no está disponible."
+        ) {
+            VStack(spacing: 16) {
+                SecureField("Contraseña o PIN (mín. 4 dígitos)", text: $model.password)
+                    .font(.body.weight(.medium))
+                    .textContentType(.newPassword)
+                    .focused($focusedField, equals: .password)
+                    .formFieldStyle()
+                    .accessibilityLabel(Text("Nueva contraseña"))
+
+                SecureField("Confirma tu contraseña", text: $model.confirmPassword)
+                    .font(.body.weight(.medium))
+                    .textContentType(.newPassword)
+                    .focused($focusedField, equals: .confirm)
+                    .formFieldStyle()
+                    .accessibilityLabel(Text("Confirmar contraseña"))
+
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.shield.fill")
+                        .foregroundStyle(Theme.spruce)
+                    Text("Protege tu dinero y tus llaves Bre-B")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 4)
+
+                if let error = model.errorMessage {
+                    ErrorBanner(message: error)
+                }
+            }
+        } footer: {
+            PrimaryButton(title: "Continuar", isEnabled: model.isPasswordValid) {
+                model.confirmPasswordStep()
+            }
+        }
+        .onAppear { focusedField = .password }
     }
 }
 

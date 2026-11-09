@@ -16,6 +16,7 @@ protocol CuyPayAPI: Sendable {
     func register(_ request: RegisterRequest) async throws -> AuthSession
     func challenge(deviceId: String) async throws -> AuthChallenge
     func login(challengeId: String, deviceId: String, signature: String) async throws -> AuthSession
+    func loginWithPassword(phone: String, password: String, deviceName: String?, devicePublicKey: String?) async throws -> AuthSession
     func logout() async throws
     func me() async throws -> User
 
