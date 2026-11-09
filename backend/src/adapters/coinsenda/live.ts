@@ -211,7 +211,7 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
 
     // Catálogo oficial de Bre-B en Coinsenda: 69391969002c69002ac2e285 (provider_type: breb, currency: cop)
     const depositAccountId =
-      this.opts.brebDepositAccountId === '69391969002c69002ac2e285'
+      this.opts.brebDepositAccountId && this.opts.brebDepositAccountId !== '6aee0a69864db20012c9c504'
         ? this.opts.brebDepositAccountId
         : '69391969002c69002ac2e285';
 
