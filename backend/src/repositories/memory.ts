@@ -117,6 +117,7 @@ export function createMemoryRepositories(): Repositories {
         txns: Array.from(txns.entries()),
         processedDeposits: Array.from(processed.entries()),
         adminUsers: Array.from(adminUsers.entries()),
+        refreshTokens: Array.from(refresh.entries()),
         savingsBlocks: Array.from(savingsBlocks.entries()).map(([k, b]) => [
           k,
           {
@@ -164,6 +165,7 @@ export function createMemoryRepositories(): Repositories {
       if (data.txns) for (const [k, v] of data.txns) txns.set(k, v);
       if (data.processedDeposits) for (const [k, v] of data.processedDeposits) processed.set(k, v);
       if (data.adminUsers) for (const [k, v] of data.adminUsers) adminUsers.set(k, v);
+      if (data.refreshTokens) for (const [k, v] of data.refreshTokens) refresh.set(k, v);
       if (data.savingsBlocks) for (const [k, v] of data.savingsBlocks) savingsBlocks.set(k, v);
       if (data.savingsConfig) savingsConfig = { ...savingsConfig, ...data.savingsConfig };
     } catch {
@@ -236,6 +238,7 @@ export function createMemoryRepositories(): Repositories {
     refreshTokens: {
       async create(t) {
         refresh.set(t.id, clone(t));
+        save();
       },
       async byHash(hash) {
         return opt(find(refresh, (t) => t.tokenHash === hash));
@@ -244,13 +247,16 @@ export function createMemoryRepositories(): Repositories {
         const t = refresh.get(id);
         if (!t || t.usedAt) return false;
         t.usedAt = at;
+        save();
         return true;
       },
       async revokeFamily(familyId, at) {
         for (const t of refresh.values()) if (t.familyId === familyId && !t.revokedAt) t.revokedAt = at;
+        save();
       },
       async revokeByDevice(deviceId, at) {
         for (const t of refresh.values()) if (t.deviceId === deviceId && !t.revokedAt) t.revokedAt = at;
+        save();
       },
     },
     nonces: {

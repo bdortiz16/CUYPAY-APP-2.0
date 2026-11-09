@@ -181,7 +181,7 @@ private struct BeneficiaryPickerView: View {
 
         // Si ya existe en beneficiarios, seleccionarlo directo
         if let existing = store.beneficiaries.first(where: {
-            $0.alias.localizedCaseInsensitiveCompare(trimmed) == .orderedSame || $0.phone == trimmed
+            $0.alias.localizedCaseInsensitiveCompare(trimmed) == .orderedSame
         }) {
             model.select(existing)
             return

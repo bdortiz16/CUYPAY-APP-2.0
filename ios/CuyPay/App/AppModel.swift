@@ -47,7 +47,14 @@ final class AppModel {
         self.api = api
         self.deviceKeys = deviceKeys
         self.kyc = KYCService(api: api, simulate: environment.isMock)
-        self.store = WalletStore(api: api)
+        let store = WalletStore(api: api)
+        self.store = store
+        store.onSessionExpired = { [weak self] in
+            guard let self, self.route == .main else { return }
+            withAnimation(.smooth) {
+                self.route = .login
+            }
+        }
     }
 
     /// Composición de dependencias según el entorno.

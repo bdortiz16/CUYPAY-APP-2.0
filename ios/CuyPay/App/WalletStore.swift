@@ -21,6 +21,7 @@ final class WalletStore {
     var isLoading = false
     var hasLoadedOnce = false
     var errorMessage: String?
+    var onSessionExpired: (@MainActor () -> Void)?
 
     init(api: any CuyPayAPI) {
         self.api = api
@@ -58,6 +59,13 @@ final class WalletStore {
         do {
             wallets = try await walletsTask
             errorMessage = nil
+        } catch let apiErr as APIError {
+            if case .server(let status, _, _, _) = apiErr, status == 401 || status == 403 {
+                onSessionExpired?()
+            } else if case .notAuthenticated = apiErr {
+                onSessionExpired?()
+            }
+            errorMessage = apiErr.userMessage
         } catch {
             errorMessage = error.userMessage
         }
