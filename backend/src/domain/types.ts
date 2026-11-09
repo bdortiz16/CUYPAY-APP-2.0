@@ -73,7 +73,7 @@ export interface KycApplicant {
 }
 
 export type BrebKeyType = 'phone' | 'email' | 'national_id' | 'alias';
-export type BrebKeyStatus = 'active' | 'blocked' | 'pending';
+export type BrebKeyStatus = 'active' | 'blocked' | 'pending' | 'replaced';
 export interface BrebKey {
   id: string;
   userId: string;

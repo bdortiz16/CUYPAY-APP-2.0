@@ -121,7 +121,9 @@ export class BrebService {
         // Mejor esfuerzo
       }
     }
-    await this.d.repos.brebKeys.delete(existing.id);
+    // Marcar la llave anterior como 'replaced' para preservar el historial de depósitos
+    existing.status = 'replaced';
+    await this.d.repos.brebKeys.update(existing);
 
     // Crear la nueva
     const holderName = `${user.firstName} ${user.lastName}`.trim();
@@ -161,6 +163,7 @@ export class BrebService {
         // Mejor esfuerzo
       }
     }
-    await this.d.repos.brebKeys.delete(existing.id);
+    existing.status = 'blocked';
+    await this.d.repos.brebKeys.update(existing);
   }
 }

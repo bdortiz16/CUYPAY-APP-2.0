@@ -37,10 +37,28 @@ export class DepositService {
 
   /** Procesa un depósito; devuelve la transacción creada o null si se omitió. */
   async ingest(dep: CoinsendaDeposit): Promise<Transaction | null> {
-    if (dep.state !== 'accepted' || dep.currency !== 'COP' || dep.amountMinor <= 0n) return null;
-    if (await this.d.repos.processedDeposits.get(dep.id)) return null;
-    const key = dep.providerKeyId ? await this.d.repos.brebKeys.byProviderKeyId(dep.providerKeyId) : null;
+    const prev = await this.d.repos.processedDeposits.get(dep.id);
+    if (prev && prev.transactionId) return null;
+    let key = dep.providerKeyId ? await this.d.repos.brebKeys.byProviderKeyId(dep.providerKeyId) : null;
     const now = this.d.clock.now();
+    if (!key && dep.providerKeyId) {
+      const allUsers = await this.d.repos.users.listAll();
+      const singleUser = allUsers.length === 1 ? allUsers[0] : null;
+      if (singleUser) {
+        const recoveredKey = {
+          id: newId('brk', now),
+          userId: singleUser.id,
+          alias: `@breb_${dep.providerKeyId.slice(-8)}`,
+          status: 'replaced' as const,
+          holderName: `${singleUser.firstName} ${singleUser.lastName}`.trim(),
+          providerKeyId: dep.providerKeyId,
+          createdAt: now,
+        };
+        await this.d.repos.brebKeys.create(recoveredKey);
+        key = recoveredKey;
+        this.d.logger.info({ providerKeyId: dep.providerKeyId, userId: singleUser.id }, 'recovered deposit provider mapping to user');
+      }
+    }
     if (!key) {
       // Depósito sin llave de usuario conocida: se registra para conciliación manual.
       const inserted = await this.d.repos.processedDeposits.tryInsert({

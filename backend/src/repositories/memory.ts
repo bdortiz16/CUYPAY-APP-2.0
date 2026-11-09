@@ -112,8 +112,10 @@ export function createMemoryRepositories(): Repositories {
         cards: Array.from(cards.entries()),
         beneficiaries: Array.from(beneficiaries.entries()),
         ledgerAccounts: Array.from(ledgerAccounts.entries()),
+        ledgerEntries: ledgerEntries.map(clone),
         balances: Array.from(balances.entries()).map(([k, v]) => [k, v.toString() + 'n']),
         txns: Array.from(txns.entries()),
+        processedDeposits: Array.from(processed.entries()),
         adminUsers: Array.from(adminUsers.entries()),
         savingsBlocks: Array.from(savingsBlocks.entries()).map(([k, b]) => [
           k,
@@ -130,9 +132,12 @@ export function createMemoryRepositories(): Repositories {
           maxAmountMinor: savingsConfig.maxAmountMinor.toString() + 'n',
         },
       };
-      writeFileSync(STORE_PATH, JSON.stringify(data));
-    } catch {
-      // ignore
+      writeFileSync(
+        STORE_PATH,
+        JSON.stringify(data, (_key, val) => (typeof val === 'bigint' ? val.toString() + 'n' : val), 2)
+      );
+    } catch (err) {
+      console.error('Failed to save store to STORE_PATH:', err);
     }
   };
 
@@ -143,7 +148,7 @@ export function createMemoryRepositories(): Repositories {
       const data = JSON.parse(text, (_k, v) => {
         if (typeof v === 'string') {
           if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(v)) return new Date(v);
-          if (/^\d+n$/.test(v)) return BigInt(v.slice(0, -1));
+          if (/^-?\d+n$/.test(v)) return BigInt(v.slice(0, -1));
         }
         return v;
       });
@@ -154,8 +159,10 @@ export function createMemoryRepositories(): Repositories {
       if (data.cards) for (const [k, v] of data.cards) cards.set(k, v);
       if (data.beneficiaries) for (const [k, v] of data.beneficiaries) beneficiaries.set(k, v);
       if (data.ledgerAccounts) for (const [k, v] of data.ledgerAccounts) ledgerAccounts.set(k, v);
+      if (data.ledgerEntries) for (const e of data.ledgerEntries) ledgerEntries.push(e);
       if (data.balances) for (const [k, v] of data.balances) balances.set(k, v);
       if (data.txns) for (const [k, v] of data.txns) txns.set(k, v);
+      if (data.processedDeposits) for (const [k, v] of data.processedDeposits) processed.set(k, v);
       if (data.adminUsers) for (const [k, v] of data.adminUsers) adminUsers.set(k, v);
       if (data.savingsBlocks) for (const [k, v] of data.savingsBlocks) savingsBlocks.set(k, v);
       if (data.savingsConfig) savingsConfig = { ...savingsConfig, ...data.savingsConfig };
@@ -283,7 +290,7 @@ export function createMemoryRepositories(): Repositories {
         save();
       },
       async byUser(userId) {
-        return opt(find(brebKeys, (k) => k.userId === userId));
+        return opt(find(brebKeys, (k) => k.userId === userId && k.status === 'active')) ?? opt(find(brebKeys, (k) => k.userId === userId));
       },
       async listByUser(userId) {
         return [...brebKeys.values()].filter((k) => k.userId === userId).map(clone);
@@ -359,6 +366,7 @@ export function createMemoryRepositories(): Repositories {
         if (existing) return clone(existing);
         const acc: LedgerAccount = { id: newId('lac', now), kind, userId, currency, createdAt: now };
         ledgerAccounts.set(acc.id, acc);
+        save();
         return clone(acc);
       },
       async insertEntries(entries) {
@@ -366,6 +374,7 @@ export function createMemoryRepositories(): Repositories {
           ledgerEntries.push(clone(e));
           balances.set(e.accountId, (balances.get(e.accountId) ?? 0n) + e.amountMinor);
         }
+        save();
       },
       async balance(accountId) {
         return balances.get(accountId) ?? 0n;
@@ -383,9 +392,11 @@ export function createMemoryRepositories(): Repositories {
     transactions: {
       async create(t) {
         txns.set(t.id, { ...t, conversion: t.conversion ? { ...t.conversion } : null });
+        save();
       },
       async update(t) {
         txns.set(t.id, { ...t, conversion: t.conversion ? { ...t.conversion } : null });
+        save();
       },
       async byId(id) {
         return opt(txns.get(id));
@@ -461,8 +472,17 @@ export function createMemoryRepositories(): Repositories {
     },
     processedDeposits: {
       async tryInsert(d) {
-        if (processed.has(d.providerDepositId)) return false;
+        if (processed.has(d.providerDepositId)) {
+          const existing = processed.get(d.providerDepositId);
+          if (existing && !existing.transactionId && d.transactionId) {
+            processed.set(d.providerDepositId, clone(d));
+            save();
+            return true;
+          }
+          return false;
+        }
         processed.set(d.providerDepositId, clone(d));
+        save();
         return true;
       },
       async get(id) {
