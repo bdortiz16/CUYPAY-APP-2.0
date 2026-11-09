@@ -50,7 +50,7 @@ platform :ios do
       7
     end
     run_num = ENV["GITHUB_RUN_NUMBER"] ? ENV["GITHUB_RUN_NUMBER"].to_i : 0
-    next_build = [remote_build + 1, run_num, 8].max
+    next_build = [remote_build + 1, run_num, 22].max
     increment_build_number(
       xcodeproj: "CuyPay.xcodeproj",
       build_number: next_build

@@ -32,7 +32,7 @@ interface SdkClient {
       cancelDepositProviderPublic?: SdkFn;
       reactivateDepositProviderPublic?: SdkFn;
     };
-    user: { __get__deposits: SdkFn };
+    user: { __get__deposits: SdkFn; __get__depositProviders: SdkFn };
   };
   farming: {
     card: {
@@ -205,10 +205,36 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
 
   async createBrebKey(input: { alias: string; holderName: string; userRef: string }) {
     await this.ensureSession();
-    const userId = this.getCoinsendaUserId();
     const cleanAlias = input.alias.trim();
     const formattedAlias = cleanAlias.startsWith('@') ? cleanAlias : `@${cleanAlias}`;
 
+    // 1. Revisar si Coinsenda ya tiene una llave Bre-B aprovisionada para la cuenta COP
+    try {
+      const existingRes = await this.call('getDepositProviders', (c) => c.deposit.user.__get__depositProviders());
+      const providers = Array.isArray(existingRes.data)
+        ? existingRes.data
+        : existingRes.data?.data ?? [];
+      const breb = providers.find((p: any) => p.provider_type === 'breb' && p.enabled);
+      if (breb) {
+        const assignedAlias =
+          breb.account?.account_id?.account_id ??
+          breb.account?.account_id ??
+          breb.alias ??
+          breb.address ??
+          formattedAlias;
+        return {
+          providerKeyId: String(breb.id ?? breb.deposit_provider_id ?? newId('dp', new Date())),
+          alias: String(assignedAlias),
+          status: (breb.state === 'blocked' ? 'blocked' : breb.state === 'pending' ? 'pending' : 'active') as 'active' | 'pending' | 'blocked',
+          qrCode: breb.account?.qr_code?.qr_string,
+          raw: breb,
+        };
+      }
+    } catch (err) {
+      this.opts.logger?.warn?.({ err }, 'No se pudo consultar depositProviders existentes; procediendo a creación');
+    }
+
+    const userId = this.getCoinsendaUserId();
     const res = await this.call('createBrebKey', (c) =>
       c.request(
         'deposit',
@@ -234,11 +260,12 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
     }
     const d = this.payload(res);
     const item = Array.isArray(d) ? d[0] : d;
-    const assignedAlias = item?.account?.account_id || item?.alias || item?.address || formattedAlias;
+    const assignedAlias = item?.account?.account_id?.account_id || item?.account?.account_id || item?.alias || item?.address || formattedAlias;
     return {
       providerKeyId: String(item?.id ?? item?.deposit_provider_id ?? newId('dp', new Date())),
       alias: String(assignedAlias),
       status: (item?.state === 'blocked' ? 'blocked' : item?.state === 'pending' ? 'pending' : 'active') as 'active' | 'pending' | 'blocked',
+      qrCode: item?.account?.qr_code?.qr_string,
       raw: item,
     };
   }
@@ -424,6 +451,14 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
         products: [{ quantity: 1, type: 'virtual_card' }],
       }),
     );
+    if (!sdk.isHttpSuccess(saleRes.status)) {
+      this.opts.logger?.warn?.({ status: saleRes.status, data: saleRes.data }, 'Fallo al emitir tarjeta virtual en marketplace de Coinsenda');
+      throw new AppError(
+        'PROVIDER_ERROR',
+        'La emisión de tarjetas Mastercard requiere habilitar la capacidad de Tarjetas en el Blueprint de Coinsenda de tu cuenta.',
+        { provider: 'coinsenda', providerStatus: saleRes.status }
+      );
+    }
     const saleData = this.payload(saleRes);
     const providerCardId = String(saleData?.card_id ?? saleData?.id ?? `crd_${Date.now()}`);
 
