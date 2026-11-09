@@ -119,7 +119,7 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
   // TODO(brl-partner): el socio BRL aún no está definido; en modo live se usa el stub que responde PROVIDER_ERROR
   // salvo que se fuerce el mock con BRL_PROVIDER_MODE=mock.
   const brlMode = config.BRL_PROVIDER_MODE ?? config.PROVIDERS_MODE;
-  const brl = o.brl ?? (brlMode === 'live' ? new LiveBrlLiquidityProvider() : new MockBrlLiquidityProvider(clock));
+  const brl = o.brl ?? (brlMode === 'live' ? new LiveBrlLiquidityProvider(clock) : new MockBrlLiquidityProvider(clock));
   const otp =
     o.otp ??
     (config.OTP_PROVIDER_MODE === 'twilio' && config.TWILIO_ACCOUNT_SID && config.TWILIO_AUTH_TOKEN

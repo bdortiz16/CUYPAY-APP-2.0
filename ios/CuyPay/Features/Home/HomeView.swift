@@ -232,6 +232,7 @@ struct TransactionsSection: View {
     @State private var isSearching = false
     @State private var query = ""
     @State private var filter: TransactionFilter = .all
+    @State private var selectedTransaction: WalletTransaction? = nil
     @FocusState private var searchFocused: Bool
 
     private var filtered: [WalletTransaction] {
@@ -304,13 +305,21 @@ struct TransactionsSection: View {
                         .foregroundStyle(.secondary)
                         .padding(.top, 4)
                     ForEach(section.items) { transaction in
-                        TransactionRow(transaction: transaction, pocket: pocket, hideAmounts: hideAmounts)
+                        Button {
+                            selectedTransaction = transaction
+                        } label: {
+                            TransactionRow(transaction: transaction, pocket: pocket, hideAmounts: hideAmounts)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
         }
         .padding(18)
         .glassEffect(.regular, in: .rect(cornerRadius: Theme.sheetRadius))
+        .sheet(item: $selectedTransaction) { txn in
+            TransactionDetailSheet(transaction: txn, pocket: pocket)
+        }
     }
 }
 

@@ -295,20 +295,25 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
   async addWithdrawAccount(input: { holder: BrebAliasHolder; label: string }) {
     const h = input.holder;
     const res = await this.call('addWithdrawAccount', (c) =>
-      c.withdraw.withdrawAccount.addNewWithdrawAccount({
-        // TODO(coinsenda): el payload exacto lo declara el withdrawProvider en `info_needed`
-        // (Bre-B: la llave y el titular resuelto). Confirmar nombres de campos.
-        withdraw_provider_id: this.opts.brebWithdrawProviderId,
-        label: input.label,
-        currency: 'cop',
-        info_needed: {
-          breb_alias: h.alias,
-          first_name: h.firstName,
-          last_name: h.lastName,
-          id_type: h.documentType,
-          id_number: h.documentNumber,
+      c.request(
+        'withdraw',
+        'POST',
+        '/withdrawAccounts/add-new-withdraw-account',
+        {
+          data: {
+            country: 'colombia',
+            currency: 'cop',
+            provider_type: 'breb',
+            internal: false,
+            info_needed: {
+              label: input.label,
+              country: 'colombia',
+              account_id: h.alias,
+            },
+          },
         },
-      }),
+        { rawPayload: true },
+      ),
     );
     if (!sdk.isHttpSuccess(res.status)) this.fail('addWithdrawAccount', res);
     const d = this.payload(res);

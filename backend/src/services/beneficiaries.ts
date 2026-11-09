@@ -106,7 +106,11 @@ export class BeneficiaryService {
     };
 
     if (beneficiary.status === 'active') {
-      beneficiary.providerWithdrawAccountId = await this.registerWithdrawAccount(res, beneficiary);
+      try {
+        beneficiary.providerWithdrawAccountId = await this.registerWithdrawAccount(res, beneficiary);
+      } catch (err) {
+        this.d.logger.warn({ err: (err as Error).message, beneficiaryId }, 'Coinsenda no tiene activo módulo de retiros; beneficiario guardado en CuyPay');
+      }
     }
     await this.d.repos.beneficiaries.create(beneficiary);
     await this.d.events.publish({ type: 'beneficiary.screened', beneficiary, aml });

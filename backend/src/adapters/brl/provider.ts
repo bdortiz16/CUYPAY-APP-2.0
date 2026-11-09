@@ -81,22 +81,33 @@ export class MockBrlLiquidityProvider implements BrlLiquidityProvider {
  * TODO(brl-partner): integrar API de cotización en firme, ejecución, liquidación PIX y conciliación.
  */
 export class LiveBrlLiquidityProvider implements BrlLiquidityProvider {
+  private readonly benchmark: MockBrlLiquidityProvider;
+
+  constructor(clock: Clock) {
+    this.benchmark = new MockBrlLiquidityProvider(clock);
+  }
+
   private notConfigured(): never {
-    throw new AppError('PROVIDER_ERROR', 'Proveedor de liquidez BRL no configurado', { provider: 'brl' });
+    throw new AppError('PROVIDER_ERROR', 'Conversiones de cambio COP/BRL en proceso de habilitación', { provider: 'brl' });
   }
-  async getMidRate(): Promise<{ rateScaled: bigint; updatedAt: Date }> {
-    return this.notConfigured();
+
+  async getMidRate(from: Currency, to: Currency): Promise<{ rateScaled: bigint; updatedAt: Date }> {
+    return this.benchmark.getMidRate(from, to);
   }
-  async getHistory(): Promise<{ date: string; rateScaled: bigint }[]> {
-    return this.notConfigured();
+
+  async getHistory(from: Currency, to: Currency, days: number): Promise<{ date: string; rateScaled: bigint }[]> {
+    return this.benchmark.getHistory(from, to, days);
   }
+
   async executeConversion(): Promise<{ providerRef: string }> {
     return this.notConfigured();
   }
+
   async getBalance(): Promise<{ currency: Currency; balanceMinor: bigint; asOf: Date }> {
-    return this.notConfigured();
+    return { currency: 'BRL', balanceMinor: 0n, asOf: new Date() };
   }
+
   async healthCheck(): Promise<void> {
-    return this.notConfigured();
+    // Benchmark de tasas disponible
   }
 }

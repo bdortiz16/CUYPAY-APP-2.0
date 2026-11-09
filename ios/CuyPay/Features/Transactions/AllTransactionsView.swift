@@ -9,6 +9,7 @@ struct AllTransactionsView: View {
     @State private var query = ""
     @State private var filter: TransactionFilter = .all
     @State private var isLoadingMore = false
+    @State private var selectedTransaction: WalletTransaction? = nil
 
     private var filtered: [WalletTransaction] {
         store.transactions(for: pocket)
@@ -48,12 +49,17 @@ struct AllTransactionsView: View {
                 ForEach(sections) { section in
                     Section {
                         ForEach(section.items) { transaction in
-                            TransactionRow(transaction: transaction, pocket: pocket, hideAmounts: hideAmounts)
-                                .onAppear {
-                                    if transaction.id == filtered.last?.id {
-                                        Task { await loadMore() }
-                                    }
+                            Button {
+                                selectedTransaction = transaction
+                            } label: {
+                                TransactionRow(transaction: transaction, pocket: pocket, hideAmounts: hideAmounts)
+                            }
+                            .buttonStyle(.plain)
+                            .onAppear {
+                                if transaction.id == filtered.last?.id {
+                                    Task { await loadMore() }
                                 }
+                            }
                         }
                     } header: {
                         Text(verbatim: section.title)
@@ -80,6 +86,9 @@ struct AllTransactionsView: View {
         }
         .task {
             if !store.hasLoadedOnce { await store.refreshAll() }
+        }
+        .sheet(item: $selectedTransaction) { txn in
+            TransactionDetailSheet(transaction: txn, pocket: pocket)
         }
     }
 
