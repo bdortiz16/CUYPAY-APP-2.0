@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import NodeRSA from 'node-rsa';
 import type { Logger } from 'pino';
 import { AppError } from '../../lib/errors.js';
+import { newId } from '../../lib/clock.js';
 import { majorStringToMinor, minorToMajorString } from '../../lib/money.js';
 import type { BrebAliasHolder, CoinsendaDeposit, CoinsendaGateway, WithdrawState } from '../../ports/index.js';
 import type { Currency } from '../../domain/types.js';
@@ -21,6 +22,8 @@ interface SdkClient {
   setJwt(token: string): void;
   setRefreshToken(token: string): void;
   setCountry(country: string): void;
+  getUserId(): string | null;
+  request(service: string, method: string, endpoint: string, data?: unknown, options?: Record<string, unknown>): Promise<SdkResult>;
   auth: { passport: { authPubkey: SdkFn }; oauth: { grantRefreshToken: SdkFn } };
   deposit: {
     depositProvider: {
@@ -169,12 +172,29 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
 
   private fail(name: string, res: SdkResult): never {
     const err = res.data?.error ?? res.data?.data?.error;
-    this.opts.logger.warn({ op: name, status: res.status, code: err?.code }, 'coinsenda error');
+    this.opts.logger.warn({ op: name, status: res.status, code: err?.code, data: res.data }, 'coinsenda error');
     throw new AppError('PROVIDER_ERROR', `Coinsenda respondió ${res.status} en ${name}`, {
       provider: 'coinsenda',
       op: name,
       providerCode: err?.code ?? null,
     });
+  }
+
+  private getCoinsendaUserId(): string {
+    const fromClient = typeof this.client.getUserId === 'function' ? this.client.getUserId() : null;
+    if (fromClient) return fromClient;
+    if (this.session?.jwt) {
+      try {
+        const parts = this.session.jwt.split('.');
+        if (parts[1]) {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+          return payload.userId || payload.usr || payload.id || payload.sub || '';
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return '';
   }
 
   private payload(res: SdkResult): any { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -184,45 +204,73 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
   // ───────────── operaciones ─────────────
 
   async createBrebKey(input: { alias: string; holderName: string; userRef: string }) {
+    await this.ensureSession();
+    const userId = this.getCoinsendaUserId();
+    const cleanAlias = input.alias.trim();
+    const formattedAlias = cleanAlias.startsWith('@') ? cleanAlias : `@${cleanAlias}`;
+
     const res = await this.call('createBrebKey', (c) =>
-      c.deposit.depositProvider.createDepositProviderByAccountIdPublic({
-        // El deposit_account_id es el id del CATÁLOGO de la plataforma (medio provisionado), no el de la llave.
-        deposit_account_id: this.opts.brebDepositAccountId,
-        account_id: this.opts.copAccountId,
-        // TODO(coinsenda): confirmar el nombre del campo para la llave deseada (¿alias? ¿breb_alias? ¿info.alias?)
-        // y si admite un identificador externo (userRef) para conciliación.
-        alias: input.alias,
-      }),
+      c.request(
+        'deposit',
+        'POST',
+        '/depositProviders/create-deposit-provider-by-account-id-public',
+        {
+          data: {
+            userId,
+            account_id: this.opts.copAccountId,
+            deposit_account_id: this.opts.brebDepositAccountId,
+            alias: formattedAlias,
+          },
+        },
+        { rawPayload: true },
+      ),
     );
     if (!sdk.isHttpSuccess(res.status)) {
       const code = res.data?.error?.code ?? res.data?.data?.error?.code;
-      // TODO(coinsenda): confirmar el código de error de "llave ya tomada" al crear.
-      if (res.status === 409) throw new AppError('BREB_ALIAS_TAKEN', 'La llave Bre-B ya está tomada', { providerCode: code });
+      if (res.status === 409 || code === 'depositprovider_already_exists') {
+        throw new AppError('BREB_ALIAS_TAKEN', 'La llave Bre-B ya está tomada', { providerCode: code });
+      }
       this.fail('createBrebKey', res);
     }
     const d = this.payload(res);
+    const item = Array.isArray(d) ? d[0] : d;
+    const assignedAlias = item?.account?.account_id || item?.alias || item?.address || formattedAlias;
     return {
-      providerKeyId: String(d?.id ?? d?.deposit_provider_id),
-      // TODO(coinsenda): confirmar dónde viene la llave asignada (¿d.alias? ¿d.address? ¿d.account.alias?).
-      alias: String(d?.alias ?? d?.address ?? input.alias),
-      // TODO(coinsenda): mapear estados reales del depositProvider.
-      status: (d?.state === 'blocked' ? 'blocked' : d?.state === 'pending' ? 'pending' : 'active') as 'active' | 'pending' | 'blocked',
-      raw: d,
+      providerKeyId: String(item?.id ?? item?.deposit_provider_id ?? newId('dp', new Date())),
+      alias: String(assignedAlias),
+      status: (item?.state === 'blocked' ? 'blocked' : item?.state === 'pending' ? 'pending' : 'active') as 'active' | 'pending' | 'blocked',
+      raw: item,
     };
   }
 
   async resolveBrebAlias(alias: string): Promise<BrebAliasHolder | null> {
-    const res = await this.call('resolveBrebAlias', (c) => c.withdraw.withdrawAccount.resolveBrebAliasPublic({ alias }));
+    await this.ensureSession();
+    const userId = this.getCoinsendaUserId();
+    const cleanAlias = alias.trim();
+    const formattedAlias = cleanAlias.startsWith('@') ? cleanAlias : `@${cleanAlias}`;
+
+    const res = await this.call('resolveBrebAlias', (c) =>
+      c.request(
+        'withdraw',
+        'POST',
+        '/withdrawAccounts/resolve-breb-alias-public',
+        {
+          data: {
+            userId,
+            alias: formattedAlias,
+          },
+        },
+        { rawPayload: true },
+      ),
+    );
     if (!sdk.isHttpSuccess(res.status)) {
-      // La llave NO existe: withdrawaccount_23 ("Cannot resolve breb alias"). Es "no encontrada", no un fallo.
       const err = res.data?.error ?? res.data?.data?.error;
       if (err?.code === 'withdrawaccount_23') return null;
       this.fail('resolveBrebAlias', res);
     }
     const d = this.payload(res);
-    // TODO(coinsenda): confirmar nombres exactos de los campos del titular devueltos por el directorio.
     return {
-      alias,
+      alias: formattedAlias,
       firstName: String(d?.first_name ?? d?.name ?? d?.holder_name ?? ''),
       lastName: String(d?.last_name ?? d?.surname ?? ''),
       documentType: String(d?.id_type ?? d?.document_type ?? 'CC'),

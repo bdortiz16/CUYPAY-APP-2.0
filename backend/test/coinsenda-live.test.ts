@@ -27,6 +27,18 @@ function makeGateway() {
     },
     setRefreshToken() {},
     setCountry() {},
+    getUserId() {
+      return 'cs_user';
+    },
+    async request(service: string, method: string, endpoint: string, data: any, options: any) {
+      if (endpoint === '/depositProviders/create-deposit-provider-by-account-id-public') {
+        return this.deposit.depositProvider.createDepositProviderByAccountIdPublic(data?.data ?? data);
+      }
+      if (endpoint === '/withdrawAccounts/resolve-breb-alias-public') {
+        return this.withdraw.withdrawAccount.resolveBrebAliasPublic(data?.data ?? data);
+      }
+      return { status: 404, data: {} };
+    },
     auth: {
       passport: {
         authPubkey: async (arg: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
