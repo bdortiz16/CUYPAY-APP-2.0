@@ -93,6 +93,7 @@ struct PrivacyCoverView: View {
 /// Bloqueo tras más de 2 minutos en segundo plano.
 struct LockView: View {
     @Environment(AppModel.self) private var app
+    @State private var showPasswordLogin = false
 
     var body: some View {
         ZStack {
@@ -115,6 +116,19 @@ struct LockView: View {
                     PrimaryButton(title: "Desbloquear con Face ID", systemImage: "faceid") {
                         Task { await app.unlock() }
                     }
+
+                    Button {
+                        showPasswordLogin = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "key.horizontal")
+                            Text("Ingresar con contraseña")
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.spruceSolid)
+                        .padding(.vertical, 6)
+                    }
+
                     Button("Cerrar sesión") {
                         Task { await app.logout() }
                     }
@@ -123,6 +137,9 @@ struct LockView: View {
                 }
             }
             .padding(24)
+        }
+        .sheet(isPresented: $showPasswordLogin) {
+            PasswordLoginSheet()
         }
     }
 }

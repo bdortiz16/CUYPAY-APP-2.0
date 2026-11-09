@@ -173,6 +173,7 @@ final class AppModel {
         await api.clearLocalSession()
         store.reset()
         user = nil
+        isLocked = false
         withAnimation(.smooth) { route = .login }
     }
 
@@ -183,6 +184,7 @@ final class AppModel {
         try? deviceKeys.deleteKey()
         store.reset()
         user = nil
+        isLocked = false
         withAnimation(.smooth) { route = .onboarding }
     }
 

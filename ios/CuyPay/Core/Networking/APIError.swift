@@ -84,10 +84,12 @@ enum APIError: Error, Hashable, Sendable, LocalizedError {
 
     var errorDescription: String? { userMessage }
 
-    /// Mensaje claro y neutral para el usuario final.
     var userMessage: String {
         switch self {
-        case .server(_, let code, _, let limit):
+        case .server(_, let code, let message, let limit):
+            if let message, !message.trimmingCharacters(in: .whitespaces).isEmpty {
+                return message
+            }
             return Self.message(for: code, limit: limit)
         case .network(let rawCode):
             switch URLError.Code(rawValue: rawCode) {

@@ -16,8 +16,6 @@ struct OnboardingFlowView: View {
                         OTPEntryView(model: model)
                     case .password:
                         PasswordSetupView(model: model)
-                    case .profile:
-                        ProfileFormView(model: model)
                     case .faceID:
                         FaceIDEnrollmentView(model: model)
                     case .kycIntro:
@@ -307,51 +305,6 @@ struct PasswordSetupView: View {
             }
         }
         .onAppear { focusedField = .password }
-    }
-}
-
-// MARK: - Datos personales
-
-struct ProfileFormView: View {
-    @Bindable var model: OnboardingModel
-    @FocusState private var field: Field?
-
-    private enum Field { case firstName, lastName, email }
-
-    var body: some View {
-        OnboardingScaffold(
-            title: "Cuéntanos de ti",
-            subtitle: "Usa tu nombre tal como aparece en tu documento de identidad."
-        ) {
-            VStack(spacing: 12) {
-                TextField("Nombres", text: $model.firstName)
-                    .textContentType(.givenName)
-                    .focused($field, equals: .firstName)
-                    .submitLabel(.next)
-                    .onSubmit { field = .lastName }
-                    .formFieldStyle()
-                TextField("Apellidos", text: $model.lastName)
-                    .textContentType(.familyName)
-                    .focused($field, equals: .lastName)
-                    .submitLabel(.next)
-                    .onSubmit { field = .email }
-                    .formFieldStyle()
-                TextField("Correo electrónico", text: $model.email)
-                    .textContentType(.emailAddress)
-                    .keyboardType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .focused($field, equals: .email)
-                    .submitLabel(.done)
-                    .onSubmit { model.confirmProfile() }
-                    .formFieldStyle()
-            }
-        } footer: {
-            PrimaryButton(title: "Continuar", isEnabled: model.isProfileValid) {
-                model.confirmProfile()
-            }
-        }
-        .onAppear { field = .firstName }
     }
 }
 

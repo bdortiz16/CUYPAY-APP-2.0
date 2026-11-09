@@ -44,11 +44,8 @@ export class BrebService {
       return (await this.d.coinsenda.resolveBrebAlias(alias)) === null;
     } catch (err) {
       if (isAppError(err) && err.code === 'BREB_ALIAS_TAKEN') return false;
-      throw new AppError(
-        'PROVIDER_ERROR',
-        'El servicio de Bre-B (Coinsenda / Banco de la República) se encuentra en mantenimiento temporal. Por favor inténtalo en unos minutos.',
-        { provider: 'coinsenda' }
-      );
+      this.d.logger.warn({ alias, err }, 'resolveBrebAlias no disponible o falló; procediendo a creación directa');
+      return true;
     }
   }
 

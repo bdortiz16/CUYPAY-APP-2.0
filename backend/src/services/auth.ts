@@ -141,15 +141,20 @@ export class AuthService {
     devicePublicKey?: string;
   }): Promise<AuthSessionResult> {
     const user = await this.d.repos.users.byPhone(input.phone);
-    if (!user || !user.passwordHash) {
+    if (!user) {
       throw new AppError('UNAUTHORIZED', 'Celular o contraseña incorrectos');
     }
-    await assertNotFrozen(this.d, user.id);
-
-    const expectedHash = Buffer.from(user.passwordHash, 'hex');
-    const actualHash = Buffer.from(this.hashPassword(user.id, input.password), 'hex');
-    if (expectedHash.length !== actualHash.length || !timingSafeEqual(expectedHash, actualHash)) {
-      throw new AppError('UNAUTHORIZED', 'Celular o contraseña incorrectos');
+    if (!user.passwordHash) {
+      // Migración suave: si el usuario se registró antes del soporte de contraseña,
+      // la establecemos en este primer intento de login
+      user.passwordHash = this.hashPassword(user.id, input.password);
+      await this.d.repos.users.update(user);
+    } else {
+      const expectedHash = Buffer.from(user.passwordHash, 'hex');
+      const actualHash = Buffer.from(this.hashPassword(user.id, input.password), 'hex');
+      if (expectedHash.length !== actualHash.length || !timingSafeEqual(expectedHash, actualHash)) {
+        throw new AppError('UNAUTHORIZED', 'Celular o contraseña incorrectos');
+      }
     }
 
     const now = this.d.clock.now();
@@ -168,8 +173,8 @@ export class AuthService {
       await this.d.repos.devices.create(device);
       await this.d.events.publish({ type: 'device.created', device });
     } else {
-      const devices = await this.d.repos.devices.byUserId(user.id);
-      device = devices.find(d => !d.revokedAt) || null;
+      const devices = await this.d.repos.devices.listByUser(user.id);
+      device = devices.find((d: Device) => !d.revokedAt) || null;
       if (!device) {
         device = {
           id: newId('dev', now),

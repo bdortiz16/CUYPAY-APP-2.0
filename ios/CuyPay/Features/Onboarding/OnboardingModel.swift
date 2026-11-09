@@ -10,7 +10,6 @@ final class OnboardingModel {
         case phone
         case otp
         case password
-        case profile
         case faceID
         case kycIntro
         case kycStatus
@@ -99,12 +98,6 @@ final class OnboardingModel {
             return
         }
         errorMessage = nil
-        path.append(.profile)
-    }
-
-    func confirmProfile() {
-        guard isProfileValid else { return }
-        errorMessage = nil
         path.append(.faceID)
     }
 
@@ -123,13 +116,17 @@ final class OnboardingModel {
 
         do {
             let publicKey = try await app.deviceKeys.createKey()
+            let cleanEmail = email.trimmingCharacters(in: .whitespaces).lowercased()
+            let cleanFirst = firstName.trimmingCharacters(in: .whitespaces)
+            let cleanLast = lastName.trimmingCharacters(in: .whitespaces)
+
             let request = RegisterRequest(
                 otpId: otpId,
                 otpCode: otpCode,
                 phone: e164Phone,
-                email: email.trimmingCharacters(in: .whitespaces).lowercased(),
-                firstName: firstName.trimmingCharacters(in: .whitespaces),
-                lastName: lastName.trimmingCharacters(in: .whitespaces),
+                email: cleanEmail.isEmpty ? "usuario@cuypay.com" : cleanEmail,
+                firstName: cleanFirst.isEmpty ? "Usuario" : cleanFirst,
+                lastName: cleanLast.isEmpty ? "CuyPay" : cleanLast,
                 country: "CO",
                 deviceName: UIDevice.current.name,
                 devicePublicKey: publicKey,
