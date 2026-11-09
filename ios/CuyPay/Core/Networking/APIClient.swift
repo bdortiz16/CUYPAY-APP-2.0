@@ -373,4 +373,19 @@ actor APIClient: CuyPayAPI {
     func deleteDevice(id: String) async throws {
         let _: EmptyResponse = try await send(.delete("/devices/\(id)", signReason: SignReason.deleteDevice))
     }
+
+    // MARK: - Bloque de Ahorro
+
+    func savingsConfig() async throws -> SavingsConfig {
+        try await send(.get("/savings/config"))
+    }
+
+    func userSavings() async throws -> UserSavingsResponse {
+        try await send(.get("/savings"))
+    }
+
+    func createSavingsBlock(termDays: Int, amountMinor: Int64) async throws -> SavingsBlock {
+        let body = CreateSavingsBlockRequest(termDays: termDays, amountMinor: String(amountMinor))
+        return try await send(.post("/savings", body: body, signReason: SignReason.createSavingsBlock))
+    }
 }

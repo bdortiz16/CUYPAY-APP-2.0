@@ -11,6 +11,7 @@ import { registerAuthRoutes } from './routes/auth.js';
 import { registerAccountRoutes } from './routes/account.js';
 import { registerKycRoutes } from './routes/kyc.js';
 import { registerMoneyRoutes } from './routes/money.js';
+import { registerSavingsRoutes } from './routes/savings.js';
 import { registerDevRoutes } from './routes/dev.js';
 import { registerAdminRoutes } from './routes/admin.js';
 
@@ -164,6 +165,7 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
       registerAccountRoutes(v1, container, helpers);
       registerKycRoutes(v1, container, helpers);
       registerMoneyRoutes(v1, container, helpers);
+      registerSavingsRoutes(v1, container, helpers);
       registerAdminRoutes(v1, container, helpers);
       if (config.devRoutes || config.ADMIN_API_KEY) registerDevRoutes(v1, container, helpers);
     },

@@ -369,4 +369,74 @@ export function registerAdminRoutes(app: FastifyInstance, container: Container, 
     const { reason } = parse(z.object({ reason: Reason }), req.body);
     return admin.auth.resetCredentials(ctx(req), id, reason);
   });
+
+  // ───────────── Bloques de Ahorro ─────────────
+  app.get('/admin/savings/config', guard('treasury:read'), async () => {
+    const cfg = await admin.savings.getConfig();
+    return {
+      rates: cfg.rates,
+      minAmountMinor: cfg.minAmountMinor.toString(),
+      maxAmountMinor: cfg.maxAmountMinor.toString(),
+      contractTerms: cfg.contractTerms,
+      updatedAt: cfg.updatedAt.toISOString(),
+      updatedBy: cfg.updatedBy,
+    };
+  });
+
+  app.put('/admin/savings/config', guard('treasury:write'), async (req) => {
+    const b = parse(
+      z.object({
+        rates: z.array(
+          z.object({
+            termDays: z.number().int().positive(),
+            ratePercent: z.number().positive(),
+            enabled: z.boolean(),
+          }),
+        ),
+        contractTerms: z.string().optional(),
+        minAmountMinor: z.union([z.number(), z.string()]).transform((v) => BigInt(v)).optional(),
+        maxAmountMinor: z.union([z.number(), z.string()]).transform((v) => BigInt(v)).optional(),
+        reason: Reason,
+      }),
+      req.body,
+    );
+    const updated = await admin.savings.updateConfig(b.rates, b.contractTerms, b.minAmountMinor, b.maxAmountMinor, req.admin?.email);
+    return {
+      rates: updated.rates,
+      minAmountMinor: updated.minAmountMinor.toString(),
+      maxAmountMinor: updated.maxAmountMinor.toString(),
+      contractTerms: updated.contractTerms,
+      updatedAt: updated.updatedAt.toISOString(),
+      updatedBy: updated.updatedBy,
+    };
+  });
+
+  app.get('/admin/savings/blocks', guard('treasury:read'), async () => {
+    const all = await admin.savings.listAllBlocks();
+    return {
+      items: all.map((b) => ({
+        id: b.id,
+        userId: b.userId,
+        termDays: b.termDays,
+        principalMinor: b.principalMinor.toString(),
+        lockedRate: b.lockedRate,
+        expectedYieldMinor: b.expectedYieldMinor.toString(),
+        totalPayoutMinor: b.totalPayoutMinor.toString(),
+        currency: b.currency,
+        status: b.status,
+        startedAt: b.startedAt.toISOString(),
+        maturesAt: b.maturesAt.toISOString(),
+        completedAt: b.completedAt?.toISOString() ?? null,
+      })),
+    };
+  });
+
+  app.get('/admin/savings/treasury-alerts', guard('treasury:read'), async () => {
+    return admin.savings.getTreasuryAlerts();
+  });
+
+  app.post('/admin/savings/process-maturities', guard('treasury:write'), async () => {
+    return admin.savings.processMaturities();
+  });
 }
+

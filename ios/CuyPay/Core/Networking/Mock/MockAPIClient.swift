@@ -571,6 +571,82 @@ actor MockAPIClient: CuyPayAPI {
         await simulateLatency(0.6)
         devicesState.removeAll { $0.id == id && !$0.current }
     }
+
+    // MARK: - Bloque de Ahorro
+
+    func savingsConfig() async throws -> SavingsConfig {
+        await simulateLatency(0.3)
+        return SavingsConfig(
+            rates: [
+                SavingsRateTier(termDays: 30, ratePercent: 3.0, enabled: true),
+                SavingsRateTier(termDays: 60, ratePercent: 4.5, enabled: true),
+                SavingsRateTier(termDays: 90, ratePercent: 6.0, enabled: true),
+                SavingsRateTier(termDays: 180, ratePercent: 8.5, enabled: true),
+                SavingsRateTier(termDays: 360, ratePercent: 12.0, enabled: true),
+            ],
+            minAmountMinor: "1000000",
+            maxAmountMinor: "5000000000",
+            contractTerms: "TÉRMINOS Y CONDICIONES DEL BLOQUE DE AHORRO A TÉRMINO FIJO CUYPAY.\n\n1. OBJETO: El titular inmoviliza temporalmente fondos en pesos colombianos (COP) en la plataforma administrada por XATECH SERVICES S.A.S. (NIT 901799579).\n2. RENDIMIENTO GARANTIZADO: La tasa acordada al momento de la constitución es inmutable durante todo el periodo.\n3. PLAZO Y LIQUIDACIÓN: El capital y los rendimientos netos se acreditarán automáticamente en el saldo disponible del titular cumplidas las 23:59 horas del día de vencimiento.\n4. CUSTODIA Y FONDOS: Los fondos se mantienen bajo segregación patrimonial y protocolos institucionales en Coinsenda.",
+            updatedAt: Date()
+        )
+    }
+
+    func userSavings() async throws -> UserSavingsResponse {
+        await simulateLatency(0.4)
+        let now = Date()
+        let sampleBlocks: [SavingsBlock] = [
+            SavingsBlock(
+                id: "sbk_demo_30d",
+                termDays: 30,
+                principalMinor: "50000000",
+                lockedRate: 3.0,
+                expectedYieldMinor: "123287",
+                totalPayoutMinor: "50123287",
+                currency: .cop,
+                status: .active,
+                startedAt: now.addingTimeInterval(-10 * 24 * 3600),
+                maturesAt: now.addingTimeInterval(20 * 24 * 3600),
+                completedAt: nil
+            )
+        ]
+        return UserSavingsResponse(
+            blocks: sampleBlocks,
+            summary: SavingsSummary(
+                totalPrincipalMinor: "50000000",
+                totalYieldEarnedMinor: "0",
+                activeCount: 1
+            )
+        )
+    }
+
+    func createSavingsBlock(termDays: Int, amountMinor: Int64) async throws -> SavingsBlock {
+        try await requireSignature(SignReason.createSavingsBlock)
+        await simulateLatency(0.8)
+        let now = Date()
+        let rate: Double = switch termDays {
+        case 30: 3.0
+        case 60: 4.5
+        case 90: 6.0
+        case 180: 8.5
+        case 360: 12.0
+        default: 3.0
+        }
+        let expectedYieldNum = Int64(Double(amountMinor) * (rate / 100.0) * (Double(termDays) / 365.0))
+        let block = SavingsBlock(
+            id: "sbk_\(UUID().uuidString.prefix(8).lowercased())",
+            termDays: termDays,
+            principalMinor: String(amountMinor),
+            lockedRate: rate,
+            expectedYieldMinor: String(expectedYieldNum),
+            totalPayoutMinor: String(amountMinor + expectedYieldNum),
+            currency: .cop,
+            status: .active,
+            startedAt: now,
+            maturesAt: now.addingTimeInterval(Double(termDays) * 24 * 3600),
+            completedAt: nil
+        )
+        return block
+    }
 }
 
 extension Decimal {

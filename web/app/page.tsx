@@ -1,5 +1,3 @@
-import Image from "next/image";
-import Link from "next/link";
 import { SiteFooter, SiteHeader, TESTFLIGHT_URL } from "@/components/site/SiteChrome";
 import { Isotype } from "@/components/site/Logo";
 import s from "./landing.module.css";

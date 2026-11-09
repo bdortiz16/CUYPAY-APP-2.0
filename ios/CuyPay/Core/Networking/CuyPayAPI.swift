@@ -81,6 +81,12 @@ protocol CuyPayAPI: Sendable {
     func devices() async throws -> [Device]
     /// 🔐
     func deleteDevice(id: String) async throws
+
+    // MARK: Bloque de Ahorro (Savings Vault)
+    func savingsConfig() async throws -> SavingsConfig
+    func userSavings() async throws -> UserSavingsResponse
+    /// 🔐
+    func createSavingsBlock(termDays: Int, amountMinor: Int64) async throws -> SavingsBlock
 }
 
 /// Textos del diálogo de Face ID para cada operación firmada.
@@ -97,4 +103,5 @@ enum SignReason {
     static var transfer: String { String(localized: "Autoriza el envío") }
     static var conversion: String { String(localized: "Autoriza la conversión") }
     static var deleteDevice: String { String(localized: "Confirma la eliminación del dispositivo") }
+    static var createSavingsBlock: String { String(localized: "Autoriza la constitución de tu Bloque de Ahorro") }
 }

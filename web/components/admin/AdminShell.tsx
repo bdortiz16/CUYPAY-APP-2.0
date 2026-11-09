@@ -24,6 +24,7 @@ const NAV: { group: string; items: { href: string; label: string; perm: Permissi
     group: "Finanzas",
     items: [
       { href: "/admin-portal/treasury/", label: "Tesorería", perm: "treasury:read" },
+      { href: "/admin-portal/savings/", label: "Bloques de Ahorro", perm: "treasury:read" },
       { href: "/admin-portal/limits/", label: "Límites", perm: "dashboard:read" },
     ],
   },

@@ -453,3 +453,109 @@ struct LoginRequest: Codable, Hashable, Sendable {
 }
 struct RefreshRequest: Codable, Hashable, Sendable { var refreshToken: String }
 struct EmptyResponse: Codable, Hashable, Sendable {}
+
+// MARK: - Bloque de Ahorro (Savings Vault)
+
+struct SavingsRateTier: Codable, Hashable, Sendable, Identifiable {
+    var id: Int { termDays }
+    var termDays: Int
+    var ratePercent: Double
+    var enabled: Bool
+}
+
+struct SavingsConfig: Codable, Hashable, Sendable {
+    var rates: [SavingsRateTier]
+    var minAmountMinor: String
+    var maxAmountMinor: String
+    var contractTerms: String
+    var updatedAt: Date
+
+    var minAmount: Money {
+        Money(minorUnits: Int64(minAmountMinor) ?? 10_000_00, currency: .cop)
+    }
+    var maxAmount: Money {
+        Money(minorUnits: Int64(maxAmountMinor) ?? 100_000_000_00, currency: .cop)
+    }
+}
+
+enum SavingsBlockStatus: String, Codable, Hashable, Sendable {
+    case active
+    case maturingSoon = "maturing_soon"
+    case completed
+    case cancelled
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = SavingsBlockStatus(rawValue: raw) ?? .unknown
+    }
+
+    var title: String {
+        switch self {
+        case .active: return "Activo"
+        case .maturingSoon: return "Por vencer (<72h)"
+        case .completed: return "Finalizado"
+        case .cancelled: return "Cancelado"
+        case .unknown: return "Desconocido"
+        }
+    }
+}
+
+struct SavingsBlock: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var termDays: Int
+    var principalMinor: String
+    var lockedRate: Double
+    var expectedYieldMinor: String
+    var totalPayoutMinor: String
+    var currency: Currency
+    var status: SavingsBlockStatus
+    var startedAt: Date
+    var maturesAt: Date
+    var completedAt: Date?
+
+    var principal: Money {
+        Money(minorUnits: Int64(principalMinor) ?? 0, currency: currency)
+    }
+    var expectedYield: Money {
+        Money(minorUnits: Int64(expectedYieldMinor) ?? 0, currency: currency)
+    }
+    var totalPayout: Money {
+        Money(minorUnits: Int64(totalPayoutMinor) ?? 0, currency: currency)
+    }
+
+    var daysRemaining: Int {
+        let diff = Calendar.current.dateComponents([.day], from: Date(), to: maturesAt)
+        return max(0, diff.day ?? 0)
+    }
+
+    var progress: Double {
+        let total = maturesAt.timeIntervalSince(startedAt)
+        guard total > 0 else { return 1.0 }
+        let elapsed = Date().timeIntervalSince(startedAt)
+        return min(1.0, max(0.0, elapsed / total))
+    }
+}
+
+struct SavingsSummary: Codable, Hashable, Sendable {
+    var totalPrincipalMinor: String
+    var totalYieldEarnedMinor: String
+    var activeCount: Int
+
+    var totalPrincipal: Money {
+        Money(minorUnits: Int64(totalPrincipalMinor) ?? 0, currency: .cop)
+    }
+    var totalYieldEarned: Money {
+        Money(minorUnits: Int64(totalYieldEarnedMinor) ?? 0, currency: .cop)
+    }
+}
+
+struct UserSavingsResponse: Codable, Hashable, Sendable {
+    var blocks: [SavingsBlock]
+    var summary: SavingsSummary
+}
+
+struct CreateSavingsBlockRequest: Codable, Hashable, Sendable {
+    var termDays: Int
+    var amountMinor: String
+}

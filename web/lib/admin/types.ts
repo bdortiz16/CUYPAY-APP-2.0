@@ -24,6 +24,43 @@ export type KycStatus = "not_started" | "pending" | "approved" | "rejected" | "r
 export type Tier = "basic" | "full";
 export type RiskLevel = "low" | "medium" | "high";
 
+export interface SavingsRateTierDto {
+  termDays: number;
+  ratePercent: number;
+  enabled: boolean;
+}
+
+export interface SavingsConfigDto {
+  rates: SavingsRateTierDto[];
+  minAmountMinor: string;
+  maxAmountMinor: string;
+  contractTerms: string;
+  updatedAt: string;
+  updatedBy?: string;
+}
+
+export interface SavingsBlockDto {
+  id: string;
+  userId: string;
+  termDays: number;
+  principalMinor: string;
+  lockedRate: number;
+  expectedYieldMinor: string;
+  totalPayoutMinor: string;
+  currency: string;
+  status: "active" | "maturing_soon" | "completed" | "canceled";
+  startedAt: string;
+  maturesAt: string;
+  completedAt: string | null;
+}
+
+export interface SavingsTreasuryAlertsDto {
+  windowHours: number;
+  totalMaturing72hMinor: string;
+  totalMaturingCount: number;
+  maturingBlocks: Array<SavingsBlockDto & { hoursRemaining: number }>;
+}
+
 export interface AdminCustomerSummary {
   id: string;
   firstName: string;

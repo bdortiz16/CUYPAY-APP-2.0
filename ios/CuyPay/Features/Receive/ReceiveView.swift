@@ -67,11 +67,15 @@ struct ReceiveView: View {
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
 
-                            HStack(spacing: 4) {
-                                Text(verbatim: "@")
-                                    .font(.body.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                TextField("nuevalleve", text: $newAlias)
+                            HStack(spacing: 6) {
+                                Text(verbatim: "@xatechservic")
+                                    .font(.subheadline.weight(.bold))
+                                    .foregroundStyle(Theme.spruce)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 6)
+                                    .background(Theme.spruce.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+
+                                TextField("tuusuario", text: $newAlias)
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled()
                             }
@@ -230,19 +234,23 @@ struct ReceiveView: View {
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Alias preferido (opcional)")
+                Text("Tu identificador personal")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.secondary)
-                HStack(spacing: 4) {
-                    Text(verbatim: "@")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    TextField("cuypaytunombre", text: $preferredAlias)
+                HStack(spacing: 6) {
+                    Text(verbatim: "@xatechservic")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(Theme.spruce)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Theme.spruce.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+
+                    TextField("tuusuario", text: $preferredAlias)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
                 .formFieldStyle()
-                Text("Si lo dejas vacío, generamos uno que empieza por @cuypay.")
+                Text("Prefijo corporativo ante ACH Colombia. Escribe tu usuario para tu llave individual.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -269,9 +277,10 @@ struct ReceiveView: View {
         isCreating = true
         errorMessage = nil
         defer { isCreating = false }
-        let alias = preferredAlias.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = preferredAlias.trimmingCharacters(in: CharacterSet(charactersIn: "@ ")).lowercased()
+        let clean = suffix.isEmpty ? nil : "@xatechservic" + suffix
         do {
-            let key = try await app.api.createBrebKey(preferredAlias: alias.isEmpty ? nil : "@" + alias.trimmingCharacters(in: CharacterSet(charactersIn: "@")))
+            let key = try await app.api.createBrebKey(preferredAlias: clean)
             withAnimation(.smooth) {
                 store.brebKey = key
             }
@@ -285,10 +294,10 @@ struct ReceiveView: View {
         isChanging = true
         errorMessage = nil
         defer { isChanging = false }
-        let alias = newAlias.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !alias.isEmpty else { return }
+        let suffix = newAlias.trimmingCharacters(in: CharacterSet(charactersIn: "@ ")).lowercased()
+        guard !suffix.isEmpty else { return }
         do {
-            let clean = "@" + alias.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
+            let clean = "@xatechservic" + suffix
             let key = try await app.api.changeBrebKey(preferredAlias: clean)
             withAnimation(.smooth) {
                 store.brebKey = key

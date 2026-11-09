@@ -18,6 +18,8 @@ import type {
   ProcessedDeposit,
   Quote,
   RefreshToken,
+  SavingsBlock,
+  SavingsConfig,
   Transaction,
   User,
 } from '../domain/types.js';
@@ -225,6 +227,20 @@ export interface SettingsRepo {
   set<T>(rec: SettingRecord<T>): Promise<void>;
 }
 
+export interface SavingsBlockRepo {
+  create(b: SavingsBlock): Promise<void>;
+  update(b: SavingsBlock): Promise<void>;
+  byId(id: string): Promise<SavingsBlock | null>;
+  listByUser(userId: string): Promise<SavingsBlock[]>;
+  listAll(): Promise<SavingsBlock[]>;
+  findMaturing(withinMs: number, now: Date): Promise<SavingsBlock[]>;
+}
+
+export interface SavingsConfigRepo {
+  get(): Promise<SavingsConfig>;
+  set(cfg: SavingsConfig): Promise<void>;
+}
+
 export interface Repositories {
   users: UserRepo;
   devices: DeviceRepo;
@@ -252,4 +268,7 @@ export interface Repositories {
   customerControls: CustomerControlRepo;
   reconciliations: ReconciliationRepo;
   settings: SettingsRepo;
+  savingsBlocks: SavingsBlockRepo;
+  savingsConfig: SavingsConfigRepo;
 }
+

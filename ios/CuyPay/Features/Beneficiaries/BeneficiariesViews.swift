@@ -101,9 +101,11 @@ struct AddBeneficiaryFlowView: View {
     @Environment(WalletStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var model: AddBeneficiaryModel?
+    private let initialAlias: String?
     private let onComplete: ((Beneficiary) -> Void)?
 
-    init(onComplete: ((Beneficiary) -> Void)? = nil) {
+    init(initialAlias: String? = nil, onComplete: ((Beneficiary) -> Void)? = nil) {
+        self.initialAlias = initialAlias
         self.onComplete = onComplete
     }
 
@@ -125,7 +127,14 @@ struct AddBeneficiaryFlowView: View {
         }
         .interactiveDismissDisabled(isBusy)
         .onAppear {
-            if model == nil { model = AddBeneficiaryModel(api: app.api) }
+            if model == nil {
+                let m = AddBeneficiaryModel(api: app.api)
+                if let initialAlias, !initialAlias.isEmpty {
+                    m.alias = initialAlias
+                    Task { await m.resolve() }
+                }
+                model = m
+            }
         }
     }
 
@@ -145,6 +154,7 @@ private struct AddBeneficiaryContent: View {
     @Bindable var model: AddBeneficiaryModel
     let onFinish: (Beneficiary?) -> Void
     @FocusState private var keyFocused: Bool
+    @State private var showQRScanner = false
 
     var body: some View {
         Group {
@@ -171,6 +181,12 @@ private struct AddBeneficiaryContent: View {
             default: nil
             }
         }
+        .sheet(isPresented: $showQRScanner) {
+            QRScannerView { scannedKey in
+                model.alias = scannedKey
+                Task { await model.resolve() }
+            }
+        }
     }
 
     // MARK: Paso 1 — llave
@@ -184,14 +200,29 @@ private struct AddBeneficiaryContent: View {
                     .foregroundStyle(.secondary)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    TextField("3001234567, @alias, correo…", text: $model.alias)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.emailAddress)
-                        .focused($keyFocused)
-                        .submitLabel(.search)
-                        .onSubmit { Task { await model.resolve() } }
-                        .formFieldStyle()
+                    HStack(spacing: 8) {
+                        TextField("3001234567, @alias, correo…", text: $model.alias)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.emailAddress)
+                            .focused($keyFocused)
+                            .submitLabel(.search)
+                            .onSubmit { Task { await model.resolve() } }
+                            .formFieldStyle()
+
+                        Button {
+                            showQRScanner = true
+                        } label: {
+                            Image(systemName: "qrcode.viewfinder")
+                                .font(.title2)
+                                .foregroundStyle(Theme.spruce)
+                                .frame(width: 48, height: 48)
+                                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 14))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Escanear código QR")
+                    }
+
                     if !model.alias.isEmpty {
                         Label(model.keyKind.title, systemImage: model.keyKind.systemImage)
                             .font(.caption.weight(.semibold))

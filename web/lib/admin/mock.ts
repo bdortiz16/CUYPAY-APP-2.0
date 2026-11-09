@@ -1227,6 +1227,45 @@ export function createMockApi(): AdminApi {
       };
     },
 
+    async savingsConfig() {
+      await latency();
+      return {
+        rates: [
+          { termDays: 30, ratePercent: 3.0, enabled: true },
+          { termDays: 60, ratePercent: 4.5, enabled: true },
+          { termDays: 90, ratePercent: 6.0, enabled: true },
+          { termDays: 180, ratePercent: 8.5, enabled: true },
+          { termDays: 360, ratePercent: 11.5, enabled: true },
+        ],
+        minAmountMinor: "5000000",
+        maxAmountMinor: "5000000000",
+        contractTerms: "# Contrato Virtual de Bloque de Ahorro a Plazo Fijo",
+        updatedAt: new Date().toISOString(),
+      };
+    },
+    async updateSavingsConfig(rates, contractTerms) {
+      await latency();
+      return {
+        rates,
+        minAmountMinor: "5000000",
+        maxAmountMinor: "5000000000",
+        contractTerms: contractTerms ?? "# Contrato Virtual de Bloque de Ahorro a Plazo Fijo",
+        updatedAt: new Date().toISOString(),
+      };
+    },
+    async savingsBlocks() {
+      await latency();
+      return { items: [] };
+    },
+    async treasurySavingsAlerts() {
+      await latency();
+      return { windowHours: 72, totalMaturing72hMinor: "0", totalMaturingCount: 0, maturingBlocks: [] };
+    },
+    async processSavingsMaturities() {
+      await latency();
+      return { completedCount: 0 };
+    },
+
     subscribe(onEvent, onStatus?: (st: StreamStatus) => void) {
       listeners.add(onEvent);
       onStatus?.("connecting");

@@ -20,6 +20,9 @@ import type {
   ProviderStatus,
   ReverseResult,
   Role,
+  SavingsBlockDto,
+  SavingsConfigDto,
+  SavingsTreasuryAlertsDto,
   StreamEvent,
   Tier,
   TransactionQuery,
@@ -79,6 +82,16 @@ export interface AdminApi {
   createUser(body: { email: string; name: string; role: Role }, reason: string): Promise<CreatedAdmin>;
   updateUser(id: string, body: { role?: Role; status?: "active" | "disabled" }, reason: string): Promise<Admin>;
   resetCredentials(id: string, reason: string): Promise<CreatedAdmin>;
+
+  savingsConfig(): Promise<SavingsConfigDto>;
+  updateSavingsConfig(
+    rates: Array<{ termDays: number; ratePercent: number; enabled: boolean }>,
+    contractTerms?: string,
+    reason?: string,
+  ): Promise<SavingsConfigDto>;
+  savingsBlocks(): Promise<{ items: SavingsBlockDto[] }>;
+  treasurySavingsAlerts(): Promise<SavingsTreasuryAlertsDto>;
+  processSavingsMaturities(): Promise<{ completedCount: number }>;
 
   /** Suscripción al stream SSE. Devuelve la función para cancelar. */
   subscribe(onEvent: (e: StreamEvent) => void, onStatus?: (s: StreamStatus) => void): () => void;
@@ -199,6 +212,13 @@ export function createHttpApi(baseUrl: string): AdminApi {
     updateUser: (id, body, reason) => req("PATCH", `/admin/users/${encodeURIComponent(id)}`, { ...body, reason }),
     resetCredentials: (id, reason) =>
       req("POST", `/admin/users/${encodeURIComponent(id)}/reset-credentials`, { reason }),
+
+    savingsConfig: () => req("GET", "/admin/savings/config"),
+    updateSavingsConfig: (rates, contractTerms, reason = "Ajuste de tasas de ahorro") =>
+      req("PUT", "/admin/savings/config", { rates, contractTerms, reason }),
+    savingsBlocks: () => req("GET", "/admin/savings/blocks"),
+    treasurySavingsAlerts: () => req("GET", "/admin/savings/treasury-alerts"),
+    processSavingsMaturities: () => req("POST", "/admin/savings/process-maturities"),
 
     subscribe(onEvent, onStatus) {
       let es: EventSource | null = null;

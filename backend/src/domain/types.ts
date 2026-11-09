@@ -218,6 +218,7 @@ export interface IdempotencyRecord {
 export type LedgerAccountKind =
   | 'user_available'
   | 'user_held'
+  | 'savings_vault' // fondos en custodia de bloques de ahorro a plazo fijo
   | 'breb_settlement' // contrapartida: cuenta COP en Coinsenda
   | 'fx_clearing' // contrapartida con el proveedor de liquidez BRL
   | 'fee_revenue'
@@ -246,3 +247,41 @@ export interface ProcessedDeposit {
   processedAt: Date;
   note: string | null;
 }
+
+// ───────────── Bloques de Ahorro (Pólizas / Bóveda a Plazo) ─────────────
+
+export type SavingsBlockStatus = 'active' | 'maturing_soon' | 'completed' | 'canceled';
+
+export interface SavingsRateTier {
+  termDays: number;
+  ratePercent: number;
+  enabled: boolean;
+}
+
+export interface SavingsConfig {
+  rates: SavingsRateTier[];
+  minAmountMinor: bigint;
+  maxAmountMinor: bigint;
+  contractTerms: string;
+  updatedAt: Date;
+  updatedBy: string;
+}
+
+export interface SavingsBlock {
+  id: string;
+  userId: string;
+  principalMinor: bigint;
+  termDays: number;
+  lockedRate: number; // Tasa fija garantizada al momento de apertura (inmutable)
+  expectedYieldMinor: bigint;
+  totalPayoutMinor: bigint;
+  currency: Currency;
+  status: SavingsBlockStatus;
+  startedAt: Date;
+  maturesAt: Date;
+  completedAt: Date | null;
+  contractVersion: number;
+  contractAcceptedAt: Date;
+  createdAt: Date;
+}
+

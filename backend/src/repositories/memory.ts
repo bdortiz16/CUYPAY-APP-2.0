@@ -20,6 +20,8 @@ import type {
   ProcessedDeposit,
   Quote,
   RefreshToken,
+  SavingsBlock,
+  SavingsConfig,
   Transaction,
   User,
 } from '../domain/types.js';
@@ -71,6 +73,21 @@ export function createMemoryRepositories(): Repositories {
   const controls = new Map<string, CustomerControl>();
   const recons: ReconciliationRun[] = [];
   const settings = new Map<string, SettingRecord>();
+  const savingsBlocks = new Map<string, SavingsBlock>();
+  let savingsConfig: SavingsConfig = {
+    rates: [
+      { termDays: 30, ratePercent: 3.0, enabled: true },
+      { termDays: 60, ratePercent: 4.5, enabled: true },
+      { termDays: 90, ratePercent: 6.0, enabled: true },
+      { termDays: 180, ratePercent: 8.5, enabled: true },
+      { termDays: 360, ratePercent: 11.5, enabled: true },
+    ],
+    minAmountMinor: 50_000_00n, // $50,000 COP
+    maxAmountMinor: 50_000_000_00n, // $50,000,000 COP
+    contractTerms: `# Contrato Virtual de Bloque de Ahorro a Plazo Fijo\n\n**Entidad:** XATECH SERVICES S.A.S. (CuyPay) — NIT 901799579\n**Producto:** Bloque de Ahorro Programado con Rendimiento Fijo Garantizado\n\n1. **Constitución y Custodia:** El Cliente autoriza a CuyPay a debitar el monto principal acordado de su cuenta disponible y transferirlo a la bóveda de custodia de CuyPay durante el plazo seleccionado (30, 60, 90, 180 o 360 días).\n2. **Garantía de Tasa Fija:** La tasa de interés acordada al momento de la apertura es fija, inmutable e irrevocable durante toda la vigencia del Bloque, independientemente de modificaciones tarifarias posteriores.\n3. **Plazo e Inmovilización:** El capital permanecerá bloqueado durante la totalidad del término pactado. Al cumplirse el plazo (fecha de maduración), CuyPay acreditará automáticamente a la cuenta del usuario el 100% del capital inicial más los rendimientos generados.\n4. **Liquidez y Disponibilidad:** CuyPay mantiene un mecanismo de reserva y provisión de liquidez en su cuenta concentradora con ventana de anticipación operativa de 72 horas para garantizar el desembolso automático al vencimiento exacto.`,
+    updatedAt: new Date(),
+    updatedBy: 'system',
+  };
   const byCreatedDesc = <T extends { createdAt: Date; id: string }>(a: T, b: T) =>
     b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
   // Copia profunda simple para objetos con arrays / JSON anidado (Date se preserva con structuredClone).
@@ -98,6 +115,20 @@ export function createMemoryRepositories(): Repositories {
         balances: Array.from(balances.entries()).map(([k, v]) => [k, v.toString() + 'n']),
         txns: Array.from(txns.entries()),
         adminUsers: Array.from(adminUsers.entries()),
+        savingsBlocks: Array.from(savingsBlocks.entries()).map(([k, b]) => [
+          k,
+          {
+            ...b,
+            principalMinor: b.principalMinor.toString() + 'n',
+            expectedYieldMinor: b.expectedYieldMinor.toString() + 'n',
+            totalPayoutMinor: b.totalPayoutMinor.toString() + 'n',
+          },
+        ]),
+        savingsConfig: {
+          ...savingsConfig,
+          minAmountMinor: savingsConfig.minAmountMinor.toString() + 'n',
+          maxAmountMinor: savingsConfig.maxAmountMinor.toString() + 'n',
+        },
       };
       writeFileSync(STORE_PATH, JSON.stringify(data));
     } catch {
@@ -126,6 +157,8 @@ export function createMemoryRepositories(): Repositories {
       if (data.balances) for (const [k, v] of data.balances) balances.set(k, v);
       if (data.txns) for (const [k, v] of data.txns) txns.set(k, v);
       if (data.adminUsers) for (const [k, v] of data.adminUsers) adminUsers.set(k, v);
+      if (data.savingsBlocks) for (const [k, v] of data.savingsBlocks) savingsBlocks.set(k, v);
+      if (data.savingsConfig) savingsConfig = { ...savingsConfig, ...data.savingsConfig };
     } catch {
       // ignore
     }
@@ -529,6 +562,50 @@ export function createMemoryRepositories(): Repositories {
       },
       async set(rec) {
         settings.set(rec.key, deep(rec));
+      },
+    },
+    savingsBlocks: {
+      async create(b) {
+        savingsBlocks.set(b.id, deep(b));
+        save();
+      },
+      async update(b) {
+        savingsBlocks.set(b.id, deep(b));
+        save();
+      },
+      async byId(id) {
+        const b = savingsBlocks.get(id);
+        return b ? deep(b) : null;
+      },
+      async listByUser(userId) {
+        return [...savingsBlocks.values()]
+          .filter((b) => b.userId === userId)
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+          .map(deep);
+      },
+      async listAll() {
+        return [...savingsBlocks.values()]
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+          .map(deep);
+      },
+      async findMaturing(withinMs, now) {
+        return [...savingsBlocks.values()]
+          .filter(
+            (b) =>
+              b.status === 'active' &&
+              b.maturesAt.getTime() - now.getTime() <= withinMs,
+          )
+          .sort((a, b) => a.maturesAt.getTime() - b.maturesAt.getTime())
+          .map(deep);
+      },
+    },
+    savingsConfig: {
+      async get() {
+        return deep(savingsConfig);
+      },
+      async set(cfg) {
+        savingsConfig = deep(cfg);
+        save();
       },
     },
   };

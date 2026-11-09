@@ -15,6 +15,7 @@ enum HomeSheet: Identifiable, Hashable {
     case receive
     case convert
     case card
+    case savingsVault
     case menu
     case addBeneficiary
     case kyc
@@ -26,6 +27,7 @@ enum HomeSheet: Identifiable, Hashable {
         case .receive: "receive"
         case .convert: "convert"
         case .card: "card"
+        case .savingsVault: "savingsVault"
         case .menu: "menu"
         case .addBeneficiary: "addBeneficiary"
         case .kyc: "kyc"
@@ -159,25 +161,38 @@ struct HomeView: View {
         switch sheet {
         case .send(let beneficiary):
             SendFlowView(preselected: beneficiary)
+                .presentationDragIndicator(.visible)
         case .receive:
             ReceiveView()
+                .presentationDetents([.fraction(0.88), .large])
+                .presentationDragIndicator(.visible)
         case .convert:
             ConvertView()
+                .presentationDetents([.fraction(0.85), .large])
+                .presentationDragIndicator(.visible)
         case .card:
             CardView()
+                .presentationDragIndicator(.visible)
+        case .savingsVault:
+            SavingsView()
+                .presentationDragIndicator(.visible)
         case .menu:
             MainMenuSheet(canConvert: store.wallets.count > 1 || store.fxRate != nil) { action in
                 pendingAction = action
                 self.sheet = nil
             }
-            .presentationDetents([.height(390)])
+            .presentationDetents([.height(440)])
+            .presentationDragIndicator(.visible)
         case .addBeneficiary:
             AddBeneficiaryFlowView()
+                .presentationDragIndicator(.visible)
         case .kyc:
             KYCFlowSheet()
+                .presentationDragIndicator(.visible)
         case .notifications:
             NotificationsSheet()
-                .presentationDetents([.medium])
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -195,6 +210,7 @@ struct HomeView: View {
         pendingAction = nil
         switch action {
         case .card: openGated(.card)
+        case .savingsVault: openGated(.savingsVault)
         case .convert: openGated(.convert)
         case .brebKey: sheet = .receive
         case .beneficiaries: path.append(.beneficiaries)
@@ -342,7 +358,7 @@ extension WalletTransaction {
 // MARK: - Menú (⊞)
 
 enum MenuAction: Hashable {
-    case card, convert, brebKey, beneficiaries, limits, profile
+    case card, convert, brebKey, beneficiaries, savingsVault, limits, profile
 }
 
 struct MainMenuSheet: View {
@@ -359,6 +375,7 @@ struct MainMenuSheet: View {
             GlassEffectContainer(spacing: 12) {
                 LazyVGrid(columns: columns, spacing: 12) {
                     tile("Mi Tarjeta", "creditcard.fill", .card)
+                    tile("Bloque de Ahorro", "lock.rotation", .savingsVault)
                     if canConvert {
                         tile("Convertir", "arrow.left.arrow.right", .convert)
                     }

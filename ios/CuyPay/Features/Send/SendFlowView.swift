@@ -50,6 +50,9 @@ private struct BeneficiaryPickerView: View {
     @Environment(WalletStore.self) private var store
     let model: SendFlowModel
     @State private var showAdd = false
+    @State private var showQRScanner = false
+    @State private var directKey = ""
+    @State private var pendingAlias: String?
     @State private var query = ""
 
     private var filtered: [Beneficiary] {
@@ -61,49 +64,132 @@ private struct BeneficiaryPickerView: View {
     var body: some View {
         ZStack {
             BrandBackground()
-            List {
-                Section {
-                    Button {
-                        showAdd = true
-                    } label: {
-                        Label("Nuevo beneficiario", systemImage: "person.crop.circle.badge.plus")
-                            .font(.body.weight(.semibold))
-                    }
-                }
-                .listRowBackground(Color.clear)
+            VStack(spacing: 0) {
+                // Entrada directa de llave Bre-B y botón de escanear QR contiguo
+                HStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "key.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.spruce)
+                        TextField("Escribe la llave (celular, @alias, correo)…", text: $directKey)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.emailAddress)
+                            .submitLabel(.go)
+                            .onSubmit { handleDirectInput(directKey) }
 
-                Section("Tus beneficiarios") {
-                    ForEach(filtered) { beneficiary in
+                        if !directKey.isEmpty {
+                            Button {
+                                directKey = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 16))
+
+                    if !directKey.isEmpty {
                         Button {
-                            model.select(beneficiary)
+                            handleDirectInput(directKey)
                         } label: {
-                            BeneficiaryRow(beneficiary: beneficiary)
+                            Image(systemName: "arrow.right.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundStyle(Theme.spruce)
                         }
                         .buttonStyle(.plain)
-                        .disabled(beneficiary.status != .active)
-                        .opacity(beneficiary.status == .active ? 1 : 0.55)
                     }
+
+                    Button {
+                        showQRScanner = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "qrcode.viewfinder")
+                                .font(.headline)
+                            Text("Escanear")
+                                .font(.footnote.weight(.bold))
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(Theme.spruce)
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
                 }
-                .listRowBackground(Rectangle().fill(.thinMaterial))
-            }
-            .scrollContentBackground(.hidden)
-            .searchable(text: $query, prompt: Text("Buscar beneficiario"))
-            .overlay {
-                if store.beneficiaries.isEmpty {
-                    ContentUnavailableView("Aún no tienes beneficiarios", systemImage: "person.2", description: Text("Inscribe una llave Bre-B para enviar dinero."))
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+
+                List {
+                    Section {
+                        Button {
+                            pendingAlias = nil
+                            showAdd = true
+                        } label: {
+                            Label("Nuevo beneficiario", systemImage: "person.crop.circle.badge.plus")
+                                .font(.body.weight(.semibold))
+                        }
+                    }
+                    .listRowBackground(Color.clear)
+
+                    Section("Tus beneficiarios") {
+                        ForEach(filtered) { beneficiary in
+                            Button {
+                                model.select(beneficiary)
+                            } label: {
+                                BeneficiaryRow(beneficiary: beneficiary)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(beneficiary.status != .active)
+                            .opacity(beneficiary.status == .active ? 1 : 0.55)
+                        }
+                    }
+                    .listRowBackground(Rectangle().fill(.thinMaterial))
+                }
+                .scrollContentBackground(.hidden)
+                .searchable(text: $query, prompt: Text("Buscar beneficiario"))
+                .overlay {
+                    if store.beneficiaries.isEmpty {
+                        ContentUnavailableView("Aún no tienes beneficiarios", systemImage: "person.2", description: Text("Escribe una llave arriba, escanea un QR o inscribe un nuevo contacto."))
+                    }
                 }
             }
         }
         .navigationTitle("¿A quién envías?")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showQRScanner) {
+            QRScannerView { scannedKey in
+                handleDirectInput(scannedKey)
+            }
+        }
         .sheet(isPresented: $showAdd) {
-            AddBeneficiaryFlowView { beneficiary in
+            AddBeneficiaryFlowView(initialAlias: pendingAlias) { beneficiary in
                 if beneficiary.status == .active { model.select(beneficiary) }
             }
         }
         .task {
             if store.beneficiaries.isEmpty { await store.refreshBeneficiaries() }
         }
+    }
+
+    private func handleDirectInput(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        // Si ya existe en beneficiarios, seleccionarlo directo
+        if let existing = store.beneficiaries.first(where: {
+            $0.alias.localizedCaseInsensitiveCompare(trimmed) == .orderedSame || $0.phone == trimmed
+        }) {
+            model.select(existing)
+            return
+        }
+
+        // Si es una llave nueva, abrir flujo de inscripción con la llave prellenada
+        pendingAlias = trimmed
+        showAdd = true
     }
 }
 
