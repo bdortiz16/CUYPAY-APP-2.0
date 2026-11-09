@@ -207,34 +207,14 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
     await this.ensureSession();
     const cleanAlias = input.alias.trim();
     const formattedAlias = cleanAlias.startsWith('@') ? cleanAlias : `@${cleanAlias}`;
-
-    // 1. Revisar si Coinsenda ya tiene una llave Bre-B aprovisionada para la cuenta COP
-    try {
-      const existingRes = await this.call('getDepositProviders', (c) => c.deposit.user.__get__depositProviders());
-      const providers = Array.isArray(existingRes.data)
-        ? existingRes.data
-        : existingRes.data?.data ?? [];
-      const breb = providers.find((p: any) => p.provider_type === 'breb' && p.enabled);
-      if (breb) {
-        const assignedAlias =
-          breb.account?.account_id?.account_id ??
-          breb.account?.account_id ??
-          breb.alias ??
-          breb.address ??
-          formattedAlias;
-        return {
-          providerKeyId: String(breb.id ?? breb.deposit_provider_id ?? newId('dp', new Date())),
-          alias: String(assignedAlias),
-          status: (breb.state === 'blocked' ? 'blocked' : breb.state === 'pending' ? 'pending' : 'active') as 'active' | 'pending' | 'blocked',
-          qrCode: breb.account?.qr_code?.qr_string,
-          raw: breb,
-        };
-      }
-    } catch (err) {
-      this.opts.logger?.warn?.({ err }, 'No se pudo consultar depositProviders existentes; procediendo a creación');
-    }
-
     const userId = this.getCoinsendaUserId();
+
+    // Catálogo oficial de Bre-B en Coinsenda: 69391969002c69002ac2e285 (provider_type: breb, currency: cop)
+    const depositAccountId =
+      this.opts.brebDepositAccountId === '69391969002c69002ac2e285'
+        ? this.opts.brebDepositAccountId
+        : '69391969002c69002ac2e285';
+
     const res = await this.call('createBrebKey', (c) =>
       c.request(
         'deposit',
@@ -244,7 +224,7 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
           data: {
             userId,
             account_id: this.opts.copAccountId,
-            deposit_account_id: this.opts.brebDepositAccountId,
+            deposit_account_id: depositAccountId,
             alias: formattedAlias,
           },
         },
@@ -260,7 +240,12 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
     }
     const d = this.payload(res);
     const item = Array.isArray(d) ? d[0] : d;
-    const assignedAlias = item?.account?.account_id?.account_id || item?.account?.account_id || item?.alias || item?.address || formattedAlias;
+    const assignedAlias =
+      item?.account?.account_id?.account_id ??
+      item?.account?.account_id ??
+      item?.alias ??
+      item?.address ??
+      formattedAlias;
     return {
       providerKeyId: String(item?.id ?? item?.deposit_provider_id ?? newId('dp', new Date())),
       alias: String(assignedAlias),

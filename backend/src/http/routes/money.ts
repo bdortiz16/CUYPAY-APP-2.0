@@ -11,6 +11,7 @@ import {
 } from '../../domain/presenters.js';
 import { AppError } from '../../lib/errors.js';
 import { toSafeNumber } from '../../lib/money.js';
+import { getFxSettings } from '../../services/runtime-config.js';
 import { parse, type RouteHelpers } from '../app.js';
 
 const Amount = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
@@ -35,7 +36,7 @@ const RateQuery = z.object({ from: z.string().default('COP'), to: z.string().def
 const QuoteReq = z.object({ fromCurrency: z.enum(['COP', 'BRL']), toCurrency: z.enum(['COP', 'BRL']), amountMinor: Amount });
 const ConvertReq = z.object({ quoteId: Id, idempotencyKey: IdemKey });
 
-export function registerMoneyRoutes(app: FastifyInstance, { services }: Container, h: RouteHelpers) {
+export function registerMoneyRoutes(app: FastifyInstance, { deps, services }: Container, h: RouteHelpers) {
   const auth = { preHandler: [h.authenticate] };
   const signed = { preHandler: [h.authenticate, h.requireSignature] };
 
@@ -145,6 +146,10 @@ export function registerMoneyRoutes(app: FastifyInstance, { services }: Containe
 
   // ── FX ──
   app.get('/fx/rate', auth, async (req) => {
+    const fx = await getFxSettings(deps);
+    if (!fx.value.enabled) {
+      throw new AppError('NOT_FOUND', 'Las conversiones entre COP y BRL están pausadas temporalmente.');
+    }
     const q = parse(RateQuery, req.query);
     return services.fx.rate(q.from, q.to);
   });

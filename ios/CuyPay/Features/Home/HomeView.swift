@@ -59,7 +59,8 @@ struct HomeView: View {
                         }
 
                         VStack(spacing: 14) {
-                            PocketSwitcher(selection: $pocket)
+                            let available = store.wallets.map(\.currency)
+                            PocketSwitcher(selection: $pocket, availableCurrencies: available.isEmpty ? [.cop] : available)
                             BalanceHeader(wallet: store.wallet(for: pocket), currency: pocket, hideAmounts: $hideAmounts)
                                 .redacted(reason: store.hasLoadedOnce ? [] : .placeholder)
                         }
@@ -165,7 +166,7 @@ struct HomeView: View {
         case .card:
             CardView()
         case .menu:
-            MainMenuSheet { action in
+            MainMenuSheet(canConvert: store.wallets.count > 1 || store.fxRate != nil) { action in
                 pendingAction = action
                 self.sheet = nil
             }
@@ -345,6 +346,7 @@ enum MenuAction: Hashable {
 }
 
 struct MainMenuSheet: View {
+    var canConvert: Bool = true
     let onSelect: (MenuAction) -> Void
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
@@ -357,7 +359,9 @@ struct MainMenuSheet: View {
             GlassEffectContainer(spacing: 12) {
                 LazyVGrid(columns: columns, spacing: 12) {
                     tile("Mi Tarjeta", "creditcard.fill", .card)
-                    tile("Convertir", "arrow.left.arrow.right", .convert)
+                    if canConvert {
+                        tile("Convertir", "arrow.left.arrow.right", .convert)
+                    }
                     tile("Mi llave Bre-B", "key.fill", .brebKey)
                     tile("Beneficiarios", "person.2.fill", .beneficiaries)
                     tile("Límites", "gauge.with.dots.needle.67percent", .limits)

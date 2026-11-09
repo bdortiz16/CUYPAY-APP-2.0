@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { formatInt, formatMinor, pct, timeAgo } from "@/lib/format";
 import { useSession, useStreamEvent } from "@/lib/admin/session";
 import { useLoad } from "@/lib/admin/useLoad";
 import type { StreamEvent } from "@/lib/admin/types";
 import { SeriesChart } from "../SeriesChart";
-import { css as s, cx, ErrorBox, Kpi, PageHead, Panel, Skeleton, StatusBadge, TX_TYPE } from "../ui";
+import { css as s, cx, ErrorBox, Kpi, PageHead, Panel, Skeleton, StatusBadge, TX_TYPE, useToast } from "../ui";
 
 function describe(e: StreamEvent): { title: React.ReactNode; sub: string; tone: string } {
   switch (e.type) {
@@ -79,9 +79,28 @@ function eventTime(e: StreamEvent): string {
 }
 
 export function DashboardView() {
-  const { feed, can } = useSession();
+  const { feed, can, api } = useSession();
+  const toast = useToast();
   const { data, error, loading, reload } = useLoad((api) => api.dashboard(), []);
+  const fx = useLoad((api) => api.fx(), []);
+  const [togglingCorridor, setTogglingCorridor] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const toggleBrazil = async () => {
+    if (!fx.data || !api) return;
+    setTogglingCorridor(true);
+    try {
+      const nextState = !fx.data.enabled;
+      await api.updateFx({ enabled: nextState }, nextState ? "Habilitar corredor Brasil (PIX)" : "Deshabilitar corredor Brasil (Solo Bre-B)");
+      toast(nextState ? "Corredor Brasil (PIX / BRL) habilitado" : "Corredor Brasil desactivado. Operando exclusivamente con Bre-B.");
+      void fx.reload(true);
+      void reload(true);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Error al cambiar estado");
+    } finally {
+      setTogglingCorridor(false);
+    }
+  };
 
   useStreamEvent(
     ["transaction.created", "transaction.updated", "customer.created", "customer.updated", "kyc.updated", "compliance.alert", "provider.status", "treasury.updated"],
@@ -164,6 +183,45 @@ export function DashboardView() {
                 </tr>
               </tbody>
             </table>
+          </Panel>
+          <Panel title="Corredores y Países" actions={<Link href="/admin-portal/treasury/">Ajustes</Link>}>
+            <div className={s.stack} style={{ gap: 14 }}>
+              <div className={s.spread} style={{ alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 22 }}>🇨🇴</span>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>Colombia · Bre-B</div>
+                    <div className={cx(s.faint, s.num)} style={{ fontSize: 11 }}>ACH Colombia · Llaves activas</div>
+                  </div>
+                </div>
+                <StatusBadge value="operational" />
+              </div>
+
+              <div className={s.spread} style={{ alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 22 }}>🇧🇷</span>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>Brasil · PIX / BRL</div>
+                    <div className={cx(s.faint, s.num)} style={{ fontSize: 11 }}>
+                      {fx.data?.enabled ? "Operativo (COP ⇄ BRL)" : "Desactivado (Solo Bre-B activo)"}
+                    </div>
+                  </div>
+                </div>
+                {can("treasury:write") ? (
+                  <button
+                    type="button"
+                    className={cx(s.btn, fx.data?.enabled ? s.btnWarn : s.btnPrimary)}
+                    style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, cursor: "pointer" }}
+                    disabled={togglingCorridor || !fx.data}
+                    onClick={toggleBrazil}
+                  >
+                    {togglingCorridor ? "Cambiando…" : fx.data?.enabled ? "Desactivar Brasil" : "Activar Brasil"}
+                  </button>
+                ) : (
+                  <StatusBadge value={fx.data?.enabled ? "operational" : "disabled"} />
+                )}
+              </div>
+            </div>
           </Panel>
 
           {can("treasury:read") ? (

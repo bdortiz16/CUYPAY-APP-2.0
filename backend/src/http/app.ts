@@ -75,10 +75,13 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
       delegator: (req, cb) => {
         const origin = req.headers.origin;
         const path = req.url ?? '';
+        const isWildcard = config.corsOrigins.includes('*') || config.adminOrigins.includes('*');
+        const isCuypayOrigin = !!origin && (origin.endsWith('cuypay.com') || origin.includes('localhost') || origin.includes('127.0.0.1'));
         const allowed =
-          !!origin &&
-          (config.corsOrigins.includes(origin) || (config.adminOrigins.includes(origin) && path.startsWith('/v1/admin')));
-        cb(null, { origin: allowed ? origin : false, methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] });
+          isWildcard ||
+          isCuypayOrigin ||
+          (!!origin && (config.corsOrigins.includes(origin) || (config.adminOrigins.includes(origin) && path.startsWith('/v1/admin'))));
+        cb(null, { origin: allowed ? (origin ?? true) : false, methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], credentials: true });
       },
     });
   }

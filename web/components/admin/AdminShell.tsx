@@ -7,6 +7,7 @@ import { Isotype } from "@/components/site/Logo";
 import type { Permission } from "@/lib/admin/rbac";
 import { ROLE_LABEL } from "@/lib/admin/rbac";
 import { AdminSessionProvider, useSession, useStreamEvent } from "@/lib/admin/session";
+import { setMockMode } from "@/lib/admin/api";
 import { cx, css as s, errorMessage, ToastProvider, useToast } from "./ui";
 
 const NAV: { group: string; items: { href: string; label: string; perm: Permission; countKey?: "compliance" }[] }[] = [
@@ -154,10 +155,33 @@ function Shell({ children, pathname }: { children: React.ReactNode; pathname: st
 
       <div className={s.main}>
         {mock ? (
-          <div className={s.mockBanner}>
-            Modo demo: los datos y eventos en vivo son simulados en tu navegador. Define NEXT_PUBLIC_ADMIN_API_BASE para usar el backend real.
+          <div className={s.mockBanner} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span>Modo demo: los datos y eventos son simulados en tu navegador.</span>
+            <button
+              type="button"
+              className={cx(s.btn, s.btnSm)}
+              style={{ background: "#4cc79a", color: "#0B1D1B", fontWeight: 700, border: "none", cursor: "pointer", padding: "4px 12px", borderRadius: 6 }}
+              onClick={() => setMockMode(false)}
+            >
+              Conectar a Backend Real (api.cuypay.com)
+            </button>
           </div>
-        ) : null}
+        ) : (
+          <div style={{ background: "#112623", color: "#4cc79a", padding: "8px 16px", fontSize: 13, display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #1c3d38", flexWrap: "wrap", gap: 10 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#4cc79a", display: "inline-block" }} />
+              <strong>Conectado en vivo:</strong> api.cuypay.com (Datos reales del backend y Coinsenda)
+            </span>
+            <button
+              type="button"
+              className={cx(s.btn, s.btnSm)}
+              style={{ background: "transparent", color: "#ADCBC8", border: "1px solid #2a5a53", fontSize: 11, padding: "2px 8px", cursor: "pointer" }}
+              onClick={() => setMockMode(true)}
+            >
+              Ver en modo demo
+            </button>
+          </div>
+        )}
         <header className={s.topbar}>
           <button type="button" className={cx(s.btn, s.btnGhost, s.menuBtn)} onClick={() => setOpen((o) => !o)} aria-label="Abrir menú">
             ☰

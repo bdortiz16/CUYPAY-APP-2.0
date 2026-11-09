@@ -3,50 +3,56 @@ import SwiftUI
 
 // MARK: - Selector de bolsillo (morphing glass)
 
-/// Pastilla "🇨🇴 COP ▾" que se expande en dos opciones (COP/BRL) con morphing de Liquid Glass.
+/// Pastilla "🇨🇴 COP ▾" que se expande en opciones con morphing de Liquid Glass.
 struct PocketSwitcher: View {
     @Binding var selection: Currency
+    var availableCurrencies: [Currency] = Currency.allCases
     @State private var isExpanded = false
     @Namespace private var glassNamespace
 
     var body: some View {
-        GlassEffectContainer(spacing: 10) {
-            HStack(spacing: 10) {
-                if isExpanded {
-                    ForEach(Currency.allCases) { currency in
-                        Button {
-                            withAnimation(.bouncy(duration: 0.45)) {
-                                selection = currency
-                                isExpanded = false
+        if availableCurrencies.count <= 1 {
+            pill(selection, showsChevron: false)
+                .glassEffect(.regular.interactive(), in: .capsule)
+        } else {
+            GlassEffectContainer(spacing: 10) {
+                HStack(spacing: 10) {
+                    if isExpanded {
+                        ForEach(availableCurrencies) { currency in
+                            Button {
+                                withAnimation(.bouncy(duration: 0.45)) {
+                                    selection = currency
+                                    isExpanded = false
+                                }
+                            } label: {
+                                pill(currency, showsChevron: false)
                             }
+                            .buttonStyle(.plain)
+                            .glassEffect(
+                                currency == selection
+                                    ? Glass.regular.tint(Theme.spruce.opacity(0.35)).interactive()
+                                    : Glass.regular.interactive(),
+                                in: .capsule
+                            )
+                            .glassEffectID(currency, in: glassNamespace)
+                            .accessibilityAddTraits(currency == selection ? .isSelected : [])
+                        }
+                    } else {
+                        Button {
+                            withAnimation(.bouncy(duration: 0.45)) { isExpanded = true }
                         } label: {
-                            pill(currency, showsChevron: false)
+                            pill(selection, showsChevron: true)
                         }
                         .buttonStyle(.plain)
-                        .glassEffect(
-                            currency == selection
-                                ? Glass.regular.tint(Theme.spruce.opacity(0.35)).interactive()
-                                : Glass.regular.interactive(),
-                            in: .capsule
-                        )
-                        .glassEffectID(currency, in: glassNamespace)
-                        .accessibilityAddTraits(currency == selection ? .isSelected : [])
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                        .glassEffectID(selection, in: glassNamespace)
+                        .accessibilityLabel(Text("Bolsillo \(selection.code). Toca para cambiar"))
                     }
-                } else {
-                    Button {
-                        withAnimation(.bouncy(duration: 0.45)) { isExpanded = true }
-                    } label: {
-                        pill(selection, showsChevron: true)
-                    }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .capsule)
-                    .glassEffectID(selection, in: glassNamespace)
-                    .accessibilityLabel(Text("Bolsillo \(selection.code). Toca para cambiar"))
                 }
             }
+            .sensoryFeedback(.selection, trigger: selection)
+            .sensoryFeedback(.impact(weight: .light), trigger: isExpanded)
         }
-        .sensoryFeedback(.selection, trigger: selection)
-        .sensoryFeedback(.impact(weight: .light), trigger: isExpanded)
     }
 
     private func pill(_ currency: Currency, showsChevron: Bool) -> some View {

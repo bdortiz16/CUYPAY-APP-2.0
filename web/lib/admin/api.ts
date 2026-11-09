@@ -266,11 +266,36 @@ export function createHttpApi(baseUrl: string): AdminApi {
 }
 
 // ---------------------------------------------------------------------------------------------
+const DEFAULT_API_BASE = "https://api.cuypay.com/v1";
 let instance: AdminApi | null = null;
 
+export function getAdminApiBase(): string {
+  if (typeof window !== "undefined") {
+    const custom = localStorage.getItem("cuypay_admin_api_base");
+    if (custom) return custom;
+  }
+  return process.env.NEXT_PUBLIC_ADMIN_API_BASE || DEFAULT_API_BASE;
+}
+
 export function isMockMode(): boolean {
-  const base = process.env.NEXT_PUBLIC_ADMIN_API_BASE;
-  return !base || process.env.NEXT_PUBLIC_ADMIN_MOCK === "1";
+  if (typeof window !== "undefined") {
+    const override = localStorage.getItem("cuypay_admin_mock");
+    if (override === "1") return true;
+    if (override === "0") return false;
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("demo") === "1") return true;
+    if (urlParams.get("demo") === "0") return false;
+  }
+  if (process.env.NEXT_PUBLIC_ADMIN_MOCK === "1") return true;
+  return false;
+}
+
+export function setMockMode(enabled: boolean): void {
+  if (typeof window !== "undefined") {
+    localStorage.setItem("cuypay_admin_mock", enabled ? "1" : "0");
+    instance = null;
+    window.location.reload();
+  }
 }
 
 export async function getApi(): Promise<AdminApi> {
@@ -279,7 +304,11 @@ export async function getApi(): Promise<AdminApi> {
     const { createMockApi } = await import("./mock");
     instance = createMockApi();
   } else {
-    instance = createHttpApi(process.env.NEXT_PUBLIC_ADMIN_API_BASE as string);
+    instance = createHttpApi(getAdminApiBase());
   }
   return instance;
+}
+
+export function resetApiInstance(): void {
+  instance = null;
 }

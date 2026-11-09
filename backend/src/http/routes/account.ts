@@ -11,7 +11,9 @@ const TxQuery = z.object({
 });
 const IdParam = z.object({ id: z.string().min(1).max(64) });
 
-export function registerAccountRoutes(app: FastifyInstance, { services }: Container, h: RouteHelpers) {
+import { getFxSettings } from '../../services/runtime-config.js';
+
+export function registerAccountRoutes(app: FastifyInstance, { deps, services }: Container, h: RouteHelpers) {
   const auth = { preHandler: [h.authenticate] };
   const signed = { preHandler: [h.authenticate, h.requireSignature] };
 
@@ -24,8 +26,10 @@ export function registerAccountRoutes(app: FastifyInstance, { services }: Contai
   });
 
   app.get('/wallets', auth, async (req) => {
-    const wallets = await services.ledger.wallets(req.auth!.userId);
-    return { items: wallets.map(presentWallet) };
+    const fx = await getFxSettings(deps);
+    const allWallets = await services.ledger.wallets(req.auth!.userId);
+    const active = fx.value.enabled ? allWallets : allWallets.filter((w) => w.currency === 'COP');
+    return { items: active.map(presentWallet) };
   });
 
   app.get('/limits', auth, async (req) => presentLimits(await services.limits.snapshot(await h.currentUser(req))));
