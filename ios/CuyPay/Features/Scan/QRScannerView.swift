@@ -215,15 +215,36 @@ private struct CameraPreviewRepresentable: UIViewControllerRepresentable {
     }
 }
 
-private class CameraScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
+private final class QRScannerCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate, @unchecked Sendable {
+    var onCodeFound: (@MainActor (String) -> Void)?
+    private var hasReported = false
+
+    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+        guard !hasReported,
+              let metadata = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+              let str = metadata.stringValue else {
+            return
+        }
+        hasReported = true
+        DispatchQueue.main.async { [weak self] in
+            self?.onCodeFound?(str)
+        }
+    }
+}
+
+private class CameraScannerViewController: UIViewController {
     var onCodeFound: ((String) -> Void)?
     private var captureSession: AVCaptureSession?
     private var previewLayer: AVCaptureVideoPreviewLayer?
-    private var hasReported = false
+    private let coordinator = QRScannerCoordinator()
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        coordinator.onCodeFound = { [weak self] str in
+            self?.captureSession?.stopRunning()
+            self?.onCodeFound?(str)
+        }
         setupCamera()
     }
 
@@ -260,7 +281,7 @@ private class CameraScannerViewController: UIViewController, AVCaptureMetadataOu
             let output = AVCaptureMetadataOutput()
             if session.canAddOutput(output) {
                 session.addOutput(output)
-                output.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+                output.setMetadataObjectsDelegate(coordinator, queue: DispatchQueue.main)
                 output.metadataObjectTypes = [.qr]
             }
 
@@ -277,17 +298,6 @@ private class CameraScannerViewController: UIViewController, AVCaptureMetadataOu
             }
         } catch {
             // Error al inicializar cámara
-        }
-    }
-
-    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
-        guard !hasReported, let metadata = metadataObjects.first as? AVMetadataMachineReadableCodeObject, let str = metadata.stringValue else {
-            return
-        }
-        hasReported = true
-        captureSession?.stopRunning()
-        DispatchQueue.main.async { [weak self] in
-            self?.onCodeFound?(str)
         }
     }
 }
