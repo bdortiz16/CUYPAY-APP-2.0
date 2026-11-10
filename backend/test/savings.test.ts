@@ -55,7 +55,7 @@ describe('Bloques de Ahorro (Pólizas / Vault a Plazo)', () => {
     env.clock.advanceSeconds(29 * 24 * 3600); // día 29 de 30
     const alert = await env.container.services.savings.getTreasuryAlerts();
     expect(alert.totalMaturingCount).toBe(1);
-    expect(alert.maturingBlocks[0].hoursRemaining).toBeLessThanOrEqual(25);
+    expect(alert.maturingBlocks[0]!.hoursRemaining).toBeLessThanOrEqual(25);
 
     // 6. Al cumplirse el plazo (día 31), se ejecuta la liquidación automática
     env.clock.advanceSeconds(2 * 24 * 3600);

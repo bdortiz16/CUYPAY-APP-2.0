@@ -31,7 +31,7 @@ export class TransferService {
 
   private async activeBeneficiary(userId: string, beneficiaryId: string) {
     const b = await this.beneficiaries.getOwned(userId, beneficiaryId);
-    if (b.status !== 'active' || !b.providerWithdrawAccountId) {
+    if (b.status !== 'active') {
       throw new AppError('BENEFICIARY_NOT_ACTIVE', 'El beneficiario no está activo', { status: b.status });
     }
     return b;
@@ -107,7 +107,12 @@ export class TransferService {
     await this.d.events.publish({ type: 'transaction.created', txn: { ...txn } });
 
     try {
-      const w = await this.d.coinsenda.createWithdraw({ withdrawAccountId: b.providerWithdrawAccountId!, amountMinor: amount, reference: txn.id });
+      const readyBen = b.providerWithdrawAccountId ? b : await this.beneficiaries.ensureWithdrawAccount(b);
+      const w = await this.d.coinsenda.createWithdraw({
+        withdrawAccountId: readyBen.providerWithdrawAccountId!,
+        amountMinor: amount,
+        reference: txn.id,
+      });
       txn.providerRef = w.withdrawId;
       await this.d.repos.transactions.update(txn);
       const confirmed = await this.d.coinsenda.confirmWithdraw(w.withdrawId);

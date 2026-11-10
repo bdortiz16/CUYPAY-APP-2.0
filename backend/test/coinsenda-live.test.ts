@@ -37,6 +37,15 @@ function makeGateway() {
       if (endpoint === '/withdrawAccounts/resolve-breb-alias-public') {
         return this.withdraw.withdrawAccount.resolveBrebAliasPublic(data?.data ?? data);
       }
+      if (endpoint === '/withdrawAccounts/add-new-withdraw-account') {
+        return this.withdraw.withdrawAccount.addNewWithdrawAccount(data?.data ?? data);
+      }
+      if (endpoint === '/withdraws/add-new-withdraw-public') {
+        return this.withdraw.withdraw.addNewWithdrawPublic(data?.data ?? data);
+      }
+      if (endpoint === '/withdraws/add-update-withdraw') {
+        return this.withdraw.withdraw.addUpdateWithdraw(data?.data ?? data);
+      }
       return { status: 404, data: {} };
     },
     auth: {
@@ -79,7 +88,10 @@ function makeGateway() {
           if (arg.alias === '@libre') return { status: 400, data: { error: { code: 'withdrawaccount_23', message: 'Cannot resolve breb alias' } } };
           return { status: 200, data: { data: { first_name: 'Juan', last_name: 'Pérez', id_type: 'CC', id_number: '123', bank_name: 'Bancolombia' } } };
         },
-        addNewWithdrawAccount: async () => ({ status: 200, data: { data: { id: 'wa_1' } } }),
+        addNewWithdrawAccount: async (arg: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          log.push({ op: 'addWithdrawAccount', arg });
+          return { status: 200, data: { data: { id: 'wa_1' } } };
+        },
         updateVisibility: async () => ({ status: 200, data: {} }),
       },
       withdraw: {
@@ -129,7 +141,7 @@ describe('Coinsenda live adapter (SDK doble)', () => {
     expect(w.withdrawId).toBe('wd_1');
     expect(log.find((l) => l.op === 'withdraw')!.arg).toMatchObject({ account_id: 'acc_cop', withdraw_account_id: 'wa_1', amount: '150000.50' });
     expect((await gw.confirmWithdraw('wd_1')).state).toBe('confirmed');
-    expect(log.find((l) => l.op === 'confirm')!.arg).toEqual({ withdraw_id: 'wd_1', state: 'confirmed' });
+    expect(log.find((l) => l.op === 'confirm')!.arg).toEqual({ withdraw_id: 'wd_1', state: 'confirmed', country: 'international' });
     expect((await gw.getWithdraw('wd_1'))!.state).toBe('accepted');
 
     const deps = await gw.listDeposits();

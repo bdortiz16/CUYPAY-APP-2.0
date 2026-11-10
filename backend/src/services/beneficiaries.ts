@@ -64,6 +64,13 @@ export class BeneficiaryService {
       (b) => b.alias === res.alias && !b.deletedAt && b.status !== 'rejected',
     );
     if (existing) {
+      if (existing.status === 'active' && !existing.providerWithdrawAccountId) {
+        try {
+          await this.ensureWithdrawAccount(existing);
+        } catch (err) {
+          this.d.logger.warn({ err: (err as Error).message, beneficiaryId: existing.id }, 'could not backfill withdraw account');
+        }
+      }
       const aml = await this.d.repos.aml.byId(existing.amlCheckId);
       if (aml) return { beneficiary: existing, aml };
     }
@@ -121,6 +128,28 @@ export class BeneficiaryService {
       this.d.logger.warn({ userId: user.id, beneficiaryId, amlRef: aml.referenceId }, 'aml hit on beneficiary');
     }
     return { beneficiary, aml };
+  }
+
+  async ensureWithdrawAccount(b: Beneficiary): Promise<Beneficiary> {
+    if (b.providerWithdrawAccountId) return b;
+    const parts = b.holderName.trim().split(/\s+/);
+    const firstName = parts[0] ?? b.holderName;
+    const lastName = parts.slice(1).join(' ');
+    const { withdrawAccountId } = await this.d.coinsenda.addWithdrawAccount({
+      holder: {
+        alias: b.alias,
+        firstName,
+        lastName,
+        documentType: b.documentType,
+        documentNumber: b.documentNumber,
+        bankName: b.bankName,
+        raw: null,
+      },
+      label: `cuypay:${b.userId}:${b.id}`,
+    });
+    b.providerWithdrawAccountId = withdrawAccountId;
+    await this.d.repos.beneficiaries.update(b);
+    return b;
   }
 
   private async registerWithdrawAccount(res: BrebResolution, b: Beneficiary): Promise<string> {

@@ -40,6 +40,7 @@ struct TransactionDetailSheet: View {
         case .pending: "En proceso"
         case .failed: "No completado"
         case .reversed: "Reversado"
+        case .unknown: "Procesando"
         }
     }
 
