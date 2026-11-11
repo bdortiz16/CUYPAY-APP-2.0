@@ -107,6 +107,8 @@ export interface CoinsendaGateway {
   updateBrebKeyStatus?(providerKeyId: string, status: 'active' | 'blocked'): Promise<void>;
   /** Cancela definitivamente una llave Bre-B propia. */
   cancelBrebKey?(providerKeyId: string): Promise<void>;
+  /** Renueva la vigilancia en tiempo real de depósitos Bre-B para una llave en Coinsenda (~50 s TTL). */
+  subscribeBrebDeposits?(providerKeyId: string): Promise<void>;
 
   // ── Tarjetas (farming + marketplace) ──
   /** Emite o vincula una tarjeta virtual/física en Coinsenda. */

@@ -300,16 +300,23 @@ export function createMemoryRepositories(): Repositories {
         save();
       },
       async byUser(userId) {
-        return opt(find(brebKeys, (k) => k.userId === userId && k.status === 'active')) ?? opt(find(brebKeys, (k) => k.userId === userId));
+        return (
+          opt(find(brebKeys, (k) => k.userId === userId && k.status === 'active')) ??
+          opt(find(brebKeys, (k) => k.userId === userId && k.status !== 'replaced'))
+        );
       },
       async listByUser(userId) {
         return [...brebKeys.values()].filter((k) => k.userId === userId).map(clone);
+      },
+      async listActive() {
+        return [...brebKeys.values()].filter((k) => k.status === 'active').map(clone);
       },
       async byProviderKeyId(pid) {
         return opt(find(brebKeys, (k) => k.providerKeyId === pid));
       },
       async byAlias(alias) {
-        return opt(find(brebKeys, (k) => k.alias === alias));
+        const target = alias.trim().toLowerCase();
+        return opt(find(brebKeys, (k) => k.status !== 'replaced' && k.alias.toLowerCase() === target));
       },
       async byId(id) {
         return opt(brebKeys.get(id));

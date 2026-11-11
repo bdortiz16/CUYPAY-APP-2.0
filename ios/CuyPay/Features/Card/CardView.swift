@@ -2,27 +2,25 @@ import SwiftUI
 import PassKit
 import UIKit
 
-/// Vista rediseñada de Tarjeta CuyPay (Visa virtual en COP con bolsillo dedicado recargable desde Bre-B).
-/// Integra tarjeta virtual premium, bolsillo independiente sin costo, datos copiables en línea,
-/// movimientos de tarjeta y vinculación con Apple Wallet sin exponer marcas de terceros.
+/// Vista limpia y minimalista de Mi Tarjeta CuyPay (Visa virtual en COP con bolsillo independiente sin costo).
+/// Separa la tarjeta hero sin recortes, su bolsillo conectado a Bre-B, acciones rápidas,
+/// Apple Wallet y hojas dedicadas para Datos seguros y Ajustes (sin edición de correo/celular aquí).
 struct CardView: View {
+    var onOpenProfile: (() -> Void)? = nil
+
     @Environment(AppModel.self) private var app
     @Environment(WalletStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(AppModel.hideAmountsKey) private var hideAmounts = false
 
-    private enum ContactFollowUpAction {
-        case issueCard
-        case replaceCard
-    }
-
     @State private var isIssuing = false
     @State private var isCanceling = false
     @State private var isTogglingState = false
     @State private var isLoadingSecrets = false
-    @State private var showSecrets = false
     @State private var cardSecrets: CardSensitiveDetails?
+    @State private var showCardDetailsSheet = false
+    @State private var showCardSettingsSheet = false
     @State private var copiedField: String?
     @State private var pocketTransferMode: CardPocketTransferMode?
     @State private var pocketFeedbackMessage: String?
@@ -32,8 +30,6 @@ struct CardView: View {
     @State private var showCancelConfirm = false
     @State private var showAppleWalletSheet = false
     @State private var showApplePaySuccess = false
-    @State private var showEditContactSheet = false
-    @State private var contactFollowUpAction: ContactFollowUpAction?
     @State private var walletCoordinator: AppleWalletProvisioningCoordinator?
     @State private var errorMessage: String?
 
@@ -55,7 +51,7 @@ struct CardView: View {
 
     private var verificationEmailSummary: String {
         guard let user = app.user, !user.hasPlaceholderEmail else {
-            return String(localized: "Sin correo configurado")
+            return String(localized: "Pendiente en tu perfil")
         }
         return user.email
     }
@@ -75,9 +71,11 @@ struct CardView: View {
 
                 ScrollView {
                     if let card = activeCard, store.cardsLoaded {
-                        VStack(alignment: .leading, spacing: 18) {
+                        VStack(alignment: .leading, spacing: 20) {
                             virtualCardShowcase(card)
-                                .padding(.top, 6)
+                                .padding(.top, 8)
+
+                            quickActionsRow(card)
 
                             if let pocketFeedbackMessage {
                                 pocketSuccessBanner(pocketFeedbackMessage)
@@ -88,23 +86,19 @@ struct CardView: View {
                                 ErrorBanner(message: errorMessage)
                             }
 
-                            cardPocketHero(card)
-
-                            quickActionsBar(card)
-
                             if needsCardContactReplacement {
-                                placeholderContactBanner
+                                securityProfileNoticeBanner
                             }
 
-                            cardDataSection(card)
+                            cardPocketSummaryCard(card)
 
-                            if !store.cardTransactions.isEmpty {
-                                cardMovementsSection
+                            if card.status == .active {
+                                appleWalletBannerButton(card)
                             }
 
-                            cardSettingsSection(card)
+                            cardMovementsSection
                         }
-                        .padding(.horizontal, 18)
+                        .padding(.horizontal, 20)
                         .padding(.bottom, 36)
                     } else {
                         VStack(spacing: 22) {
@@ -148,7 +142,7 @@ struct CardView: View {
                 _ = await (u, w, c)
             }
             .onDisappear {
-                showSecrets = false
+                showCardDetailsSheet = false
                 cardSecrets = nil
             }
             .sheet(item: $pocketTransferMode) { transferMode in
@@ -165,30 +159,22 @@ struct CardView: View {
             .sheet(item: $selectedTransaction) { txn in
                 TransactionDetailSheet(transaction: txn, pocket: .cop)
             }
+            .sheet(isPresented: $showCardDetailsSheet) {
+                if let card = activeCard {
+                    cardDetailsSheet(card)
+                }
+            }
+            .sheet(isPresented: $showCardSettingsSheet) {
+                if let card = activeCard {
+                    cardSettingsSheet(card)
+                }
+            }
             .sheet(isPresented: $showRename) {
                 renameSheet
             }
             .sheet(isPresented: $showAppleWalletSheet) {
                 if let card = activeCard {
                     appleWalletSheet(card)
-                }
-            }
-            .sheet(isPresented: $showEditContactSheet) {
-                EditContactProfileSheet(
-                    subtitle: contactFollowUpAction == .replaceCard
-                        ? String(localized: "Ingresa tu nombre, correo y celular reales. Al guardar, reemplazaremos tu tarjeta anterior por una nueva vinculada a estos datos para recibir los códigos de Apple Wallet.")
-                        : String(localized: "Confirma el correo y el celular donde recibirás los códigos de verificación de tu tarjeta virtual y Apple Wallet."),
-                    saveButtonTitle: contactFollowUpAction == .replaceCard
-                        ? "Guardar y reemplazar tarjeta"
-                        : (contactFollowUpAction == .issueCard ? "Guardar y crear tarjeta" : "Guardar datos")
-                ) { _ in
-                    let followUp = contactFollowUpAction
-                    contactFollowUpAction = nil
-                    if followUp == .replaceCard {
-                        Task { await performCancelAndReissueAfterContactReady() }
-                    } else if followUp == .issueCard {
-                        Task { await issueCard() }
-                    }
                 }
             }
             .confirmationDialog(
@@ -214,122 +200,125 @@ struct CardView: View {
         }
     }
 
-    // MARK: - 1. Tarjeta Virtual CuyPay (Showcase metálico)
+    // MARK: - 1. Tarjeta Virtual CuyPay (Proporción completa sin recortes)
 
     private func virtualCardShowcase(_ card: CardItem) -> some View {
         let isFrozen = card.status == .frozen
 
-        return ZStack {
-            LinearGradient(
-                colors: isFrozen
-                    ? [Theme.onyx.opacity(0.92), Theme.jetBlack.opacity(0.82), Color(white: 0.25)]
-                    : [Theme.onyx, Theme.jetBlack, Theme.spruceSolid],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+        return VStack(alignment: .leading, spacing: 0) {
+            // Fila superior: Logo CuyPay + Estado + Sin contacto
+            HStack(alignment: .center, spacing: 10) {
+                CuyPayLogo(size: 16, color: .white, markColor: Theme.slate)
 
-            // Brillo especular sutil de esquina superior derecha
-            RadialGradient(
-                colors: [
-                    (isFrozen ? Color.white : Theme.slate).opacity(0.24),
-                    Color.clear
-                ],
-                center: .topTrailing,
-                startRadius: 12,
-                endRadius: 210
-            )
+                Spacer()
 
-            // Trazo decorativo diagonal sutil
-            Circle()
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
-                .frame(width: 260, height: 260)
-                .offset(x: 115, y: -75)
-
-            VStack(alignment: .leading, spacing: 0) {
-                // Cabecera: Marca + estado + sin contacto
-                HStack(alignment: .center, spacing: 10) {
-                    CuyPayLogo(size: 16, color: .white, markColor: Theme.slate)
-
-                    Spacer()
-
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(isFrozen ? Theme.warning : Theme.positive)
-                            .frame(width: 6, height: 6)
-                        Text(isFrozen ? "Bloqueada" : "Activa")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.92))
-                    }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
-                    .background(Color.white.opacity(0.12), in: .capsule)
-
-                    Image(systemName: "wave.3.forward")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.82))
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(isFrozen ? Theme.warning : Theme.positive)
+                        .frame(width: 6, height: 6)
+                    Text(isFrozen ? "Bloqueada" : "Activa")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.95))
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.14), in: .capsule)
 
-                Spacer(minLength: 14)
+                Image(systemName: "wave.3.forward")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.84))
+            }
 
-                // Chip virtual + número de tarjeta
-                HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.36),
-                                    Theme.slate.opacity(0.25)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
+            Spacer(minLength: 16)
+
+            // Fila central: Chip metálico + PAN enmascarado
+            HStack(spacing: 14) {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.40),
+                                Theme.slate.opacity(0.24)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
                         )
-                        .frame(width: 34, height: 24)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 5)
-                                .strokeBorder(Color.white.opacity(0.35), lineWidth: 0.7)
-                        }
+                    )
+                    .frame(width: 38, height: 27)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(Color.white.opacity(0.38), lineWidth: 0.8)
+                    }
 
-                    Text(verbatim: displayedPan(for: card))
-                        .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                Text(verbatim: maskedPan(for: card))
+                    .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+
+            Spacer(minLength: 16)
+
+            // Fila inferior: Etiqueta + Titular + Red Visa
+            HStack(alignment: .bottom, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(verbatim: card.label.uppercased())
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .tracking(0.8)
+                        .foregroundStyle(Theme.slate.opacity(0.92))
+                        .lineLimit(1)
+                    Text(verbatim: holderName)
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-                        .contentTransition(.numericText())
+                        .minimumScaleFactor(0.75)
                 }
 
-                Spacer(minLength: 14)
+                Spacer(minLength: 8)
 
-                // Pie: Titular + etiqueta + franquicia
-                HStack(alignment: .bottom, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(verbatim: card.label.uppercased())
-                            .font(.system(size: 9.5, weight: .semibold))
-                            .tracking(0.8)
-                            .foregroundStyle(Theme.slate.opacity(0.9))
-                        Text(verbatim: holderName)
-                            .font(.system(size: 13.5, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                    }
-
-                    Spacer(minLength: 8)
-
-                    VStack(alignment: .trailing, spacing: 2) {
-                        cardBrandHeroMark(for: card.brand)
-                        Text("Débito COP")
-                            .font(.system(size: 9.5, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.75))
-                    }
+                VStack(alignment: .trailing, spacing: 2) {
+                    cardBrandHeroMark(for: card.brand)
+                    Text("Débito COP")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.78))
                 }
             }
-            .padding(22)
         }
-        .frame(height: 204)
-        .clipShape(.rect(cornerRadius: 24))
+        .padding(.horizontal, 24)
+        .padding(.vertical, 22)
+        .frame(maxWidth: .infinity)
+        .frame(height: 214)
+        .background {
+            ZStack {
+                LinearGradient(
+                    colors: isFrozen
+                        ? [Theme.onyx.opacity(0.94), Theme.jetBlack.opacity(0.86), Color(white: 0.24)]
+                        : [Theme.onyx, Theme.jetBlack, Theme.spruceSolid],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                RadialGradient(
+                    colors: [
+                        (isFrozen ? Color.white : Theme.slate).opacity(0.24),
+                        Color.clear
+                    ],
+                    center: .topTrailing,
+                    startRadius: 12,
+                    endRadius: 210
+                )
+
+                GeometryReader { proxy in
+                    Circle()
+                        .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
+                        .frame(width: 230, height: 230)
+                        .position(x: proxy.size.width - 25, y: 20)
+                }
+            }
+        }
+        .clipShape(.rect(cornerRadius: 26))
         .overlay {
-            RoundedRectangle(cornerRadius: 24)
+            RoundedRectangle(cornerRadius: 26)
                 .strokeBorder(
                     LinearGradient(
                         colors: [.white.opacity(0.28), .white.opacity(0.06)],
@@ -339,37 +328,117 @@ struct CardView: View {
                     lineWidth: 1
                 )
         }
-        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.38 : 0.16), radius: 18, x: 0, y: 10)
+        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.40 : 0.16), radius: 18, x: 0, y: 10)
     }
 
-    // MARK: - 2. Bolsillo de la tarjeta (Recarga desde Bre-B y retiro a principal)
+    // MARK: - 2. Fila limpia de 4 acciones rápidas
 
-    private func cardPocketHero(_ card: CardItem) -> some View {
+    private func quickActionsRow(_ card: CardItem) -> some View {
+        HStack(spacing: 10) {
+            quickActionButton(
+                title: "Recargar",
+                systemImage: "plus",
+                isPrimary: true,
+                isLoading: false,
+                disabled: card.status == .canceled
+            ) {
+                pocketTransferMode = .fund
+            }
+
+            quickActionButton(
+                title: "Ver datos",
+                systemImage: "creditcard.and.123",
+                isPrimary: false,
+                isLoading: isLoadingSecrets,
+                disabled: card.status == .canceled || isLoadingSecrets
+            ) {
+                Task { await openCardDetails(card) }
+            }
+
+            quickActionButton(
+                title: card.status == .frozen ? "Activar" : "Bloquear",
+                systemImage: card.status == .frozen ? "lock.open.fill" : "lock.fill",
+                isPrimary: false,
+                isLoading: isTogglingState,
+                tint: card.status == .frozen ? Theme.warning : .primary,
+                disabled: card.status == .canceled || isTogglingState
+            ) {
+                Task { await toggleFreeze(card) }
+            }
+
+            quickActionButton(
+                title: "Ajustes",
+                systemImage: "slider.horizontal.3",
+                isPrimary: false,
+                isLoading: false,
+                disabled: card.status == .canceled
+            ) {
+                showCardSettingsSheet = true
+            }
+        }
+    }
+
+    private func quickActionButton(
+        title: LocalizedStringKey,
+        systemImage: String,
+        isPrimary: Bool,
+        isLoading: Bool,
+        tint: Color = .primary,
+        disabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(isPrimary ? Theme.spruceSolid : tint.opacity(0.10))
+                        .frame(width: 44, height: 44)
+
+                    if isLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(isPrimary ? .white : tint)
+                    } else {
+                        Image(systemName: systemImage)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(isPrimary ? .white : tint)
+                    }
+                }
+
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 4)
+            .frame(maxWidth: .infinity)
+            .contentShape(.rect(cornerRadius: 20))
+            .opacity(disabled ? 0.45 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 20))
+    }
+
+    // MARK: - 3. Tarjeta limpia del bolsillo de compras
+
+    private func cardPocketSummaryCard(_ card: CardItem) -> some View {
         let pocket = card.pocketBalance
         let mainCop = store.copMainAvailable
         let canWithdraw = pocket.minorUnits >= 10_000
 
-        return VStack(alignment: .leading, spacing: 16) {
-            // Fila superior: Título del bolsillo + badge $0 + ocultar saldo
+        return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 8) {
-                HStack(spacing: 8) {
-                    ZStack {
-                        Circle()
-                            .fill(Theme.spruce.opacity(0.15))
-                            .frame(width: 30, height: 30)
-                        Image(systemName: "wallet.bifold.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Theme.spruce)
-                    }
-
-                    Text("Bolsillo de tu tarjeta")
-                        .font(.system(.subheadline, design: .serif).weight(.semibold))
-                        .foregroundStyle(.primary)
-                }
+                Label("Bolsillo de tu tarjeta", systemImage: "wallet.bifold.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .symbolRenderingMode(.hierarchical)
 
                 Spacer()
 
-                Text("$ 0 costo")
+                Text("$ 0 comisión")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(Theme.spruce)
                     .padding(.horizontal, 8)
@@ -382,397 +451,114 @@ struct CardView: View {
                     Image(systemName: hideAmounts ? "eye.slash" : "eye")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
-                        .frame(width: 30, height: 30)
+                        .frame(width: 28, height: 28)
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(hideAmounts ? Text("Mostrar saldo de tarjeta") : Text("Ocultar saldo de tarjeta"))
+                .accessibilityLabel(hideAmounts ? Text("Mostrar saldo") : Text("Ocultar saldo"))
             }
 
-            // Monto disponible para compras
             VStack(alignment: .leading, spacing: 4) {
                 pocketAmountText(pocket)
 
                 Text(pocket.minorUnits > 0
-                     ? "Disponible para pagar con tu tarjeta virtual"
-                     : "Recarga este bolsillo con tu saldo Bre-B para comprar")
+                     ? "Disponible de inmediato para tus compras virtuales y sin contacto."
+                     : "Pasa saldo desde tu cuenta principal Bre-B para comprar con tu tarjeta.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            // Indicador conectado al saldo principal Bre-B
-            HStack(spacing: 8) {
-                Text(verbatim: "🇨🇴")
-                    .font(.footnote)
-                Text("Saldo principal Bre-B:")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 4)
-                Text(verbatim: hideAmounts ? mainCop.maskedString : mainCop.formatted())
-                    .font(.caption.weight(.bold))
-                    .monospacedDigit()
-                    .foregroundStyle(.primary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(
-                Color.primary.opacity(colorScheme == .dark ? 0.07 : 0.045),
-                in: .rect(cornerRadius: 12)
-            )
+            Divider()
 
-            // Botones principales de acción del bolsillo
             HStack(spacing: 10) {
-                Button {
-                    pocketTransferMode = .fund
-                } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.subheadline.weight(.semibold))
-                        Text("Recargar")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 46)
-                    .background(Theme.spruceSolid, in: .capsule)
+                Text(verbatim: "🇨🇴")
+                    .font(.subheadline)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Saldo principal Bre-B")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(verbatim: hideAmounts ? mainCop.maskedString : mainCop.formatted())
+                        .font(.footnote.weight(.bold))
+                        .monospacedDigit()
+                        .foregroundStyle(.primary)
                 }
-                .buttonStyle(.plain)
-                .disabled(card.status == .canceled)
-                .opacity(card.status == .canceled ? 0.45 : 1)
 
-                Button {
-                    pocketTransferMode = .withdraw
-                } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: "arrow.uturn.backward.circle")
-                            .font(.subheadline.weight(.semibold))
-                        Text("A principal")
-                            .font(.subheadline.weight(.semibold))
+                Spacer()
+
+                if canWithdraw {
+                    Button {
+                        pocketTransferMode = .withdraw
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.uturn.backward")
+                                .font(.caption.weight(.bold))
+                            Text("A principal")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .foregroundStyle(Theme.spruce)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Theme.spruce.opacity(0.12), in: .capsule)
                     }
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 46)
-                    .background(
-                        Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.07),
-                        in: .capsule
-                    )
+                    .buttonStyle(.plain)
+                } else {
+                    Button {
+                        pocketTransferMode = .fund
+                    } label: {
+                        Text("Pasar saldo")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Theme.spruce)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Theme.spruce.opacity(0.12), in: .capsule)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-                .disabled(!canWithdraw)
-                .opacity(canWithdraw ? 1 : 0.42)
             }
         }
         .padding(18)
         .glassEffect(.regular, in: .rect(cornerRadius: 24))
-        .overlay {
-            RoundedRectangle(cornerRadius: 24)
-                .strokeBorder(Theme.spruce.opacity(colorScheme == .dark ? 0.25 : 0.15), lineWidth: 1)
-        }
     }
 
-    @ViewBuilder
-    private func pocketAmountText(_ amount: Money) -> some View {
-        if hideAmounts {
-            Text(verbatim: amount.maskedString)
-                .font(.system(size: 36, weight: .regular, design: .serif))
-                .foregroundStyle(.primary)
-        } else {
-            let showFraction = amount.fractionMagnitude != 0
-            let fraction = amount.fractionMagnitude
-            HStack(alignment: .firstTextBaseline, spacing: 0) {
-                Text(verbatim: amount.formatted(includeSymbol: true).components(separatedBy: ",").first ?? "")
-                    .foregroundStyle(.primary)
-                if showFraction {
-                    Text(verbatim: "," + (fraction < 10 ? "0\(fraction)" : "\(fraction)"))
-                        .foregroundStyle(.tertiary)
-                }
-                Text(verbatim: " COP")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .font(.system(size: 36, weight: .regular, design: .serif))
-            .monospacedDigit()
-            .lineLimit(1)
-            .minimumScaleFactor(0.55)
-            .contentTransition(.numericText())
-        }
-    }
+    // MARK: - 4. Botón limpio de Apple Wallet
 
-    private func pocketSuccessBanner(_ text: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(Theme.positive)
-            Text(verbatim: text)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.primary)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .glassEffect(.regular.tint(Theme.positive.opacity(0.14)), in: .rect(cornerRadius: 16))
-    }
-
-    private func showPocketToast(_ message: String) {
-        withAnimation(.snappy) {
-            pocketFeedbackMessage = message
-        }
-        Task {
-            try? await Task.sleep(for: .seconds(3.5))
-            if pocketFeedbackMessage == message {
-                withAnimation(.easeOut(duration: 0.25)) {
-                    pocketFeedbackMessage = nil
-                }
-            }
-        }
-    }
-
-    // MARK: - 3. Barra de controles rápidos (3 botones)
-
-    private func quickActionsBar(_ card: CardItem) -> some View {
-        HStack(spacing: 10) {
-            quickActionTile(
-                title: showSecrets ? "Ocultar datos" : "Ver datos",
-                systemImage: showSecrets ? "eye.slash" : "eye",
-                isLoading: isLoadingSecrets,
-                tint: Theme.spruce,
-                disabled: card.status == .canceled || isLoadingSecrets
-            ) {
-                Task { await toggleCardSecrets(card) }
-            }
-
-            quickActionTile(
-                title: card.status == .frozen ? "Desbloquear" : "Bloquear",
-                systemImage: card.status == .frozen ? "lock.open.fill" : "lock",
-                isLoading: isTogglingState,
-                tint: card.status == .frozen ? Theme.warning : .primary,
-                disabled: card.status == .canceled || isTogglingState
-            ) {
-                Task { await toggleFreeze(card) }
-            }
-
-            quickActionTile(
-                title: "Apple Wallet",
-                systemImage: "wallet.pass",
-                isLoading: false,
-                tint: .primary,
-                disabled: card.status != .active
-            ) {
-                Task { await startAppleWalletFlow(card) }
-            }
-        }
-    }
-
-    private func quickActionTile(
-        title: LocalizedStringKey,
-        systemImage: String,
-        isLoading: Bool,
-        tint: Color,
-        disabled: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            VStack(spacing: 7) {
+    private func appleWalletBannerButton(_ card: CardItem) -> some View {
+        Button {
+            Task { await startAppleWalletFlow(card) }
+        } label: {
+            HStack(spacing: 12) {
                 ZStack {
-                    Circle()
-                        .fill(tint.opacity(0.12))
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.white.opacity(0.14))
                         .frame(width: 38, height: 38)
-
-                    if isLoading {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: systemImage)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(tint)
-                    }
+                    Image(systemName: "wallet.pass.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
                 }
 
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 6)
-            .frame(maxWidth: .infinity)
-            .contentShape(.rect(cornerRadius: 20))
-            .opacity(disabled ? 0.45 : 1)
-        }
-        .buttonStyle(.plain)
-        .disabled(disabled)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 20))
-    }
-
-    // MARK: - 4. Tabla en línea "Datos de la tarjeta"
-
-    private func cardDataSection(_ card: CardItem) -> some View {
-        let borderColor = Color.primary.opacity(colorScheme == .dark ? 0.14 : 0.08)
-
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center) {
-                Text("Datos de la tarjeta")
-                    .font(.system(.subheadline, design: .serif).weight(.semibold))
-                    .foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Agregar a Apple Wallet")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                    Text("Paga sin contacto con tu iPhone o Apple Watch")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.76))
+                }
 
                 Spacer()
 
-                Button {
-                    Task { await toggleCardSecrets(card) }
-                } label: {
-                    HStack(spacing: 5) {
-                        if isLoadingSecrets {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Image(systemName: showSecrets ? "eye.slash" : "eye")
-                                .font(.caption.weight(.semibold))
-                        }
-                        Text(showSecrets ? "Ocultar" : "Mostrar CVV y número")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .foregroundStyle(Theme.spruce)
-                }
-                .buttonStyle(.plain)
-                .disabled(card.status == .canceled || isLoadingSecrets)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white.opacity(0.7))
             }
-            .padding(.horizontal, 4)
-
-            VStack(spacing: 0) {
-                // Fila 1: Nombre del titular
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Nombre del titular")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(verbatim: holderName)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                    }
-                    Spacer()
-                    copyButton(value: holderName, id: "holder")
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-
-                Rectangle()
-                    .fill(borderColor)
-                    .frame(height: 1)
-
-                // Fila 2: Número de la tarjeta (PAN real o enmascarado)
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Número de tarjeta")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(verbatim: displayedPan(for: card))
-                            .font(.subheadline.weight(.semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(.primary)
-                    }
-                    Spacer()
-                    if showSecrets, let secrets = cardSecrets {
-                        copyButton(value: secrets.rawPan, id: "pan")
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-
-                Rectangle()
-                    .fill(borderColor)
-                    .frame(height: 1)
-
-                // Fila 3: Válida hasta | CVC
-                HStack(spacing: 0) {
-                    HStack(alignment: .center, spacing: 8) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Válida hasta")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(verbatim: showSecrets ? (cardSecrets?.expiry ?? "••/••") : "••/••")
-                                .font(.subheadline.weight(.semibold))
-                                .monospacedDigit()
-                                .foregroundStyle(.primary)
-                        }
-                        Spacer(minLength: 4)
-                        if showSecrets, let secrets = cardSecrets {
-                            copyButton(value: secrets.expiry, id: "exp")
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Rectangle()
-                        .fill(borderColor)
-                        .frame(width: 1)
-
-                    HStack(alignment: .center, spacing: 8) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("CVC")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(verbatim: showSecrets ? (cardSecrets?.cvv ?? "•••") : "•••")
-                                .font(.subheadline.weight(.semibold))
-                                .monospacedDigit()
-                                .foregroundStyle(.primary)
-                        }
-                        Spacer(minLength: 4)
-                        if showSecrets, let secrets = cardSecrets {
-                            copyButton(value: secrets.cvv, id: "cvv")
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                Rectangle()
-                    .fill(borderColor)
-                    .frame(height: 1)
-
-                // Fila 4: Función | Franquicia (Visa / Mastercard)
-                HStack(spacing: 0) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Modalidad")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("Débito recargable")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.primary)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Rectangle()
-                        .fill(borderColor)
-                        .frame(width: 1)
-
-                    HStack(alignment: .center, spacing: 8) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Red")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(verbatim: "\(card.brand) Internacional")
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-                        }
-                        Spacer(minLength: 4)
-                        tableBrandMark(for: card.brand)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .glassEffect(.regular, in: .rect(cornerRadius: 22))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+            .background(Color.black, in: .rect(cornerRadius: 20))
         }
+        .buttonStyle(.plain)
     }
 
-    // MARK: - 5. Movimientos recientes de la tarjeta
+    // MARK: - 5. Movimientos de tu tarjeta
 
     private var cardMovementsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -781,235 +567,302 @@ struct CardView: View {
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 4)
 
-            VStack(spacing: 4) {
-                ForEach(Array(store.cardTransactions.prefix(4))) { txn in
-                    Button {
-                        selectedTransaction = txn
-                    } label: {
-                        TransactionRow(transaction: txn, pocket: .cop, hideAmounts: hideAmounts)
+            if store.cardTransactions.isEmpty {
+                HStack(spacing: 12) {
+                    Image(systemName: "creditcard")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 34, height: 34)
+                        .background(Color.primary.opacity(0.06), in: .circle)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Sin movimientos aún")
+                            .font(.subheadline.weight(.medium))
+                        Text("Tus compras y recargas de bolsillo aparecerán aquí.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
+                    Spacer()
                 }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .glassEffect(.regular, in: .rect(cornerRadius: 22))
-        }
-    }
-
-    // MARK: - Helpers de formato y marca
-
-    private func copyButton(value: String, id: String) -> some View {
-        let isCopied = copiedField == id
-        return Button {
-            copyToPasteboard(value, id: id)
-        } label: {
-            Image(systemName: isCopied ? "checkmark.circle.fill" : "doc.on.doc")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(isCopied ? Theme.positive : Theme.spruce)
-                .frame(width: 32, height: 32)
-                .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text("Copiar"))
-    }
-
-    private func copyToPasteboard(_ value: String, id: String) {
-        UIPasteboard.general.string = value
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        withAnimation(.easeInOut(duration: 0.18)) {
-            copiedField = id
-        }
-        Task {
-            try? await Task.sleep(for: .seconds(1.6))
-            if copiedField == id {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    copiedField = nil
+                .padding(16)
+                .glassEffect(.regular, in: .rect(cornerRadius: 20))
+            } else {
+                VStack(spacing: 4) {
+                    ForEach(Array(store.cardTransactions.prefix(5))) { txn in
+                        Button {
+                            selectedTransaction = txn
+                        } label: {
+                            TransactionRow(transaction: txn, pocket: .cop, hideAmounts: hideAmounts)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .glassEffect(.regular, in: .rect(cornerRadius: 22))
             }
         }
     }
 
-    private func effectiveLastFour(for card: CardItem) -> String {
-        if let secrets = cardSecrets, secrets.rawPan.count >= 4 {
-            return String(secrets.rawPan.suffix(4))
-        }
-        if card.lastFour.count == 4 && card.lastFour != "0000" {
-            return card.lastFour
-        }
-        return ""
-    }
+    // MARK: - Aviso informativo (remite a Perfil y seguridad, sin editar aquí)
 
-    private func displayedPan(for card: CardItem) -> String {
-        if showSecrets, let secrets = cardSecrets {
-            return secrets.formattedPan
-        }
-        let suffix = effectiveLastFour(for: card)
-        return suffix.isEmpty ? "••••  ••••  ••••  ••••" : "••••  ••••  ••••  \(suffix)"
-    }
-
-    @ViewBuilder
-    private func cardBrandHeroMark(for brand: String) -> some View {
-        if brand.lowercased().contains("master") {
-            HStack(spacing: -6) {
-                Circle().fill(Color(red: 0.92, green: 0.0, blue: 0.11)).frame(width: 20, height: 20)
-                Circle().fill(Color(red: 0.97, green: 0.62, blue: 0.11).opacity(0.92)).frame(width: 20, height: 20)
-            }
-        } else {
-            Text(verbatim: "VISA")
-                .font(.system(size: 19, weight: .black, design: .rounded))
-                .italic()
-                .foregroundStyle(.white)
-        }
-    }
-
-    @ViewBuilder
-    private func tableBrandMark(for brand: String) -> some View {
-        if brand.lowercased().contains("master") {
-            HStack(spacing: -8) {
-                Circle().fill(Color(red: 0.92, green: 0.0, blue: 0.11)).frame(width: 22, height: 22)
-                Circle().fill(Color(red: 0.97, green: 0.62, blue: 0.11).opacity(0.92)).frame(width: 22, height: 22)
-            }
-        } else {
-            Text(verbatim: "VISA")
-                .font(.system(size: 15, weight: .black, design: .rounded))
-                .italic()
-                .foregroundStyle(colorScheme == .dark ? Color.white : Color(red: 0.08, green: 0.20, blue: 0.62))
-        }
-    }
-
-    // MARK: - Aviso de datos de contacto para códigos Apple Wallet
-
-    private var placeholderContactBanner: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private var securityProfileNoticeBanner: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.title3)
+                Image(systemName: "lock.shield.fill")
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.warning)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Actualiza tu correo para recibir códigos")
-                        .font(.subheadline.weight(.bold))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Verifica tus datos en Perfil y seguridad")
+                        .font(.footnote.weight(.bold))
                         .foregroundStyle(.primary)
-                    Text("Esta tarjeta fue creada sin tu correo real. Actualiza tu correo y celular, y reemplázala gratis conservando el saldo de tu bolsillo.")
-                        .font(.footnote)
+                    Text("Por tu seguridad, el correo y el celular solo se actualizan desde tu perfil mediante código de verificación. Luego podrás reemplazar tu tarjeta conservando tu bolsillo.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
-            Button {
-                contactFollowUpAction = .replaceCard
-                showEditContactSheet = true
-            } label: {
-                HStack(spacing: 8) {
-                    if isCanceling || isIssuing {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.triangle.2.circlepath")
+            if onOpenProfile != nil {
+                Button {
+                    navigateToProfile()
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Ir a Perfil y seguridad")
+                            .font(.caption.weight(.semibold))
+                        Image(systemName: "arrow.right")
+                            .font(.caption2.weight(.bold))
                     }
-                    Text("Actualizar correo y reemplazar tarjeta")
-                        .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.spruce)
                 }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .background(Theme.spruceSolid, in: .rect(cornerRadius: 12))
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-            .disabled(isCanceling || isIssuing)
         }
-        .padding(16)
-        .background(Theme.warning.opacity(colorScheme == .dark ? 0.14 : 0.10), in: .rect(cornerRadius: 20))
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.warning.opacity(colorScheme == .dark ? 0.14 : 0.10), in: .rect(cornerRadius: 18))
         .overlay {
-            RoundedRectangle(cornerRadius: 20)
-                .strokeBorder(Theme.warning.opacity(0.35), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(Theme.warning.opacity(0.30), lineWidth: 1)
         }
     }
 
-    // MARK: - 6. Sección "Configurar tarjeta"
+    // MARK: - Hoja modal dedicada: Datos de la tarjeta (Face ID)
 
-    private func cardSettingsSection(_ card: CardItem) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Configurar tarjeta")
-                .font(.system(.subheadline, design: .serif).weight(.semibold))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 4)
+    private func cardDetailsSheet(_ card: CardItem) -> some View {
+        NavigationStack {
+            ZStack {
+                BrandBackground()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Datos seguros de tu tarjeta")
+                                .font(.system(.title3, design: .serif).weight(.semibold))
+                            Text("Toca el ícono de copiar junto a cualquier dato para tus compras en línea.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 8)
 
-            VStack(spacing: 0) {
-                settingsRow(
-                    icon: "wallet.pass",
-                    iconColor: .primary,
-                    title: "Agregar a Apple Wallet",
-                    subtitle: "Vincula tu tarjeta virtual para pagar sin contacto con tu iPhone o Apple Watch.",
-                    disabled: card.status != .active
-                ) {
-                    Task { await startAppleWalletFlow(card) }
-                }
-
-                Divider().padding(.leading, 54)
-
-                settingsRow(
-                    icon: "envelope.badge.shield.half.filled",
-                    iconColor: needsCardContactReplacement ? Theme.warning : Theme.spruce,
-                    title: "Correo y celular de códigos",
-                    subtitle: "\(verificationEmailSummary) · \(app.user?.phone ?? "")",
-                    disabled: isCanceling || isIssuing
-                ) {
-                    contactFollowUpAction = needsCardContactReplacement ? .replaceCard : nil
-                    showEditContactSheet = true
-                }
-
-                Divider().padding(.leading, 54)
-
-                settingsRow(
-                    icon: "slider.horizontal.3",
-                    iconColor: .primary,
-                    title: "Personalizar tarjeta",
-                    subtitle: "Etiqueta visible: \(card.label)",
-                    disabled: card.status == .canceled
-                ) {
-                    newLabel = card.label
-                    showRename = true
-                }
-
-                Divider().padding(.leading, 54)
-
-                settingsRow(
-                    icon: "trash",
-                    iconColor: Theme.negative,
-                    title: "Eliminar o reemplazar tarjeta",
-                    subtitle: "Reemplázala conservando tu bolsillo o elimínala y devuelve el saldo a Bre-B.",
-                    disabled: card.status == .canceled || isCanceling || isIssuing
-                ) {
-                    showCancelConfirm = true
+                        if isLoadingSecrets {
+                            HStack(spacing: 12) {
+                                ProgressView()
+                                Text("Descifrando datos de tu tarjeta…")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 32)
+                        } else if let secrets = cardSecrets {
+                            VStack(spacing: 0) {
+                                secretDetailRow(
+                                    label: "Número de tarjeta",
+                                    value: secrets.formattedPan,
+                                    copyValue: secrets.rawPan,
+                                    id: "pan"
+                                )
+                                Divider()
+                                HStack(spacing: 0) {
+                                    secretDetailRow(
+                                        label: "Válida hasta",
+                                        value: secrets.expiry,
+                                        copyValue: secrets.expiry,
+                                        id: "exp"
+                                    )
+                                    Divider()
+                                    secretDetailRow(
+                                        label: "CVC",
+                                        value: secrets.cvv,
+                                        copyValue: secrets.cvv,
+                                        id: "cvv"
+                                    )
+                                }
+                                Divider()
+                                secretDetailRow(
+                                    label: "Nombre del titular",
+                                    value: holderName,
+                                    copyValue: holderName,
+                                    id: "holder"
+                                )
+                                Divider()
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("Red y modalidad")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Text(verbatim: "\(card.brand) Débito Internacional · COP")
+                                            .font(.subheadline.weight(.medium))
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                            }
+                            .glassEffect(.regular, in: .rect(cornerRadius: 20))
+                        } else {
+                            PrimaryButton(title: "Autenticar con Face ID", systemImage: "faceid", isLoading: isLoadingSecrets) {
+                                Task { await loadSecretsIfNeeded(card, authenticate: true) }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 28)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 4)
-            .glassEffect(.regular, in: .rect(cornerRadius: 22))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    CloseToolbarButton { showCardDetailsSheet = false }
+                }
+            }
         }
+        .presentationDetents([.height(430), .large])
     }
 
-    private func settingsRow(
+    private func secretDetailRow(label: LocalizedStringKey, value: String, copyValue: String, id: String) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(verbatim: value)
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            Spacer(minLength: 4)
+            copyButton(value: copyValue, id: id)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Hoja modal dedicada: Ajustes de tarjeta (sin editar correo/celular)
+
+    private func cardSettingsSheet(_ card: CardItem) -> some View {
+        NavigationStack {
+            ZStack {
+                BrandBackground()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Text("Ajustes de tarjeta")
+                            .font(.system(.title3, design: .serif).weight(.semibold))
+                            .padding(.top, 8)
+
+                        VStack(spacing: 0) {
+                            settingsActionRow(
+                                icon: "pencil.line",
+                                iconColor: Theme.spruce,
+                                title: "Personalizar nombre",
+                                subtitle: "Etiqueta visible: \(card.label)"
+                            ) {
+                                showCardSettingsSheet = false
+                                Task {
+                                    try? await Task.sleep(for: .milliseconds(220))
+                                    newLabel = card.label
+                                    showRename = true
+                                }
+                            }
+
+                            if card.pocketBalance.minorUnits >= 10_000 {
+                                Divider().padding(.leading, 52)
+
+                                settingsActionRow(
+                                    icon: "arrow.uturn.backward.circle",
+                                    iconColor: Theme.spruce,
+                                    title: "Pasar saldo a cuenta principal",
+                                    subtitle: "Disponible en tarjeta: \(card.pocketBalance.formatted())"
+                                ) {
+                                    showCardSettingsSheet = false
+                                    Task {
+                                        try? await Task.sleep(for: .milliseconds(220))
+                                        pocketTransferMode = .withdraw
+                                    }
+                                }
+                            }
+
+                            Divider().padding(.leading, 52)
+
+                            settingsActionRow(
+                                icon: "trash",
+                                iconColor: Theme.negative,
+                                title: "Eliminar o reemplazar tarjeta",
+                                subtitle: "Reemplázala conservando tu bolsillo o devuelve el saldo a Bre-B."
+                            ) {
+                                showCardSettingsSheet = false
+                                Task {
+                                    try? await Task.sleep(for: .milliseconds(220))
+                                    showCancelConfirm = true
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 4)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "lock.shield")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text("Por seguridad, cualquier cambio de correo electrónico o celular se realiza únicamente desde Perfil y seguridad con código de verificación.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 6)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 28)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    CloseToolbarButton { showCardSettingsSheet = false }
+                }
+            }
+        }
+        .presentationDetents([.height(360), .medium])
+    }
+
+    private func settingsActionRow(
         icon: String,
         iconColor: Color,
         title: LocalizedStringKey,
         subtitle: String,
-        disabled: Bool,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(alignment: .center, spacing: 14) {
+            HStack(spacing: 14) {
                 ZStack {
                     Circle()
-                        .fill(iconColor.opacity(0.11))
+                        .fill(iconColor.opacity(0.12))
                         .frame(width: 36, height: 36)
                     Image(systemName: icon)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(iconColor)
                 }
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -1027,13 +880,11 @@ struct CardView: View {
             }
             .padding(.vertical, 12)
             .contentShape(.rect)
-            .opacity(disabled ? 0.45 : 1)
         }
         .buttonStyle(.plain)
-        .disabled(disabled)
     }
 
-    // MARK: - Hoja guiada de Apple Wallet
+    // MARK: - Hoja guiada de Apple Wallet (sin edición de contacto)
 
     private func appleWalletSheet(_ card: CardItem) -> some View {
         NavigationStack {
@@ -1060,30 +911,20 @@ struct CardView: View {
                         }
                         .padding(.top, 8)
 
-                        Text("Copia los datos de tu tarjeta virtual y toca **Abrir Apple Wallet** para pegarlos directamente en la sección de tarjetas de tu iPhone.")
+                        Text("Copia los datos de tu tarjeta virtual y toca **Abrir Apple Wallet** para agregarla en segundos.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 8) {
-                                Image(systemName: needsCardContactReplacement ? "exclamationmark.triangle.fill" : "envelope.badge.shield.half.filled")
-                                    .foregroundStyle(needsCardContactReplacement ? Theme.warning : Theme.spruce)
-                                Text(verbatim: "Códigos: \(verificationEmailSummary) · \(app.user?.phone ?? "")")
-                                    .font(.footnote.weight(.semibold))
-                            }
-                            Button {
-                                showAppleWalletSheet = false
-                                Task {
-                                    try? await Task.sleep(for: .milliseconds(250))
-                                    contactFollowUpAction = .replaceCard
-                                    showEditContactSheet = true
-                                }
-                            } label: {
-                                Text("¿No te llega el código? Actualizar correo/celular y reemplazar tarjeta")
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "lock.shield.fill")
+                                .foregroundStyle(Theme.spruce)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(verbatim: "Códigos enviados a: \(verificationEmailSummary) · \(app.user?.phone ?? "")")
                                     .font(.caption.weight(.semibold))
-                                    .foregroundStyle(Theme.spruce)
+                                Text("Para cambiar tu correo o celular ve a Perfil y seguridad.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
-                            .buttonStyle(.plain)
                         }
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1100,11 +941,11 @@ struct CardView: View {
                             .padding(.vertical, 24)
                         } else if let secrets = cardSecrets {
                             VStack(spacing: 0) {
-                                walletSecretRow(label: "Número de tarjeta", value: secrets.formattedPan, copyValue: secrets.rawPan, id: "w_pan")
+                                secretDetailRow(label: "Número de tarjeta", value: secrets.formattedPan, copyValue: secrets.rawPan, id: "w_pan")
                                 Divider()
-                                walletSecretRow(label: "Válida hasta", value: secrets.expiry, copyValue: secrets.expiry, id: "w_exp")
+                                secretDetailRow(label: "Válida hasta", value: secrets.expiry, copyValue: secrets.expiry, id: "w_exp")
                                 Divider()
-                                walletSecretRow(label: "Código de seguridad (CVC)", value: secrets.cvv, copyValue: secrets.cvv, id: "w_cvv")
+                                secretDetailRow(label: "Código de seguridad (CVC)", value: secrets.cvv, copyValue: secrets.cvv, id: "w_cvv")
                             }
                             .glassEffect(.regular, in: .rect(cornerRadius: 18))
 
@@ -1142,73 +983,61 @@ struct CardView: View {
                 }
             }
         }
-        .presentationDetents([.height(540), .large])
-    }
-
-    private func walletSecretRow(label: LocalizedStringKey, value: String, copyValue: String, id: String) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(label)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                Text(verbatim: value)
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
-            }
-            Spacer()
-            copyButton(value: copyValue, id: id)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .presentationDetents([.height(520), .large])
     }
 
     // MARK: - Estados vacíos
 
     private var emptyCardView: some View {
         VStack(spacing: 20) {
-            ZStack {
-                LinearGradient(
-                    colors: [Theme.onyx, Theme.jetBlack, Theme.spruceSolid],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                RadialGradient(
-                    colors: [Theme.slate.opacity(0.24), Color.clear],
-                    center: .topTrailing,
-                    startRadius: 10,
-                    endRadius: 200
-                )
-                VStack(alignment: .leading) {
-                    HStack {
-                        CuyPayLogo(size: 16, color: .white, markColor: Theme.slate)
-                        Spacer()
-                        Text(verbatim: "VISA")
-                            .font(.system(.subheadline, design: .rounded).weight(.heavy))
-                            .italic()
-                            .foregroundStyle(.white.opacity(0.92))
-                    }
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    CuyPayLogo(size: 16, color: .white, markColor: Theme.slate)
                     Spacer()
-                    Text(verbatim: "••••  ••••  ••••  ••••")
-                        .font(.system(.title3, design: .monospaced).weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.88))
-                    Spacer()
-                    HStack {
-                        Text(verbatim: holderName)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.92))
-                        Spacer()
-                        Text("Bolsillo COP $ 0 costo")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.85))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.white.opacity(0.14), in: .capsule)
-                    }
+                    Text(verbatim: "VISA")
+                        .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                        .italic()
+                        .foregroundStyle(.white.opacity(0.94))
                 }
-                .padding(22)
+                Spacer()
+                Text(verbatim: "••••  ••••  ••••  ••••")
+                    .font(.system(.title3, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.88))
+                Spacer()
+                HStack {
+                    Text(verbatim: holderName)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.94))
+                        .lineLimit(1)
+                    Spacer()
+                    Text("Bolsillo COP · $ 0 comisión")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.88))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(Color.white.opacity(0.14), in: .capsule)
+                }
             }
-            .frame(height: 198)
-            .clipShape(.rect(cornerRadius: 24))
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
+            .frame(maxWidth: .infinity)
+            .frame(height: 204)
+            .background {
+                ZStack {
+                    LinearGradient(
+                        colors: [Theme.onyx, Theme.jetBlack, Theme.spruceSolid],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    RadialGradient(
+                        colors: [Theme.slate.opacity(0.24), Color.clear],
+                        center: .topTrailing,
+                        startRadius: 10,
+                        endRadius: 200
+                    )
+                }
+            }
+            .clipShape(.rect(cornerRadius: 26))
             .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 8)
             .padding(.top, 14)
 
@@ -1230,27 +1059,8 @@ struct CardView: View {
             .padding(16)
             .glassEffect(.regular, in: .rect(cornerRadius: 20))
 
-            if let user = app.user {
-                HStack(spacing: 10) {
-                    Image(systemName: user.hasPlaceholderContact ? "exclamationmark.triangle.fill" : "envelope.badge.shield.half.filled")
-                        .foregroundStyle(user.hasPlaceholderContact ? Theme.warning : Theme.spruce)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Códigos de Apple Wallet y compras")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Text(verbatim: "\(verificationEmailSummary) · \(user.phone)")
-                            .font(.footnote.weight(.medium))
-                    }
-                    Spacer()
-                    Button("Editar") {
-                        contactFollowUpAction = nil
-                        showEditContactSheet = true
-                    }
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Theme.spruce)
-                }
-                .padding(14)
-                .glassEffect(.regular, in: .rect(cornerRadius: 16))
+            if app.user?.hasPlaceholderContact == true {
+                securityProfileNoticeBanner
             }
 
             PrimaryButton(title: "Crear mi tarjeta virtual", isLoading: isIssuing) {
@@ -1330,12 +1140,138 @@ struct CardView: View {
         .presentationDetents([.height(280)])
     }
 
+    // MARK: - Helpers visuales y formato
+
+    @ViewBuilder
+    private func pocketAmountText(_ amount: Money) -> some View {
+        if hideAmounts {
+            Text(verbatim: amount.maskedString)
+                .font(.system(size: 34, weight: .regular, design: .serif))
+                .foregroundStyle(.primary)
+        } else {
+            let showFraction = amount.fractionMagnitude != 0
+            let fraction = amount.fractionMagnitude
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                Text(verbatim: amount.formatted(includeSymbol: true).components(separatedBy: ",").first ?? "")
+                    .foregroundStyle(.primary)
+                if showFraction {
+                    Text(verbatim: "," + (fraction < 10 ? "0\(fraction)" : "\(fraction)"))
+                        .foregroundStyle(.tertiary)
+                }
+                Text(verbatim: " COP")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .font(.system(size: 34, weight: .regular, design: .serif))
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .contentTransition(.numericText())
+        }
+    }
+
+    private func pocketSuccessBanner(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(Theme.positive)
+            Text(verbatim: text)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.primary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .glassEffect(.regular.tint(Theme.positive.opacity(0.14)), in: .rect(cornerRadius: 16))
+    }
+
+    private func showPocketToast(_ message: String) {
+        withAnimation(.snappy) {
+            pocketFeedbackMessage = message
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(3.5))
+            if pocketFeedbackMessage == message {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    pocketFeedbackMessage = nil
+                }
+            }
+        }
+    }
+
+    private func copyButton(value: String, id: String) -> some View {
+        let isCopied = copiedField == id
+        return Button {
+            copyToPasteboard(value, id: id)
+        } label: {
+            Image(systemName: isCopied ? "checkmark.circle.fill" : "doc.on.doc")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(isCopied ? Theme.positive : Theme.spruce)
+                .frame(width: 32, height: 32)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("Copiar"))
+    }
+
+    private func copyToPasteboard(_ value: String, id: String) {
+        UIPasteboard.general.string = value
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.easeInOut(duration: 0.18)) {
+            copiedField = id
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(1.6))
+            if copiedField == id {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    copiedField = nil
+                }
+            }
+        }
+    }
+
+    private func effectiveLastFour(for card: CardItem) -> String {
+        if let secrets = cardSecrets, secrets.rawPan.count >= 4 {
+            return String(secrets.rawPan.suffix(4))
+        }
+        if card.lastFour.count == 4 && card.lastFour != "0000" {
+            return card.lastFour
+        }
+        return ""
+    }
+
+    private func maskedPan(for card: CardItem) -> String {
+        let suffix = effectiveLastFour(for: card)
+        return suffix.isEmpty ? "••••  ••••  ••••  ••••" : "••••  ••••  ••••  \(suffix)"
+    }
+
+    @ViewBuilder
+    private func cardBrandHeroMark(for brand: String) -> some View {
+        if brand.lowercased().contains("master") {
+            HStack(spacing: -6) {
+                Circle().fill(Color(red: 0.92, green: 0.0, blue: 0.11)).frame(width: 20, height: 20)
+                Circle().fill(Color(red: 0.97, green: 0.62, blue: 0.11).opacity(0.92)).frame(width: 20, height: 20)
+            }
+        } else {
+            Text(verbatim: "VISA")
+                .font(.system(size: 19, weight: .black, design: .rounded))
+                .italic()
+                .foregroundStyle(.white)
+        }
+    }
+
+    private func navigateToProfile() {
+        if let onOpenProfile {
+            onOpenProfile()
+        } else {
+            dismiss()
+        }
+    }
+
     // MARK: - Acciones
 
     private func issueCard() async {
         if app.user?.hasPlaceholderContact == true {
-            contactFollowUpAction = .issueCard
-            showEditContactSheet = true
+            errorMessage = String(localized: "Confirma primero tu correo y celular mediante código de seguridad en Perfil y seguridad.")
             return
         }
         isIssuing = true
@@ -1349,28 +1285,21 @@ struct CardView: View {
         }
     }
 
-    private func toggleCardSecrets(_ card: CardItem) async {
-        if showSecrets {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showSecrets = false
-            }
-            return
-        }
+    private func openCardDetails(_ card: CardItem) async {
         await loadSecretsIfNeeded(card, authenticate: true)
+        if cardSecrets != nil {
+            showCardDetailsSheet = true
+        }
     }
 
     private func loadSecretsIfNeeded(_ card: CardItem, authenticate: Bool) async {
         errorMessage = nil
-        if let existing = cardSecrets {
+        if cardSecrets != nil {
             if authenticate {
                 let authorized = await BiometricAuthenticator.authenticate(
                     reason: String(localized: "Autoriza ver los datos de tu tarjeta CuyPay")
                 )
                 guard authorized else { return }
-            }
-            withAnimation(.easeInOut(duration: 0.2)) {
-                _ = existing
-                showSecrets = true
             }
             return
         }
@@ -1399,10 +1328,7 @@ struct CardView: View {
                 from: url,
                 fallbackLastFour: card.lastFour
             )
-            withAnimation(.easeInOut(duration: 0.2)) {
-                cardSecrets = details
-                showSecrets = true
-            }
+            cardSecrets = details
             if card.lastFour == "0000" {
                 await store.refreshCards()
             }
@@ -1437,7 +1363,7 @@ struct CardView: View {
                 preservePocket: preservePocket
             )
             cardSecrets = nil
-            showSecrets = false
+            showCardDetailsSheet = false
             async let w: Void = store.refreshWallets()
             async let c: Void = store.refreshCards()
             async let t: Void = store.refreshTransactions()
@@ -1451,14 +1377,9 @@ struct CardView: View {
 
     private func cancelAndReissueCard() async {
         if app.user?.hasPlaceholderContact == true {
-            contactFollowUpAction = .replaceCard
-            showEditContactSheet = true
+            errorMessage = String(localized: "Primero actualiza tu correo y celular con código de seguridad en Perfil y seguridad.")
             return
         }
-        await performCancelAndReissueAfterContactReady()
-    }
-
-    private func performCancelAndReissueAfterContactReady() async {
         let canceled = await cancelCard(preservePocket: true)
         guard canceled else { return }
         await issueCard()

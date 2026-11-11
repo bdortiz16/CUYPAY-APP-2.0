@@ -48,4 +48,21 @@ export class DeviceService {
     await this.d.repos.devices.update(dev);
     await this.d.repos.refreshTokens.revokeByDevice(deviceId, now);
   }
+
+  async registerPushToken(
+    userId: string,
+    deviceId: string,
+    token: string,
+    environment: 'sandbox' | 'production' = 'production',
+  ) {
+    const dev = await this.d.repos.devices.byId(deviceId);
+    if (!dev || dev.userId !== userId || dev.revokedAt) {
+      throw new AppError('NOT_FOUND', 'Dispositivo no encontrado');
+    }
+    dev.pushToken = token.trim();
+    dev.pushEnvironment = environment;
+    dev.lastUsedAt = this.d.clock.now();
+    await this.d.repos.devices.update(dev);
+    return { registered: true as const };
+  }
 }

@@ -27,6 +27,8 @@ export interface Device {
   userId: string;
   name: string;
   publicKey: string; // base64 X9.63
+  pushToken?: string | null;
+  pushEnvironment?: 'sandbox' | 'production' | null;
   createdAt: Date;
   lastUsedAt: Date | null;
   revokedAt: Date | null;

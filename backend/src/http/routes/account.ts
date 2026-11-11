@@ -36,6 +36,15 @@ const ContactConfirmReq = z.object({
   phone: Phone.optional(),
 });
 
+const WalletsQuery = z.object({
+  sync: z.enum(['0', '1', 'true', 'false']).optional(),
+});
+
+const PushTokenReq = z.object({
+  token: z.string().trim().min(16).max(512),
+  environment: z.enum(['sandbox', 'production']).optional(),
+});
+
 import { getFxSettings } from '../../services/runtime-config.js';
 
 export function registerAccountRoutes(app: FastifyInstance, { deps, services }: Container, h: RouteHelpers) {
@@ -75,7 +84,22 @@ export function registerAccountRoutes(app: FastifyInstance, { deps, services }: 
     return presentUser(updated);
   });
 
+  app.post('/me/push-token', auth, async (req) => {
+    const body = parse(PushTokenReq, req.body);
+    return services.devices.registerPushToken(
+      req.auth!.userId,
+      req.auth!.deviceId,
+      body.token,
+      body.environment ?? 'production',
+    );
+  });
+
   app.get('/wallets', auth, async (req) => {
+    const q = parse(WalletsQuery, req.query ?? {});
+    const wantsSync = q.sync === '1' || q.sync === 'true';
+    if (deps.config.PROVIDERS_MODE === 'live' || wantsSync) {
+      await services.deposits.pollIfStale(wantsSync ? 2_500 : 4_000);
+    }
     const fx = await getFxSettings(deps);
     const allWallets = await services.ledger.wallets(req.auth!.userId);
     const active = fx.value.enabled ? allWallets : allWallets.filter((w) => w.currency === 'COP');
@@ -85,6 +109,9 @@ export function registerAccountRoutes(app: FastifyInstance, { deps, services }: 
   app.get('/limits', auth, async (req) => presentLimits(await services.limits.snapshot(await h.currentUser(req))));
 
   app.get('/transactions', auth, async (req) => {
+    if (deps.config.PROVIDERS_MODE === 'live') {
+      await services.deposits.pollIfStale(4_000);
+    }
     const q = parse(TxQuery, req.query);
     return services.transactions.list(req.auth!.userId, q);
   });

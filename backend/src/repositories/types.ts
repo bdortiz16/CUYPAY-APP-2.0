@@ -95,6 +95,7 @@ export interface BrebKeyRepo {
   delete(id: string): Promise<void>;
   byUser(userId: string): Promise<BrebKey | null>;
   listByUser(userId: string): Promise<BrebKey[]>;
+  listActive(): Promise<BrebKey[]>;
   byProviderKeyId(providerKeyId: string): Promise<BrebKey | null>;
   byAlias(alias: string): Promise<BrebKey | null>;
   byId(id: string): Promise<BrebKey | null>;

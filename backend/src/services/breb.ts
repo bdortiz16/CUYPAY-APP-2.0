@@ -5,7 +5,7 @@ import { AppError, isAppError } from '../lib/errors.js';
 import type { ServiceDeps } from './deps.js';
 import { requireKycApproved } from './kyc.js';
 
-const ALIAS_RE = /^@[a-z0-9]{3,20}$/;
+const ALIAS_RE = /^@[a-z0-9](?:[a-z0-9.]{1,30}[a-z0-9])?$/;
 
 const slug = (s: string) =>
   s
@@ -13,6 +13,16 @@ const slug = (s: string) =>
     .replace(/\p{Diacritic}/gu, '')
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '');
+
+function stripLegacyCorporatePrefix(handleWithoutAt: string): string {
+  const lower = handleWithoutAt.toLowerCase();
+  for (const legacy of ['xatechservic', 'xatechseric']) {
+    if (lower.startsWith(legacy) && lower.length >= legacy.length + 3) {
+      return lower.slice(legacy.length).replace(/^\.+/, '');
+    }
+  }
+  return lower;
+}
 
 /** Llave Bre-B propia (recibir COP). */
 export class BrebService {
@@ -25,10 +35,11 @@ export class BrebService {
   }
 
   normalizeAlias(input: string): string {
-    const a = input.trim().toLowerCase();
-    const withAt = a.startsWith('@') ? a : `@${a}`;
+    const raw = input.trim().toLowerCase().replace(/^@+/, '');
+    const cleaned = stripLegacyCorporatePrefix(raw).replace(/\.{2,}/g, '.');
+    const withAt = `@${cleaned}`;
     if (!ALIAS_RE.test(withAt)) {
-      throw new AppError('VALIDATION_ERROR', 'La llave debe ser @ seguido de 3 a 20 letras o números', { field: 'preferredAlias' });
+      throw new AppError('VALIDATION_ERROR', 'La llave debe ser @ seguido de 3 a 20 letras, números o puntos', { field: 'preferredAlias' });
     }
     return withAt;
   }
@@ -54,7 +65,7 @@ export class BrebService {
     if (await this.d.repos.brebKeys.byUser(user.id)) throw new AppError('BREB_KEY_EXISTS', 'Ya tienes una llave Bre-B');
 
     let alias: string;
-    if (preferredAlias) {
+    if (preferredAlias && preferredAlias.trim()) {
       alias = this.normalizeAlias(preferredAlias);
       if (!(await this.isFree(alias))) throw new AppError('BREB_ALIAS_TAKEN', 'Esa llave ya está tomada', { alias });
     } else {
@@ -106,7 +117,7 @@ export class BrebService {
     }
 
     const alias = this.normalizeAlias(newPreferredAlias);
-    if (alias === existing.alias) {
+    if (alias.toLowerCase() === existing.alias.toLowerCase()) {
       return existing;
     }
     if (!(await this.isFree(alias))) {
@@ -163,7 +174,9 @@ export class BrebService {
         // Mejor esfuerzo
       }
     }
-    existing.status = 'blocked';
+    // Marcamos como 'replaced' para retirar la llave activa sin perder trazabilidad de depósitos previos,
+    // permitiendo crear una nueva llave personalizada inmediatamente.
+    existing.status = 'replaced';
     await this.d.repos.brebKeys.update(existing);
   }
 }

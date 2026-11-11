@@ -23,6 +23,7 @@ protocol CuyPayAPI: Sendable {
     func updateProfile(_ request: UpdateProfileRequest) async throws -> User
     func requestContactOTP(_ request: ContactOTPRequest) async throws -> ContactOTPResponse
     func confirmContactUpdate(_ request: ConfirmContactUpdateRequest) async throws -> User
+    func registerPushToken(_ token: String, environment: String) async throws
 
     // MARK: KYC
     func sumsubToken() async throws -> SumsubTokenResponse
@@ -30,6 +31,7 @@ protocol CuyPayAPI: Sendable {
 
     // MARK: Bolsillos
     func wallets() async throws -> [Wallet]
+    func wallets(syncDeposits: Bool) async throws -> [Wallet]
 
     // MARK: Llave Bre-B propia
     /// `nil` si el usuario aún no tiene llave (404 NOT_FOUND).
@@ -101,6 +103,16 @@ protocol CuyPayAPI: Sendable {
 extension CuyPayAPI {
     func updateCardStatus(id: String, state: String) async throws -> CardItem {
         try await updateCardStatus(id: id, state: state, preservePocket: nil)
+    }
+
+    func wallets(syncDeposits: Bool) async throws -> [Wallet] {
+        _ = syncDeposits
+        return try await wallets()
+    }
+
+    func registerPushToken(_ token: String, environment: String) async throws {
+        _ = token
+        _ = environment
     }
 }
 

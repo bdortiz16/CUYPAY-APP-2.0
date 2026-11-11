@@ -38,6 +38,7 @@ import { SavingsService } from './services/savings.js';
 import { LimitsConfigService, TreasuryService } from './services/admin/treasury.js';
 import { DashboardService } from './services/admin/dashboard.js';
 import { StreamService } from './services/admin/stream.js';
+import { PushNotificationService } from './services/push.js';
 import { createCfAccessVerifier } from './http/cf-access.js';
 
 /** Rutas de log con secretos/PII que pino debe ocultar. */
@@ -164,6 +165,8 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
   const adminCustomers = new AdminCustomerService(deps, audit, ledger, limits, devices, mutex);
   const compliance = new ComplianceService(deps, audit, beneficiaries, adminCustomers);
   compliance.start();
+  const push = new PushNotificationService(deps);
+  push.start();
   const providers = new ProviderHealthService(deps);
   const treasury = new TreasuryService(deps, audit);
   const savings = new SavingsService(deps, ledger);
@@ -198,6 +201,7 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
     deposits: new DepositService(deps, ledger, limits, mutex),
     transactions: new TransactionService(deps),
     devices,
+    push,
     admin,
   };
   return { config, deps, services };

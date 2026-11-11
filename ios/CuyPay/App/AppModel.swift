@@ -1,3 +1,4 @@
+@preconcurrency import BackgroundTasks
 import Foundation
 import Observation
 import SwiftUI
@@ -13,6 +14,10 @@ final class AppModel {
         case login
         case main
     }
+
+    nonisolated static let bgRefreshIdentifier = "com.cuypay.app.refresh"
+    private static weak var sharedForBackgroundRefresh: AppModel?
+    private static var didRegisterBackgroundTask = false
 
     // MARK: Dependencias
     let environment: AppEnvironment
@@ -67,7 +72,15 @@ final class AppModel {
         } else {
             api = APIClient(baseURL: environment.baseURL, tokens: TokenStore(), deviceSigner: keys)
         }
-        return AppModel(environment: environment, api: api, deviceKeys: keys)
+        let model = AppModel(environment: environment, api: api, deviceKeys: keys)
+        sharedForBackgroundRefresh = model
+        DepositNotificationManager.shared.onTokenReceived = { [weak model] token in
+            guard let model, model.user != nil else { return }
+            Task {
+                try? await model.api.registerPushToken(token, environment: DepositNotificationManager.apnsEnvironment)
+            }
+        }
+        return model
     }
 
     /// Modelo para previews de SwiftUI: mock sin latencia, sesión iniciada.
@@ -75,12 +88,47 @@ final class AppModel {
         let environment = AppEnvironment(apiMode: .mock, baseURL: URL(string: "http://localhost:8080/v1")!, name: "Preview")
         let api = MockAPIClient(latency: .zero, signer: nil, startsVerified: kycStatus == .approved)
         let model = AppModel(environment: environment, api: api, deviceKeys: SoftwareSigningKey())
-        model.user = MockFixtures(now: Date()).user.with(kycStatus: kycStatus, tier: kycStatus == .approved ? .full : .basic)
+        let previewUser = MockFixtures(now: Date()).user.with(kycStatus: kycStatus, tier: kycStatus == .approved ? .full : .basic)
+        model.user = previewUser
+        model.store.configureSession(userId: previewUser.id)
         model.route = route
         return model
     }
 
     var isKYCApproved: Bool { user?.kycStatus == .approved }
+
+    // MARK: - Background Refresh (depósitos en segundo plano)
+
+    static func registerBackgroundRefreshIfNeeded() {
+        guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1" else { return }
+        guard !didRegisterBackgroundTask else { return }
+        didRegisterBackgroundTask = true
+        installBackgroundTaskHandler()
+    }
+
+    nonisolated private static func installBackgroundTaskHandler() {
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: bgRefreshIdentifier, using: nil) { task in
+            nonisolated(unsafe) let bgTask = task
+            let work = Task { @MainActor in
+                Self.scheduleBackgroundRefresh()
+                if let model = Self.sharedForBackgroundRefresh, model.user != nil {
+                    await model.store.refreshLiveState(allowHaptic: false)
+                }
+                bgTask.setTaskCompleted(success: true)
+            }
+            bgTask.expirationHandler = {
+                work.cancel()
+                bgTask.setTaskCompleted(success: false)
+            }
+        }
+    }
+
+    nonisolated static func scheduleBackgroundRefresh() {
+        guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1" else { return }
+        let request = BGAppRefreshTaskRequest(identifier: bgRefreshIdentifier)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 5 * 60)
+        try? BGTaskScheduler.shared.submit(request)
+    }
 
     // MARK: - Arranque
 
@@ -149,10 +197,17 @@ final class AppModel {
     /// Se llama tras login o registro exitoso.
     func didAuthenticate(_ user: User) {
         self.user = user
+        store.configureSession(userId: user.id)
         isLocked = false
         backgroundedAt = nil
         withAnimation(.smooth) { route = .main }
-        Task { await store.refreshAll() }
+        Task {
+            await store.refreshAll()
+            await DepositNotificationManager.shared.requestAuthorizationAndRegister()
+            if let token = DepositNotificationManager.shared.apnsTokenHex {
+                try? await api.registerPushToken(token, environment: DepositNotificationManager.apnsEnvironment)
+            }
+        }
     }
 
     /// Atajo para demos en modo mock (sin registro).
@@ -195,7 +250,7 @@ final class AppModel {
         withAnimation(.smooth) { route = .onboarding }
     }
 
-    // MARK: - Ciclo de vida (privacidad + bloqueo)
+    // MARK: - Ciclo de vida (privacidad + bloqueo + refresco automático)
 
     func handleScenePhase(_ phase: ScenePhase) {
         switch phase {
@@ -207,12 +262,20 @@ final class AppModel {
             withAnimation(.easeOut(duration: 0.2)) { isPrivacyCoverVisible = false }
             if isLocked {
                 Task { await unlock() }
+            } else if route == .main {
+                Task {
+                    await store.refreshLiveState()
+                    await refreshUser()
+                }
             }
         case .inactive:
             isPrivacyCoverVisible = true
         case .background:
             isPrivacyCoverVisible = true
             if backgroundedAt == nil { backgroundedAt = Date() }
+            if user != nil {
+                Self.scheduleBackgroundRefresh()
+            }
         @unknown default:
             isPrivacyCoverVisible = true
         }

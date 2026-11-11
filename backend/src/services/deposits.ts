@@ -14,7 +14,13 @@ import { getCustomerControl } from './runtime-config.js';
  * Los depósitos no se pueden rechazar (el dinero ya llegó): si superan el límite
  * deposit_in se acreditan igual pero se marcan (`flagged`) para cumplimiento.
  */
+const BREB_WATCH_TTL_MS = 50_000;
+
 export class DepositService {
+  private lastPollAtMs = 0;
+  private inflightPoll: Promise<{ credited: number; skipped: number }> | null = null;
+  private readonly keyWatchedAt = new Map<string, number>();
+
   constructor(
     private readonly d: ServiceDeps,
     private readonly ledger: LedgerService,
@@ -22,21 +28,72 @@ export class DepositService {
     private readonly mutex: KeyedMutex,
   ) {}
 
-  async poll(): Promise<{ credited: number; skipped: number }> {
-    const deposits = await this.d.coinsenda.listDeposits();
-    let credited = 0;
-    let skipped = 0;
-    // Del más viejo al más nuevo para que el feed quede en orden.
-    for (const dep of [...deposits].reverse()) {
-      const r = await this.ingest(dep);
-      if (r) credited++;
-      else skipped++;
+  private async renewActiveBrebWatches(): Promise<void> {
+    if (!this.d.coinsenda.subscribeBrebDeposits) return;
+    try {
+      const activeKeys = await this.d.repos.brebKeys.listActive();
+      const nowMs = Date.now();
+      const due = activeKeys.filter(
+        (k) => k.providerKeyId && nowMs - (this.keyWatchedAt.get(k.providerKeyId) ?? 0) >= BREB_WATCH_TTL_MS,
+      );
+      if (due.length === 0) return;
+      await Promise.all(
+        due.map(async (k) => {
+          this.keyWatchedAt.set(k.providerKeyId, nowMs);
+          try {
+            await this.d.coinsenda.subscribeBrebDeposits!(k.providerKeyId);
+          } catch {
+            this.keyWatchedAt.delete(k.providerKeyId);
+          }
+        }),
+      );
+    } catch {
+      // Mejor esfuerzo
     }
-    return { credited, skipped };
+  }
+
+  async poll(): Promise<{ credited: number; skipped: number }> {
+    if (this.inflightPoll) return this.inflightPoll;
+    const run = (async () => {
+      await this.renewActiveBrebWatches();
+      const deposits = await this.d.coinsenda.listDeposits();
+      this.lastPollAtMs = Date.now();
+      let credited = 0;
+      let skipped = 0;
+      // Del más viejo al más nuevo para que el feed quede en orden.
+      for (const dep of [...deposits].reverse()) {
+        const r = await this.ingest(dep);
+        if (r) credited++;
+        else skipped++;
+      }
+      return { credited, skipped };
+    })();
+    this.inflightPoll = run;
+    try {
+      return await run;
+    } finally {
+      if (this.inflightPoll === run) this.inflightPoll = null;
+    }
+  }
+
+  /** Sondeo oportunista acotado en tiempo cuando la app consulta saldos/movimientos en vivo. */
+  async pollIfStale(minIntervalMs = 4_000, maxWaitMs = 1_500): Promise<void> {
+    if (Date.now() - this.lastPollAtMs < minIntervalMs) return;
+    const task = this.poll().catch((err) => {
+      this.d.logger.warn({ err: (err as Error).message }, 'opportunistic deposit poll failed');
+    });
+    await Promise.race([
+      task,
+      new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, maxWaitMs);
+        t.unref?.();
+      }),
+    ]);
   }
 
   /** Procesa un depósito; devuelve la transacción creada o null si se omitió. */
   async ingest(dep: CoinsendaDeposit): Promise<Transaction | null> {
+    if (dep.state !== 'accepted') return null;
     const prev = await this.d.repos.processedDeposits.get(dep.id);
     if (prev && prev.transactionId) return null;
     let key = dep.providerKeyId ? await this.d.repos.brebKeys.byProviderKeyId(dep.providerKeyId) : null;

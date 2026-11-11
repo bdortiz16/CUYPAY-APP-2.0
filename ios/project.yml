@@ -88,6 +88,8 @@ targets:
         # sin abrir excepciones para dominios de Internet.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        UIBackgroundModes: [fetch, remote-notification]
+        BGTaskSchedulerPermittedIdentifiers: [com.cuypay.app.refresh]
 
   CuyPayTests:
     type: bundle.unit-test

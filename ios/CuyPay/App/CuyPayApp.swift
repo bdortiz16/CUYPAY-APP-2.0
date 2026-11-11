@@ -1,7 +1,35 @@
 import SwiftUI
+import UIKit
+
+@MainActor
+final class CuyPayAppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        DepositNotificationManager.shared.configure()
+        AppModel.registerBackgroundRefreshIfNeeded()
+        return true
+    }
+
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        DepositNotificationManager.shared.handleDeviceToken(deviceToken)
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: any Error
+    ) {
+        _ = error
+    }
+}
 
 @main
 struct CuyPayApp: App {
+    @UIApplicationDelegateAdaptor(CuyPayAppDelegate.self) private var appDelegate
     @State private var model = AppModel.live()
     @Environment(\.scenePhase) private var scenePhase
 

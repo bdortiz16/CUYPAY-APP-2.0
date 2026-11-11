@@ -236,6 +236,11 @@ actor APIClient: CuyPayAPI {
         try await send(.post("/me/contact/confirm", body: request))
     }
 
+    func registerPushToken(_ token: String, environment: String) async throws {
+        let body = RegisterPushTokenRequest(token: token, environment: environment)
+        let _: RegisterPushTokenResponse = try await send(.post("/me/push-token", body: body))
+    }
+
     // MARK: - KYC
 
     func sumsubToken() async throws -> SumsubTokenResponse {
@@ -249,7 +254,14 @@ actor APIClient: CuyPayAPI {
     // MARK: - Bolsillos
 
     func wallets() async throws -> [Wallet] {
-        let response: ItemsResponse<Wallet> = try await send(.get("/wallets"))
+        try await wallets(syncDeposits: false)
+    }
+
+    func wallets(syncDeposits: Bool) async throws -> [Wallet] {
+        let query: [Endpoint<ItemsResponse<Wallet>>.QueryItem] = syncDeposits
+            ? [.init(name: "sync", value: "1")]
+            : []
+        let response: ItemsResponse<Wallet> = try await send(.get("/wallets", query: query))
         return response.items
     }
 

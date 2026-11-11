@@ -585,7 +585,104 @@ describe('Coinsenda live adapter (SDK doble)', () => {
     expect(deposits).toHaveLength(1);
     expect(deposits[0]!.id).toBe('dep_breb_1');
   });
+
+  it('configura depositProviderUserConfig (alias_prefix, name, surname, merchant_name), suscribe depósitos en vivo y extrae payerName', async () => {
+    const { gw } = makeGateway();
+    const calls: { endpoint: string; data: any }[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const baseFake = (gw as unknown as { client: any }).client; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const origRequest = baseFake.request.bind(baseFake);
+
+    baseFake.request = async (service: string, method: string, endpoint: string, data: any, options: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      calls.push({ endpoint, data });
+      if (endpoint === '/depositAccounts') {
+        return { status: 200, data: [{ id: 'dacc_1', provider_type: 'breb' }] };
+      }
+      if (endpoint === '/users/{id}/depositProviderUserConfigs') {
+        return {
+          status: 200,
+          data: [{ id: 'dpuc_1', account_id: 'acc_cop', provider_type: 'breb', custom: { alias_prefix: 'xatechservic' } }],
+        };
+      }
+      if (endpoint === '/depositProviderUserConfigs/update-deposit-provider-user-config-public') {
+        return { status: 200, data: { data: { id: 'dpuc_1', custom: data.data.custom } } };
+      }
+      if (endpoint === '/depositProviders/create-deposit-provider-by-account-id-public') {
+        return {
+          status: 200,
+          data: {
+            data: {
+              id: 'dp_bryan_1',
+              state: 'confirmed',
+              reference: { data: { alias_value: '@bryan777' } },
+            },
+          },
+        };
+      }
+      if (endpoint === '/depositProviders/subscribe-to-new-deposits') {
+        return { status: 200, data: { data: { subscribed: true } } };
+      }
+      return origRequest(service, method, endpoint, data, options);
+    };
+
+    baseFake.deposit.user.__get__deposits = async () => ({
+      status: 200,
+      data: [
+        {
+          id: 'dep_payer_1',
+          currency: 'cop',
+          amount: '75000',
+          state: 'accepted',
+          deposit_provider_id: 'dp_bryan_1',
+          info: { sender_name: 'María Fernanda Gómez' },
+        },
+      ],
+    });
+
+    const created = await gw.createBrebKey({
+      alias: '@xatechsericbryan',
+      holderName: 'Bryan Ortiz',
+      userRef: 'usr_bryan',
+    });
+
+    expect(created).toMatchObject({
+      providerKeyId: 'dp_bryan_1',
+      alias: '@bryan777',
+      status: 'active',
+    });
+
+    const cfgCall = calls.find((c) => c.endpoint === '/depositProviderUserConfigs/update-deposit-provider-user-config-public')!;
+    expect(cfgCall).toBeDefined();
+    expect(cfgCall.data).toMatchObject({
+      data: {
+        deposit_provider_user_config_id: 'dpuc_1',
+        country: 'international',
+        recaptcha_response: 'BYPASS_RECAPTCHA_DEV',
+        custom: {
+          alias_prefix: 'bryan',
+          name: 'Bryan',
+          surname: 'Ortiz',
+          merchant_name: 'CuyPay',
+        },
+      },
+    });
+
+    const subscribeCall = calls.find((c) => c.endpoint === '/depositProviders/subscribe-to-new-deposits')!;
+    expect(subscribeCall).toBeDefined();
+    expect(subscribeCall.data).toMatchObject({
+      data: {
+        account_id: 'acc_cop',
+        deposit_provider_id: 'dp_bryan_1',
+        country: 'international',
+      },
+    });
+
+    const deps = await gw.listDeposits();
+    expect(deps).toHaveLength(1);
+    expect(deps[0]).toMatchObject({
+      id: 'dep_payer_1',
+      providerKeyId: 'dp_bryan_1',
+      amountMinor: 7_500_000n,
+      payerName: 'María Fernanda Gómez',
+    });
+  });
 });
-
-
-

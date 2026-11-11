@@ -43,7 +43,11 @@ export class MockCoinsendaGateway implements CoinsendaGateway {
   }
 
   async createBrebKey(input: { alias: string; holderName: string; userRef: string }) {
-    if (this.directory.has(input.alias)) throw new AppError('BREB_ALIAS_TAKEN', 'La llave ya está registrada');
+    const normalized = input.alias.toLowerCase();
+    for (const k of this.directory.keys()) {
+      if (k.toLowerCase() === normalized) throw new AppError('BREB_ALIAS_TAKEN', 'La llave ya está registrada');
+    }
+    const providerKeyId = `dp_mock_${randomUUID()}`;
     const [firstName = input.holderName, ...rest] = input.holderName.split(' ');
     this.directory.set(input.alias, {
       alias: input.alias,
@@ -52,13 +56,19 @@ export class MockCoinsendaGateway implements CoinsendaGateway {
       documentType: 'CC',
       documentNumber: '0000000000',
       bankName: 'CuyPay',
-      raw: { mock: true, userRef: input.userRef },
+      raw: { mock: true, userRef: input.userRef, providerKeyId },
     });
-    return { providerKeyId: `dp_mock_${randomUUID()}`, alias: input.alias, status: 'active' as const, raw: { mock: true } };
+    return { providerKeyId, alias: input.alias, status: 'active' as const, raw: { mock: true } };
   }
 
   async resolveBrebAlias(alias: string) {
-    return this.directory.get(alias) ?? null;
+    const exact = this.directory.get(alias);
+    if (exact) return exact;
+    const normalized = alias.toLowerCase();
+    for (const [k, v] of this.directory.entries()) {
+      if (k.toLowerCase() === normalized) return v;
+    }
+    return null;
   }
 
   async addWithdrawAccount(input: { holder: BrebAliasHolder; label: string }) {
@@ -124,10 +134,15 @@ export class MockCoinsendaGateway implements CoinsendaGateway {
   async cancelBrebKey(providerKeyId: string) {
     // Simulado: cancela y libera el alias
     for (const [alias, holder] of this.directory.entries()) {
-      if ((holder.raw as any)?.userRef === providerKeyId) {
+      const raw = holder.raw as { providerKeyId?: string; userRef?: string } | undefined;
+      if (raw?.providerKeyId === providerKeyId || raw?.userRef === providerKeyId) {
         this.directory.delete(alias);
       }
     }
+  }
+
+  async subscribeBrebDeposits(_providerKeyId: string) {
+    // Simulado
   }
 
   // ── Tarjetas ──

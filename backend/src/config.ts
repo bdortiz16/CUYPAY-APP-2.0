@@ -81,7 +81,7 @@ const EnvSchema = z
     COINSENDA_BREB_DEPOSIT_ACCOUNT_ID: z.string().optional(),
     COINSENDA_COP_ACCOUNT_ID: z.string().optional(),
     COINSENDA_BREB_WITHDRAW_PROVIDER_ID: z.string().optional(),
-    DEPOSIT_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(15_000),
+    DEPOSIT_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5_000),
 
     // Sumsub
     SUMSUB_APP_TOKEN: z.string().optional(),
@@ -110,6 +110,12 @@ const EnvSchema = z
     // OTP Correo electrónico (Resend — dominio cuypay.com)
     RESEND_API_KEY: z.string().optional(),
     RESEND_FROM_EMAIL: z.string().default('CuyPay <no-reply@cuypay.com>'),
+
+    // APNs Push Notifications (iOS)
+    APNS_KEY_ID: z.string().optional(),
+    APNS_TEAM_ID: z.string().optional(),
+    APNS_PRIVATE_KEY: z.string().optional(),
+    APNS_BUNDLE_ID: z.string().default('com.cuypay.app'),
 
     // FX / tarifas
     FX_SPREAD_BPS: z.coerce.number().int().min(0).max(5000).default(150),

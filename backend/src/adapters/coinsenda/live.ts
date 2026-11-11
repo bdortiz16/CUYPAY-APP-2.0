@@ -213,56 +213,267 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
 
   // ───────────── operaciones ─────────────
 
-  async createBrebKey(input: { alias: string; holderName: string; userRef: string }) {
-    await this.ensureSession();
-    const cleanAlias = input.alias.trim();
-    const formattedAlias = cleanAlias.startsWith('@') ? cleanAlias : `@${cleanAlias}`;
-    const userId = this.getCoinsendaUserId();
+  private brebCreateChain: Promise<unknown> = Promise.resolve();
+  private cachedBrebDepositAccount: { id: string; customKeys: string[] | null; maxPrefixLength: number } | null = null;
 
-    // Catálogo oficial de Bre-B en Coinsenda: 69391969002c69002ac2e285 (provider_type: breb, currency: cop)
-    const depositAccountId =
-      this.opts.brebDepositAccountId && this.opts.brebDepositAccountId !== '6aee0a69864db20012c9c504'
-        ? this.opts.brebDepositAccountId
-        : '69391969002c69002ac2e285';
-
-    const res = await this.call('createBrebKey', (c) =>
-      c.request(
-        'deposit',
-        'POST',
-        '/depositProviders/create-deposit-provider-by-account-id-public',
-        {
-          data: {
-            userId,
-            account_id: this.opts.copAccountId,
-            deposit_account_id: depositAccountId,
-            alias: formattedAlias,
-          },
-        },
-        { rawPayload: true },
-      ),
+  private runBrebSerialized<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.brebCreateChain.then(fn, fn);
+    this.brebCreateChain = next.then(
+      () => undefined,
+      () => undefined,
     );
-    if (!sdk.isHttpSuccess(res.status)) {
-      const code = res.data?.error?.code ?? res.data?.data?.error?.code;
-      if (res.status === 409 || code === 'depositprovider_already_exists') {
-        throw new AppError('BREB_ALIAS_TAKEN', 'La llave Bre-B ya está tomada', { providerCode: code });
+    return next;
+  }
+
+  private async configureBrebUserConfig(input: {
+    depositAccountId: string;
+    aliasPrefix: string;
+    holderName: string;
+  }): Promise<void> {
+    try {
+      if (!this.cachedBrebDepositAccount || this.cachedBrebDepositAccount.id !== input.depositAccountId) {
+        const daRes = await this.call('findBrebDepositAccount', (c) =>
+          c.request(
+            'deposit',
+            'GET',
+            '/depositAccounts',
+            { filter: JSON.stringify({ where: { id: input.depositAccountId }, limit: 1 }) },
+            { rawPayload: true },
+          ),
+        ).catch(() => null);
+        if (daRes && sdk.isHttpSuccess(daRes.status)) {
+          const list = this.extractList(daRes);
+          const da = list[0];
+          const customSchema = da?.deposit_provider_user_config?.custom;
+          const schemaKeys =
+            customSchema && typeof customSchema === 'object' && !Array.isArray(customSchema)
+              ? Object.keys(customSchema)
+              : null;
+          const maxLen = Number(customSchema?.alias_prefix?.max_length ?? 12);
+          this.cachedBrebDepositAccount = {
+            id: input.depositAccountId,
+            customKeys: schemaKeys && schemaKeys.length > 0 ? schemaKeys : null,
+            maxPrefixLength: Number.isFinite(maxLen) && maxLen >= 3 ? maxLen : 12,
+          };
+        }
       }
-      this.fail('createBrebKey', res);
+
+      const maxLen = this.cachedBrebDepositAccount?.maxPrefixLength ?? 12;
+      const sanitizedPrefix = sanitizeBrebAliasPrefix(input.aliasPrefix, maxLen);
+      if (!sanitizedPrefix) return;
+
+      const { firstName, lastName } = splitBrebHolderName(input.holderName);
+      const rawCustom: Record<string, string> = {
+        alias_prefix: sanitizedPrefix,
+        name: firstName,
+        surname: lastName,
+        merchant_name: 'CuyPay',
+      };
+
+      const allowedKeys = this.cachedBrebDepositAccount?.customKeys;
+      const custom: Record<string, string> = {};
+      for (const [k, v] of Object.entries(rawCustom)) {
+        if (!v) continue;
+        if (!allowedKeys || allowedKeys.includes(k)) {
+          custom[k] = v;
+        }
+      }
+      if (Object.keys(custom).length === 0) return;
+
+      const cfgsRes = await this.call('listDepositProviderUserConfigs', (c) =>
+        c.request(
+          'deposit',
+          'GET',
+          '/users/{id}/depositProviderUserConfigs',
+          { filter: JSON.stringify({ order: 'id DESC', limit: 200 }) },
+          { rawPayload: true },
+        ),
+      );
+      if (!sdk.isHttpSuccess(cfgsRes.status)) return;
+
+      const configs = this.extractList(cfgsRes);
+      const accountCfg = configs.find(
+        (cfg) =>
+          cfg?.enabled !== false &&
+          String(cfg?.provider_type ?? '').toLowerCase() === 'breb' &&
+          String(cfg?.account_id ?? '') === this.opts.copAccountId,
+      );
+      const generalCfg = configs.find(
+        (cfg) =>
+          cfg?.enabled !== false &&
+          String(cfg?.provider_type ?? '').toLowerCase() === 'breb' &&
+          !cfg?.account_id,
+      );
+
+      const updateExistingCfg = async (cfg: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+        const mergedCustom = {
+          ...(cfg.custom && typeof cfg.custom === 'object' ? cfg.custom : {}),
+          ...custom,
+        };
+        return this.call('updateDepositProviderUserConfig', (c) =>
+          c.request(
+            'deposit',
+            'POST',
+            '/depositProviderUserConfigs/update-deposit-provider-user-config-public',
+            {
+              data: {
+                country: 'international',
+                recaptcha_response: 'BYPASS_RECAPTCHA_DEV',
+                deposit_provider_user_config_id: String(cfg.id),
+                custom: mergedCustom,
+              },
+            },
+            { rawPayload: true },
+          ),
+        );
+      };
+
+      if (generalCfg?.id) {
+        await updateExistingCfg(generalCfg);
+      }
+      if (accountCfg?.id) {
+        await updateExistingCfg(accountCfg);
+      } else if (!generalCfg?.id) {
+        await this.call('addNewDepositProviderUserConfig', (c) =>
+          c.request(
+            'deposit',
+            'POST',
+            '/depositProviderUserConfigs/add-new-deposit-provider-user-config-public',
+            {
+              data: {
+                country: 'international',
+                recaptcha_response: 'BYPASS_RECAPTCHA_DEV',
+                provider_type: 'breb',
+                account_id: this.opts.copAccountId,
+                custom,
+              },
+            },
+            { rawPayload: true },
+          ),
+        );
+      }
+    } catch (err) {
+      this.opts.logger?.warn?.(
+        { err: (err as Error).message },
+        'No se pudo actualizar depositProviderUserConfig de Bre-B en Coinsenda (continuando creación)',
+      );
     }
-    const d = this.payload(res);
-    const item = Array.isArray(d) ? d[0] : d;
-    const assignedAlias =
-      item?.account?.account_id?.account_id ??
-      item?.account?.account_id ??
-      item?.alias ??
-      item?.address ??
-      formattedAlias;
-    return {
-      providerKeyId: String(item?.id ?? item?.deposit_provider_id ?? newId('dp', new Date())),
-      alias: String(assignedAlias),
-      status: (item?.state === 'blocked' ? 'blocked' : item?.state === 'pending' ? 'pending' : 'active') as 'active' | 'pending' | 'blocked',
-      qrCode: item?.account?.qr_code?.qr_string,
-      raw: item,
-    };
+  }
+
+  async subscribeBrebDeposits(providerKeyId: string): Promise<void> {
+    if (!providerKeyId) return;
+    try {
+      await this.call('subscribeToNewDeposits', (c) =>
+        c.request(
+          'deposit',
+          'POST',
+          '/depositProviders/subscribe-to-new-deposits',
+          {
+            data: {
+              country: 'international',
+              recaptcha_response: 'BYPASS_RECAPTCHA_DEV',
+              account_id: this.opts.copAccountId,
+              deposit_provider_id: providerKeyId,
+            },
+          },
+          { rawPayload: true },
+        ),
+      );
+    } catch {
+      // Mejor esfuerzo: la vigilancia se renueva periódicamente en el poller.
+    }
+  }
+
+  async createBrebKey(input: { alias: string; holderName: string; userRef: string }) {
+    return this.runBrebSerialized(async () => {
+      await this.ensureSession();
+      const cleanAlias = input.alias.trim();
+      const withoutAt = cleanAlias.replace(/^@+/, '');
+      const normalizedHandle = stripCorporatePrefixFromHandle(withoutAt);
+      const formattedAlias = `@${normalizedHandle || withoutAt}`;
+
+      // Catálogo oficial de Bre-B en Coinsenda: 69391969002c69002ac2e285 (provider_type: breb, currency: cop)
+      const depositAccountId =
+        this.opts.brebDepositAccountId && this.opts.brebDepositAccountId !== '6aee0a69864db20012c9c504'
+          ? this.opts.brebDepositAccountId
+          : '69391969002c69002ac2e285';
+
+      // Personaliza alias_prefix y nombre del titular en la cuenta COP antes de reclamar la llave Bre-B
+      // (Coinsenda toma una foto permanente de depositProviderUserConfig al crear cada depositProvider).
+      await this.configureBrebUserConfig({
+        depositAccountId,
+        aliasPrefix: normalizedHandle || withoutAt,
+        holderName: input.holderName,
+      });
+
+      let res = await this.call('createBrebKey', (c) =>
+        c.request(
+          'deposit',
+          'POST',
+          '/depositProviders/create-deposit-provider-by-account-id-public',
+          {
+            data: {
+              country: 'international',
+              recaptcha_response: 'BYPASS_RECAPTCHA_DEV',
+              account_id: this.opts.copAccountId,
+              deposit_account_id: depositAccountId,
+              alias: formattedAlias,
+            },
+          },
+          { rawPayload: true },
+        ),
+      );
+      if (res.status === 465) {
+        res = await this.call('createBrebKeyWithoutExtraAliasField', (c) =>
+          c.request(
+            'deposit',
+            'POST',
+            '/depositProviders/create-deposit-provider-by-account-id-public',
+            {
+              data: {
+                country: 'international',
+                recaptcha_response: 'BYPASS_RECAPTCHA_DEV',
+                account_id: this.opts.copAccountId,
+                deposit_account_id: depositAccountId,
+              },
+            },
+            { rawPayload: true },
+          ),
+        );
+      }
+      if (!sdk.isHttpSuccess(res.status)) {
+        const code = res.data?.error?.code ?? res.data?.data?.error?.code;
+        if (res.status === 409 || code === 'depositprovider_already_exists' || code === 'depositprovider_alias_taken') {
+          throw new AppError('BREB_ALIAS_TAKEN', 'La llave Bre-B ya está tomada', { providerCode: code });
+        }
+        this.fail('createBrebKey', res);
+      }
+      const d = this.payload(res);
+      const item = Array.isArray(d) ? d[0] : d;
+      const rawAssignedAlias =
+        item?.account?.account_id?.account_id ??
+        item?.account?.account_id ??
+        item?.reference?.data?.alias_value ??
+        item?.reference?.alias_value ??
+        item?.alias_value ??
+        item?.alias ??
+        item?.address ??
+        formattedAlias;
+      const assignedStr = String(rawAssignedAlias).trim();
+      const assignedAlias = assignedStr.startsWith('@') ? assignedStr : `@${assignedStr}`;
+      const providerKeyId = String(item?.id ?? item?.deposit_provider_id ?? newId('dp', new Date()));
+
+      // Activa de inmediato la vigilancia en tiempo real de depósitos entrantes para esta llave.
+      await this.subscribeBrebDeposits(providerKeyId);
+
+      return {
+        providerKeyId,
+        alias: assignedAlias,
+        status: (item?.state === 'blocked' ? 'blocked' : item?.state === 'pending' ? 'pending' : 'active') as 'active' | 'pending' | 'blocked',
+        qrCode: item?.account?.qr_code?.qr_string ?? item?.reference?.data?.qr_string,
+        raw: item,
+      };
+    });
   }
 
   async resolveBrebAlias(alias: string): Promise<BrebAliasHolder | null> {
@@ -1395,12 +1606,89 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
           : ['rejected', 'canceled'].includes(d.state)
             ? ('rejected' as const)
             : ('pending' as const),
-        // TODO(coinsenda): ¿viene el nombre del pagador Bre-B? (campo asumido `sender_name`).
-        payerName: d.sender_name ?? d.info?.sender_name ?? null,
+        payerName: extractDepositPayerName(d),
         createdAt: new Date(d.created_at ?? Date.now()),
         raw: d,
       }));
   }
+}
+
+function stripCorporatePrefixFromHandle(raw: string): string {
+  const trimmed = raw.trim().replace(/^@+/, '');
+  const lower = trimmed.toLowerCase();
+  for (const legacy of ['xatechservic', 'xatechseric']) {
+    if (lower.startsWith(legacy) && trimmed.length >= legacy.length + 3) {
+      return trimmed.slice(legacy.length).replace(/^\.+/, '');
+    }
+  }
+  return trimmed;
+}
+
+function sanitizeBrebAliasPrefix(raw: string, maxLength = 12): string {
+  const withoutCorp = stripCorporatePrefixFromHandle(raw);
+  const cleaned = withoutCorp
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9.]/g, '')
+    .replace(/\.{2,}/g, '.')
+    .replace(/^\.+|\.+$/g, '')
+    .slice(0, maxLength)
+    .replace(/\.+$/g, '');
+  return cleaned.length >= 3 ? cleaned : '';
+}
+
+function splitBrebHolderName(holderName: string): { firstName: string; lastName: string } {
+  const cleaned = String(holderName ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const parts = cleaned.split(' ').filter(Boolean);
+  const cap = (w: string) => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : '');
+  const firstName = cap(parts[0] ?? 'Cliente').slice(0, 20);
+  const lastName = cap(parts[1] ?? parts[0] ?? 'Cuypay').slice(0, 20);
+  return { firstName, lastName };
+}
+
+function extractDepositPayerName(d: any): string | null { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const joinName = (a: unknown, b: unknown) => {
+    const first = typeof a === 'string' ? a.trim() : '';
+    const last = typeof b === 'string' ? b.trim() : '';
+    return first && last ? `${first} ${last}` : first || last || null;
+  };
+  const candidates: Array<unknown> = [
+    d?.sender_name,
+    d?.payer_name,
+    d?.origin_name,
+    d?.counterparty_name,
+    d?.info?.sender_name,
+    d?.info?.payer_name,
+    d?.info?.holder_name,
+    d?.info?.origin_name,
+    d?.info?.full_name,
+    joinName(d?.info?.name, d?.info?.surname),
+    joinName(d?.info?.first_name, d?.info?.last_name),
+    d?.info?.name,
+    d?.sender?.full_name,
+    joinName(d?.sender?.name, d?.sender?.surname),
+    d?.sender?.name,
+    d?.payer?.full_name,
+    d?.payer?.name,
+    d?.metadata?.sender_name,
+    d?.metadata?.payer_name,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string') {
+      const normalized = c.replace(/\s+/g, ' ').trim();
+      const lower = normalized.toLowerCase();
+      if (normalized.length >= 2 && lower !== 'breb' && lower !== 'bre-b' && lower !== 'coinsenda') {
+        return normalized;
+      }
+    }
+  }
+  return null;
 }
 
 function formatBrebAlias(raw: string): string {

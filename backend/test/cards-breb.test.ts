@@ -336,6 +336,55 @@ describe('Card & Bre-B lifecycle endpoints', () => {
     const copWallet = finalWallets.body.items.find((w: any) => w.currency === 'COP'); // eslint-disable-line @typescript-eslint/no-explicit-any
     expect(copWallet.availableMinor).toBe(8_800_000); // $70.000 + $18.000 devueltos = $88.000 COP
   });
+
+  it('permite eliminar llave Bre-B anterior, crear llave personalizada (@bryan), registrar push-token y sincronizar depósitos con GET /wallets?sync=1', async () => {
+    const c = await registerUser(env, { firstName: 'Bryan', lastName: 'Ortiz', phone: '+573154103792' });
+    const user = (await env.container.deps.repos.users.byId(c.session.userId))!;
+    user.kycStatus = 'approved';
+    await env.container.deps.repos.users.update(user);
+
+    // 1. Crea llave genérica, la elimina y verifica que GET /v1/breb/key devuelva 404 (no llave fantasma bloqueada)
+    const genericKey = await c.signed('POST', '/v1/breb/key', {});
+    expect(genericKey.status).toBe(200);
+    const delRes = await c.signed('DELETE', '/v1/breb/key', {});
+    expect(delRes.status).toBe(204);
+    const afterDel = await c.call('GET', '/v1/breb/key');
+    expect(afterDel.status).toBe(404);
+
+    // 2. Crea llave personalizada limpia (incluso si el cliente envía prefijo legado @xatechsericbryan)
+    const customKey = await c.signed('POST', '/v1/breb/key', { preferredAlias: '@xatechsericbryan' });
+    expect(customKey.status).toBe(200);
+    expect(customKey.body.alias).toBe('@bryan');
+    expect(customKey.body.status).toBe('active');
+
+    // 3. Registra token APNs del dispositivo
+    const pushRes = await c.call('POST', '/v1/me/push-token', {
+      token: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90',
+      environment: 'production',
+    });
+    expect(pushRes.status).toBe(200);
+    expect(pushRes.body).toEqual({ registered: true });
+
+    // 4. Simula depósito entrante con remitente y verifica que GET /v1/wallets?sync=1 lo acredite automáticamente
+    const storedKey = (await env.container.deps.repos.brebKeys.byUser(c.session.userId))!;
+    env.coinsenda.simulateDeposit({
+      providerKeyId: storedKey.providerKeyId,
+      amountMinor: 5_000_000n,
+      payerName: 'Laura Valentina Ruiz',
+    });
+
+    const syncedWallets = await c.call('GET', '/v1/wallets?sync=1');
+    expect(syncedWallets.status).toBe(200);
+    const cop = syncedWallets.body.items.find((w: any) => w.currency === 'COP'); // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(cop.availableMinor).toBe(5_000_000);
+
+    const txRes = await c.call('GET', '/v1/transactions?limit=5');
+    expect(txRes.status).toBe(200);
+    expect(txRes.body.items[0]).toMatchObject({
+      type: 'deposit',
+      direction: 'in',
+      amountMinor: 5_000_000,
+      title: 'Laura Valentina Ruiz',
+    });
+  });
 });
-
-

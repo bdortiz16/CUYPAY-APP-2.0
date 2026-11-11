@@ -557,6 +557,13 @@ struct LoginRequest: Codable, Hashable, Sendable {
     var signature: String
 }
 struct RefreshRequest: Codable, Hashable, Sendable { var refreshToken: String }
+struct RegisterPushTokenRequest: Codable, Hashable, Sendable {
+    var token: String
+    var environment: String
+}
+struct RegisterPushTokenResponse: Codable, Hashable, Sendable {
+    var registered: Bool
+}
 struct EmptyResponse: Codable, Hashable, Sendable {}
 
 // MARK: - Bloque de Ahorro (Savings Vault)

@@ -36,7 +36,7 @@ enum HomeSheet: Identifiable, Hashable {
     }
 }
 
-/// Inicio: replica el layout de la referencia Liquid Glass.
+/// Inicio: replica el layout de la referencia Liquid Glass con actualización automática en vivo.
 struct HomeView: View {
     @Environment(AppModel.self) private var app
     @Environment(WalletStore.self) private var store
@@ -118,14 +118,30 @@ struct HomeView: View {
                 case .allTransactions(let currency):
                     AllTransactionsView(pocket: currency)
                 case .card:
-                    CardView()
+                    CardView(onOpenProfile: {
+                        if !path.isEmpty {
+                            path.removeLast()
+                        }
+                        path.append(.profile)
+                    })
                 }
             }
             .sheet(item: $sheet, onDismiss: runPendingAction) { sheet in
                 sheetContent(sheet)
             }
             .task {
-                if !store.hasLoadedOnce { await store.refreshAll() }
+                if !store.hasLoadedOnce {
+                    await store.refreshAll()
+                }
+                // Sincronización silenciosa continua cada 5 s mientras la app está visible:
+                // actualiza saldos y dispara notificaciones de depósitos sin necesidad de deslizar hacia abajo.
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(5))
+                    guard !Task.isCancelled else { break }
+                    if !app.isPrivacyCoverVisible && !app.isLocked {
+                        await store.refreshLiveState()
+                    }
+                }
             }
         }
     }
@@ -148,8 +164,25 @@ struct HomeView: View {
             CuyPayLogo(size: 20)
             Spacer()
 
-            GlassCircleButton(systemImage: "bell", accessibilityLabel: "Notificaciones", size: 52) {
-                sheet = .notifications
+            ZStack(alignment: .topTrailing) {
+                GlassCircleButton(
+                    systemImage: store.unreadNotificationsCount > 0 ? "bell.badge.fill" : "bell",
+                    accessibilityLabel: "Notificaciones",
+                    size: 52
+                ) {
+                    sheet = .notifications
+                }
+
+                if store.unreadNotificationsCount > 0 {
+                    Circle()
+                        .fill(Theme.coral)
+                        .frame(width: 11, height: 11)
+                        .overlay {
+                            Circle().strokeBorder(.background, lineWidth: 2)
+                        }
+                        .offset(x: -4, y: 4)
+                        .allowsHitTesting(false)
+                }
             }
         }
         .padding(.top, 4)
@@ -172,8 +205,11 @@ struct HomeView: View {
                 .presentationDetents([.fraction(0.85), .large])
                 .presentationDragIndicator(.visible)
         case .card:
-            CardView()
-                .presentationDragIndicator(.visible)
+            CardView(onOpenProfile: {
+                pendingAction = .profile
+                self.sheet = nil
+            })
+            .presentationDragIndicator(.visible)
         case .savingsVault:
             SavingsView()
                 .presentationDragIndicator(.visible)
@@ -281,6 +317,7 @@ struct TransactionsSection: View {
                 TextField("Buscar por nombre o llave", text: $query)
                     .focused($searchFocused)
                     .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
                     .padding(12)
                     .glassEffect(.regular, in: .rect(cornerRadius: 14))
                     .transition(.move(edge: .top).combined(with: .opacity))
@@ -427,19 +464,129 @@ struct MainMenuSheet: View {
     }
 }
 
-// MARK: - Notificaciones (placeholder: el contrato v1 no define endpoint)
+// MARK: - Centro de notificaciones en tiempo real
 
 struct NotificationsSheet: View {
+    @Environment(WalletStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage(AppModel.hideAmountsKey) private var hideAmounts = false
+
+    @State private var selectedTransaction: WalletTransaction?
+
+    private var notificationItems: [WalletTransaction] {
+        Array(store.transactions.prefix(25))
+    }
+
     var body: some View {
         NavigationStack {
-            ContentUnavailableView(
-                "Estás al día",
-                systemImage: "bell.badge",
-                description: Text("Aquí verás avisos de depósitos, envíos y tu verificación.")
-            )
+            ZStack {
+                BrandBackground()
+
+                if notificationItems.isEmpty {
+                    ContentUnavailableView(
+                        "Estás al día",
+                        systemImage: "bell.badge",
+                        description: Text("Aquí recibirás avisos inmediatos cada vez que te envíen dinero o uses tu cuenta.")
+                    )
+                } else {
+                    ScrollView {
+                        VStack(spacing: 10) {
+                            ForEach(notificationItems) { txn in
+                                Button {
+                                    selectedTransaction = txn
+                                } label: {
+                                    notificationCard(for: txn)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                    }
+                    .scrollIndicators(.hidden)
+                }
+            }
             .navigationTitle("Notificaciones")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    CloseToolbarButton { dismiss() }
+                }
+            }
+            .onAppear {
+                store.markNotificationsRead()
+            }
+            .sheet(item: $selectedTransaction) { txn in
+                TransactionDetailSheet(transaction: txn, pocket: txn.currency)
+            }
         }
+    }
+
+    private func notificationCard(for txn: WalletTransaction) -> some View {
+        let isIncomingDeposit = txn.type == .deposit && txn.direction == .in
+        let amountStr = hideAmounts ? txn.amount.maskedString : txn.amount.formatted()
+        let sender = txn.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasNamedSender = !sender.isEmpty && sender.lowercased() != "depósito bre-b" && sender.lowercased() != "deposito bre-b"
+
+        let headline: String = switch txn.type {
+        case .deposit:
+            "¡Recibiste \(amountStr)!"
+        case .transfer:
+            "Enviaste \(amountStr)"
+        case .cardPurchase:
+            "Compra con tarjeta · \(amountStr)"
+        case .cardPocket:
+            txn.direction == .out ? "Recargaste tu tarjeta · \(amountStr)" : "Retiro de tarjeta · \(amountStr)"
+        case .conversion:
+            "Conversión realizada · \(amountStr)"
+        case .unknown:
+            "\(txn.title) · \(amountStr)"
+        }
+
+        let detail: String = if isIncomingDeposit {
+            hasNamedSender
+                ? "Recibiste \(amountStr) de \(sender) en tu cuenta CuyPay."
+                : "Depósito recibido por Bre-B en tu cuenta CuyPay."
+        } else {
+            [txn.title, txn.subtitle].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        }
+
+        let iconName: String = switch txn.type {
+        case .deposit: "arrow.down.left.circle.fill"
+        case .transfer: "arrow.up.right.circle.fill"
+        case .cardPurchase, .cardPocket: "creditcard.circle.fill"
+        case .conversion: "arrow.left.arrow.right.circle.fill"
+        case .unknown: "bell.circle.fill"
+        }
+
+        let iconTint: Color = isIncomingDeposit ? Theme.positive : Theme.spruce
+
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: iconName)
+                .font(.system(size: 26))
+                .foregroundStyle(iconTint)
+                .symbolRenderingMode(.hierarchical)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(verbatim: headline)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text(txn.createdAt, style: .relative)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text(verbatim: detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 18))
     }
 }
 
