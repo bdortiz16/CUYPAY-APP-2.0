@@ -110,7 +110,15 @@ actor MockAPIClient: CuyPayAPI {
 
     func requestOTP(phone: String) async throws -> OTPRequestResponse {
         await simulateLatency()
-        return OTPRequestResponse(otpId: Self.newId("otp"), expiresAt: Date().addingTimeInterval(300))
+        return OTPRequestResponse(otpId: Self.newId("otp"), expiresAt: Date().addingTimeInterval(600), channel: "whatsapp")
+    }
+
+    func verifyOTP(otpId: String, phone: String, otpCode: String) async throws -> OTPVerifyResponse {
+        await simulateLatency(0.4)
+        guard otpCode == "123456" else {
+            throw APIError.server(status: 400, code: .otpInvalid, message: "Código de verificación inválido o vencido", limit: nil)
+        }
+        return OTPVerifyResponse(verified: true, otpId: otpId, phone: phone)
     }
 
     func register(_ request: RegisterRequest) async throws -> AuthSession {
@@ -124,6 +132,8 @@ actor MockAPIClient: CuyPayAPI {
             lastName: request.lastName,
             email: request.email,
             phone: request.phone,
+            phoneVerified: true,
+            emailVerified: false,
             country: request.country,
             kycStatus: .notStarted,
             tier: .basic,
@@ -181,7 +191,54 @@ actor MockAPIClient: CuyPayAPI {
         }
         if let phone = request.phone?.trimmingCharacters(in: .whitespacesAndNewlines), !phone.isEmpty {
             user.phone = phone
+            user.phoneVerified = true
         }
+        return user
+    }
+
+    func requestContactOTP(_ request: ContactOTPRequest) async throws -> ContactOTPResponse {
+        await simulateLatency(0.5)
+        if let email = request.email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !email.isEmpty {
+            if email == "usuario@cuypay.com" || email.hasSuffix("@pendiente.cuypay.com") {
+                throw APIError.server(status: 422, code: .validationError, message: "Ingresa tu correo electrónico real.", limit: nil)
+            }
+        }
+        let targetPhone = request.phone?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isPhoneChange = targetPhone != nil && targetPhone != user.phone
+        let useEmail = !isPhoneChange && request.channel == "email"
+        let channel: ContactOTPChannel = useEmail ? .email : .whatsapp
+        let destination: String = {
+            if useEmail, let email = request.email {
+                return email
+            }
+            let p = isPhoneChange ? (targetPhone ?? user.phone) : user.phone
+            return p.count >= 8 ? "\(p.prefix(6)) ••• \(p.suffix(4))" : p
+        }()
+        return ContactOTPResponse(
+            otpId: Self.newId("otp"),
+            channel: channel,
+            maskedDestination: destination,
+            expiresAt: Date().addingTimeInterval(600),
+            emailOtpAvailable: true
+        )
+    }
+
+    func confirmContactUpdate(_ request: ConfirmContactUpdateRequest) async throws -> User {
+        await simulateLatency(0.5)
+        guard request.otpCode == "123456" else {
+            throw APIError.server(status: 400, code: .otpInvalid, message: "Código de verificación inválido o vencido", limit: nil)
+        }
+        let updated = try await updateProfile(
+            UpdateProfileRequest(
+                firstName: request.firstName,
+                lastName: request.lastName,
+                email: request.email,
+                phone: request.phone,
+                otpId: request.otpId,
+                otpCode: request.otpCode
+            )
+        )
+        user = updated
         return user
     }
 

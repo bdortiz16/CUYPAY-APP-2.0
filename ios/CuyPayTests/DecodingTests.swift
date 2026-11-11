@@ -217,7 +217,7 @@ struct DecodingTests {
 
     @Test("User detecta correos placeholder y OnboardingModel exige nombre y correo reales")
     @MainActor
-    func placeholderContactAndOnboardingValidation() throws {
+    func placeholderContactAndOnboardingValidation() async throws {
         let legacyUser = User(
             id: "usr_legacy",
             firstName: "Usuario",
@@ -246,10 +246,18 @@ struct DecodingTests {
         )
         #expect(realUser.hasPlaceholderContact == false)
 
+        let mockApi = MockAPIClient(latency: .zero)
         let onboarding = OnboardingModel()
+        onboarding.phoneDigits = "3154103792"
+        await onboarding.requestOTP(api: mockApi)
+        #expect(onboarding.path == [.otp])
+        onboarding.otpCode = "000000"
+        await onboarding.confirmOTP(api: mockApi)
+        #expect(onboarding.path == [.otp])
+        #expect(onboarding.otpCode.isEmpty)
         onboarding.otpCode = "123456"
-        onboarding.confirmOTP()
-        #expect(onboarding.path == [.profile])
+        await onboarding.confirmOTP(api: mockApi)
+        #expect(onboarding.path == [.otp, .profile])
 
         onboarding.firstName = "Usuario"
         onboarding.lastName = "CuyPay"
@@ -263,7 +271,7 @@ struct DecodingTests {
         #expect(onboarding.isEmailValid == true)
         #expect(onboarding.isProfileValid == true)
         onboarding.confirmProfileStep()
-        #expect(onboarding.path == [.profile, .password])
+        #expect(onboarding.path == [.otp, .profile, .password])
 
         let updateReq = UpdateProfileRequest(firstName: "Bryan", lastName: "Ortiz", email: "bryan@gmail.com", phone: "+573154103795")
         let encoded = String(decoding: try JSONCoding.makeEncoder().encode(updateReq), as: UTF8.self)
@@ -309,6 +317,36 @@ struct DecodingTests {
         #expect(store.cardPocketBalance.minorUnits == 2_000_000)
         #expect(store.copMainAvailable.minorUnits == initialCop - 2_000_000)
     }
+
+    @Test("Cambio de celular y correo en perfil requiere confirmación OTP por WhatsApp o correo")
+    @MainActor
+    func whatsappOtpAndProfileContactChangeFlow() async throws {
+        let contactOtp = try decode(ContactOTPResponse.self, """
+        { "otpId": "otp_wa_1", "channel": "whatsapp", "maskedDestination": "+57315 ••• 3792",
+          "expiresAt": "2026-11-11T21:00:00Z", "emailOtpAvailable": true }
+        """)
+        #expect(contactOtp.channel == .whatsapp)
+        #expect(contactOtp.emailOtpAvailable == true)
+
+        let api = MockAPIClient(latency: .zero)
+        let phoneOtp = try await api.requestContactOTP(
+            ContactOTPRequest(phone: "+573154103792", email: "cliente@cuypay.co", channel: "whatsapp")
+        )
+        #expect(phoneOtp.channel == .whatsapp)
+        #expect(phoneOtp.maskedDestination.contains("3792"))
+
+        let updated = try await api.confirmContactUpdate(
+            ConfirmContactUpdateRequest(
+                otpId: phoneOtp.otpId,
+                otpCode: "123456",
+                firstName: "Bryan",
+                lastName: "Ortiz",
+                email: "cliente@cuypay.co",
+                phone: "+573154103792"
+            )
+        )
+        #expect(updated.phone == "+573154103792")
+        #expect(updated.email == "cliente@cuypay.co")
+        #expect(updated.phoneVerified == true)
+    }
 }
-
-

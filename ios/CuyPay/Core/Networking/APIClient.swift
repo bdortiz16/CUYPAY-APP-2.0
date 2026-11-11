@@ -181,6 +181,11 @@ actor APIClient: CuyPayAPI {
         try await send(.post("/auth/otp/request", body: PhoneRequest(phone: phone), auth: false))
     }
 
+    func verifyOTP(otpId: String, phone: String, otpCode: String) async throws -> OTPVerifyResponse {
+        let body = OTPVerifyRequest(otpId: otpId, phone: phone, otpCode: otpCode)
+        return try await send(.post("/auth/otp/verify", body: body, auth: false))
+    }
+
     func register(_ request: RegisterRequest) async throws -> AuthSession {
         let session: AuthSession = try await send(.post("/auth/register", body: request, auth: false))
         try await tokens.store(session)
@@ -221,6 +226,14 @@ actor APIClient: CuyPayAPI {
 
     func updateProfile(_ request: UpdateProfileRequest) async throws -> User {
         try await send(.put("/me", body: request))
+    }
+
+    func requestContactOTP(_ request: ContactOTPRequest) async throws -> ContactOTPResponse {
+        try await send(.post("/me/contact/otp/request", body: request))
+    }
+
+    func confirmContactUpdate(_ request: ConfirmContactUpdateRequest) async throws -> User {
+        try await send(.post("/me/contact/confirm", body: request))
     }
 
     // MARK: - KYC

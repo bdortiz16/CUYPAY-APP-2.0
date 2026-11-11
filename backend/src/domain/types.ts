@@ -16,6 +16,8 @@ export interface User {
   kycStatus: KycStatus;
   tier: Tier;
   passwordHash?: string;
+  phoneVerifiedAt?: Date | null;
+  emailVerifiedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -30,11 +32,21 @@ export interface Device {
   revokedAt: Date | null;
 }
 
+export type OtpPurpose = 'auth' | 'contact_change' | 'email_verify';
+export type OtpChannel = 'whatsapp' | 'sms' | 'email';
+export type OtpVerificationMode = 'local' | 'twilio_verify';
+
 export interface Otp {
   id: string;
   phone: string;
+  email?: string | null;
+  userId?: string | null;
+  purpose?: OtpPurpose;
+  channel?: OtpChannel;
+  verificationMode?: OtpVerificationMode;
   codeHash: string;
   attempts: number;
+  verifiedAt?: Date | null;
   expiresAt: Date;
   consumedAt: Date | null;
   createdAt: Date;

@@ -12,6 +12,8 @@ struct User: Codable, Hashable, Sendable, Identifiable {
     var lastName: String
     var email: String
     var phone: String
+    var phoneVerified: Bool? = nil
+    var emailVerified: Bool? = nil
     var country: String
     var kycStatus: KYCStatus
     var tier: UserTier
@@ -75,6 +77,19 @@ struct AuthSession: Codable, Hashable, Sendable {
 struct OTPRequestResponse: Codable, Hashable, Sendable {
     var otpId: String
     var expiresAt: Date
+    var channel: String? = nil
+}
+
+struct OTPVerifyRequest: Codable, Hashable, Sendable {
+    var otpId: String
+    var phone: String
+    var otpCode: String
+}
+
+struct OTPVerifyResponse: Codable, Hashable, Sendable {
+    var verified: Bool
+    var otpId: String
+    var phone: String
 }
 
 struct RegisterRequest: Codable, Hashable, Sendable {
@@ -91,6 +106,43 @@ struct RegisterRequest: Codable, Hashable, Sendable {
 }
 
 struct UpdateProfileRequest: Codable, Hashable, Sendable {
+    var firstName: String? = nil
+    var lastName: String? = nil
+    var email: String? = nil
+    var phone: String? = nil
+    var otpId: String? = nil
+    var otpCode: String? = nil
+}
+
+enum ContactOTPChannel: String, Codable, Hashable, Sendable {
+    case whatsapp
+    case sms
+    case email
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = ContactOTPChannel(rawValue: raw) ?? .unknown
+    }
+}
+
+struct ContactOTPRequest: Codable, Hashable, Sendable {
+    var phone: String? = nil
+    var email: String? = nil
+    var channel: String? = nil
+}
+
+struct ContactOTPResponse: Codable, Hashable, Sendable {
+    var otpId: String
+    var channel: ContactOTPChannel
+    var maskedDestination: String
+    var expiresAt: Date
+    var emailOtpAvailable: Bool? = nil
+}
+
+struct ConfirmContactUpdateRequest: Codable, Hashable, Sendable {
+    var otpId: String
+    var otpCode: String
     var firstName: String? = nil
     var lastName: String? = nil
     var email: String? = nil

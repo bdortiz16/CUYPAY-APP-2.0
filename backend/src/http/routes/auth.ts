@@ -7,6 +7,11 @@ import { parse, type RouteHelpers } from '../app.js';
 const Phone = z.string().regex(/^\+[1-9]\d{7,14}$/, 'Teléfono en formato E.164');
 
 const OtpRequest = z.object({ phone: Phone });
+const OtpVerify = z.object({
+  otpId: z.string().min(1).max(64),
+  phone: Phone,
+  otpCode: z.string().regex(/^\d{4,8}$/),
+});
 const Register = z.object({
   otpId: z.string().min(1).max(64),
   otpCode: z.string().regex(/^\d{4,8}$/),
@@ -39,7 +44,12 @@ export function registerAuthRoutes(app: FastifyInstance, { services }: Container
   app.post('/auth/otp/request', rl, async (req) => {
     const { phone } = parse(OtpRequest, req.body);
     const r = await services.auth.requestOtp(phone);
-    return { otpId: r.otpId, expiresAt: r.expiresAt.toISOString() };
+    return { otpId: r.otpId, expiresAt: r.expiresAt.toISOString(), channel: r.channel };
+  });
+
+  app.post('/auth/otp/verify', rl, async (req) => {
+    const body = parse(OtpVerify, req.body);
+    return services.auth.preVerifyOtp(body);
   });
 
   app.post('/auth/register', rl, async (req) => {

@@ -8,6 +8,7 @@ struct ProfileView: View {
     @State private var errorMessage: String?
     @State private var showKYC = false
     @State private var showEditContact = false
+    @State private var editContactFocus: EditContactProfileSheet.FocusField?
     @State private var confirmLogout = false
     @State private var confirmForget = false
     @State private var deviceToRemove: Device?
@@ -33,9 +34,16 @@ struct ProfileView: View {
                     Section {
                         HStack(spacing: 14) {
                             AvatarView(initials: user.initials, size: 60, seed: user.id)
-                            VStack(alignment: .leading, spacing: 3) {
+                            VStack(alignment: .leading, spacing: 4) {
                                 Text(verbatim: user.fullName).font(.title3.weight(.semibold))
-                                Text(verbatim: user.phone).font(.subheadline).foregroundStyle(.secondary)
+                                HStack(spacing: 6) {
+                                    Text(verbatim: user.phone)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                    if user.phoneVerified == true {
+                                        StatusBadge(text: "WhatsApp", color: Theme.success)
+                                    }
+                                }
                                 if user.hasPlaceholderEmail {
                                     Text("Sin correo real configurado")
                                         .font(.subheadline.weight(.medium))
@@ -59,14 +67,51 @@ struct ProfileView: View {
                         }
 
                         Button {
+                            editContactFocus = .phone
                             showEditContact = true
                         } label: {
-                            Label("Editar correo, celular o nombre", systemImage: "pencil.line")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Theme.spruce)
+                            HStack {
+                                Label("Cambiar celular por WhatsApp", systemImage: "phone.badge.checkmark")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Theme.spruce)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+
+                        Button {
+                            editContactFocus = .email
+                            showEditContact = true
+                        } label: {
+                            HStack {
+                                Label("Cambiar correo con código WhatsApp", systemImage: "envelope.badge.shield.half.filled")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Theme.spruce)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+
+                        Button {
+                            editContactFocus = .firstName
+                            showEditContact = true
+                        } label: {
+                            HStack {
+                                Label("Editar nombre del titular", systemImage: "pencil.line")
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
                     } footer: {
-                        Text("Si actualizas tu correo o celular y ya tienes una tarjeta activa, reemplázala en Tarjeta Virtual para que Apple Wallet envíe los códigos al nuevo contacto.")
+                        Text("Cualquier cambio de celular o correo se confirma con un código de 6 dígitos enviado por WhatsApp. Si ya tienes una tarjeta activa, reemplázala en Tarjeta Virtual para sincronizar el nuevo contacto con Apple Wallet.")
                     }
                     .listRowBackground(Rectangle().fill(.thinMaterial))
 
@@ -184,7 +229,7 @@ struct ProfileView: View {
             KYCFlowSheet()
         }
         .sheet(isPresented: $showEditContact) {
-            EditContactProfileSheet()
+            EditContactProfileSheet(initialFocus: editContactFocus)
         }
         .confirmationDialog("¿Cerrar sesión?", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("Cerrar sesión", role: .destructive) {
@@ -238,29 +283,82 @@ struct ProfileView: View {
     }
 }
 
-/// Hoja reutilizable para actualizar nombre, correo y celular de verificación (Apple Wallet / compras 3DS).
+/// Hoja reutilizable para actualizar nombre, correo y celular con confirmación OTP por WhatsApp (o correo).
 struct EditContactProfileSheet: View {
+    enum FocusField: Hashable {
+        case firstName
+        case lastName
+        case email
+        case phone
+    }
+
+    private enum Step {
+        case form
+        case otp
+    }
+
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
 
     var subtitle: String? = nil
     var saveButtonTitle: LocalizedStringKey = "Guardar datos"
+    var initialFocus: FocusField? = nil
     var onSaved: ((User) -> Void)? = nil
 
+    @State private var step: Step = .form
     @State private var firstName = ""
     @State private var lastName = ""
     @State private var email = ""
     @State private var phoneDigits = ""
+    @State private var otpResponse: ContactOTPResponse?
+    @State private var otpCode = ""
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var didInitialize = false
+    @FocusState private var focusedField: FocusField?
+    @FocusState private var otpFocused: Bool
+
+    private var cleanFirstName: String {
+        firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var cleanLastName: String {
+        lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var cleanEmail: String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var e164Phone: String {
+        "+57" + phoneDigits
+    }
+
+    private var formattedPhone: String {
+        guard phoneDigits.count == 10 else { return e164Phone }
+        let d = Array(phoneDigits)
+        return "+57 \(String(d[0..<3])) \(String(d[3..<6])) \(String(d[6..<10]))"
+    }
+
+    private var phoneChanged: Bool {
+        guard let user = app.user else { return true }
+        return e164Phone != user.phone.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var emailChanged: Bool {
+        guard let user = app.user else { return true }
+        return cleanEmail != user.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var requiresOTPConfirmation: Bool {
+        phoneChanged || emailChanged
+    }
 
     private var isEmailValid: Bool {
-        let clean = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard clean != "usuario@cuypay.com", !clean.hasSuffix("@pendiente.cuypay.com") else {
+        guard cleanEmail != "usuario@cuypay.com", !cleanEmail.hasSuffix("@pendiente.cuypay.com") else {
             return false
         }
-        let parts = clean.split(separator: "@")
+        let parts = cleanEmail.split(separator: "@")
         return parts.count == 2 && parts[1].contains(".") && !parts[0].isEmpty && parts[1].last != "."
     }
 
@@ -269,11 +367,9 @@ struct EditContactProfileSheet: View {
     }
 
     private var isFormValid: Bool {
-        let cleanFirst = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanLast = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isPlaceholderName = cleanFirst.lowercased() == "usuario" && cleanLast.lowercased() == "cuypay"
-        return cleanFirst.count >= 2 &&
-            cleanLast.count >= 2 &&
+        let isPlaceholderName = cleanFirstName.lowercased() == "usuario" && cleanLastName.lowercased() == "cuypay"
+        return cleanFirstName.count >= 2 &&
+            cleanLastName.count >= 2 &&
             !isPlaceholderName &&
             isEmailValid &&
             isPhoneValid
@@ -284,91 +380,28 @@ struct EditContactProfileSheet: View {
             ZStack {
                 BrandBackground()
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        Text(
-                            verbatim: subtitle ??
-                                String(localized: "Confirma el correo y el celular donde recibirás los códigos de verificación de tu tarjeta virtual y Apple Wallet.")
-                        )
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Nombres")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                            TextField("Nombres reales", text: $firstName)
-                                .textContentType(.givenName)
-                                .textInputAutocapitalization(.words)
-                                .formFieldStyle()
-                        }
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Apellidos")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                            TextField("Apellidos reales", text: $lastName)
-                                .textContentType(.familyName)
-                                .textInputAutocapitalization(.words)
-                                .formFieldStyle()
-                        }
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Correo electrónico")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                            TextField("tucorreo@ejemplo.com", text: $email)
-                                .keyboardType(.emailAddress)
-                                .textContentType(.emailAddress)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .formFieldStyle()
-                        }
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Celular (Colombia)")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                            HStack(spacing: 10) {
-                                Text(verbatim: "🇨🇴 +57")
-                                    .font(.body.weight(.semibold))
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 16)
-                                    .glassEffect(.regular, in: .rect(cornerRadius: 18))
-                                TextField("300 123 4567", text: $phoneDigits)
-                                    .keyboardType(.numberPad)
-                                    .textContentType(.telephoneNumber)
-                                    .monospacedDigit()
-                                    .formFieldStyle()
-                                    .onChange(of: phoneDigits) {
-                                        let filtered = String(phoneDigits.filter(\.isASCIIDigit).prefix(10))
-                                        if filtered != phoneDigits { phoneDigits = filtered }
-                                    }
-                            }
-                        }
-
-                        if let errorMessage {
-                            ErrorBanner(message: errorMessage)
-                        }
-
-                        PrimaryButton(
-                            title: saveButtonTitle,
-                            systemImage: "checkmark",
-                            isLoading: isSaving,
-                            isEnabled: isFormValid
-                        ) {
-                            Task { await save() }
-                        }
-                        .padding(.top, 6)
+                    if step == .form {
+                        formContent
+                    } else {
+                        otpContent
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 12)
-                    .padding(.bottom, 28)
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
-            .navigationTitle("Datos de verificación")
+            .navigationTitle(step == .form ? "Datos de contacto" : "Confirmar código")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                if step == .otp {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Editar") {
+                            withAnimation(.smooth(duration: 0.25)) {
+                                step = .form
+                                errorMessage = nil
+                            }
+                        }
+                        .disabled(isSaving)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     CloseToolbarButton { dismiss() }
                 }
@@ -387,22 +420,297 @@ struct EditContactProfileSheet: View {
                         phoneDigits = String(digits.suffix(10))
                     }
                 }
+                if let initialFocus {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        focusedField = initialFocus
+                    }
+                }
             }
         }
     }
 
-    private func save() async {
+    private var formContent: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(
+                verbatim: subtitle ??
+                    String(localized: "Actualiza tu celular o correo y confírmalo con un código por WhatsApp. Aquí también llegan las alertas de tu tarjeta virtual y Apple Wallet.")
+            )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Nombres")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                TextField("Nombres reales", text: $firstName)
+                    .textContentType(.givenName)
+                    .textInputAutocapitalization(.words)
+                    .focused($focusedField, equals: .firstName)
+                    .formFieldStyle()
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Apellidos")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                TextField("Apellidos reales", text: $lastName)
+                    .textContentType(.familyName)
+                    .textInputAutocapitalization(.words)
+                    .focused($focusedField, equals: .lastName)
+                    .formFieldStyle()
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Correo electrónico")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                TextField("tucorreo@ejemplo.com", text: $email)
+                    .keyboardType(.emailAddress)
+                    .textContentType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: .email)
+                    .formFieldStyle()
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Celular con WhatsApp (Colombia)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Text(verbatim: "🇨🇴 +57")
+                        .font(.body.weight(.semibold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 16)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 18))
+                    TextField("300 123 4567", text: $phoneDigits)
+                        .keyboardType(.numberPad)
+                        .textContentType(.telephoneNumber)
+                        .monospacedDigit()
+                        .focused($focusedField, equals: .phone)
+                        .formFieldStyle()
+                        .onChange(of: phoneDigits) {
+                            let filtered = String(phoneDigits.filter(\.isASCIIDigit).prefix(10))
+                            if filtered != phoneDigits { phoneDigits = filtered }
+                        }
+                }
+            }
+
+            if requiresOTPConfirmation && isFormValid {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "message.badge.filled.fill")
+                        .font(.body)
+                        .foregroundStyle(Theme.spruce)
+                    Text(
+                        phoneChanged
+                            ? LocalizedStringKey("Enviaremos un código de 6 dígitos por WhatsApp al nuevo número \(formattedPhone) para confirmar que te pertenece.")
+                            : LocalizedStringKey("Confirmaremos el cambio de correo enviando un código de 6 dígitos a tu WhatsApp registrado.")
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassEffect(.regular, in: .rect(cornerRadius: 16))
+            }
+
+            if let errorMessage {
+                ErrorBanner(message: errorMessage)
+            }
+
+            PrimaryButton(
+                title: requiresOTPConfirmation ? "Enviar código por WhatsApp" : saveButtonTitle,
+                systemImage: requiresOTPConfirmation ? "paperplane.fill" : "checkmark",
+                isLoading: isSaving,
+                isEnabled: isFormValid
+            ) {
+                Task { await handleFormSubmit() }
+            }
+            .padding(.top, 6)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 28)
+    }
+
+    private var otpContent: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Ingresa el código de 6 dígitos")
+                    .font(.title3.weight(.bold))
+                if let otpResponse {
+                    Text(
+                        otpResponse.channel == .email
+                            ? LocalizedStringKey("Enviamos el código al correo \(otpResponse.maskedDestination).")
+                            : LocalizedStringKey("Enviamos el código por WhatsApp a \(otpResponse.maskedDestination).")
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                if phoneChanged {
+                    Label("Nuevo celular: \(formattedPhone)", systemImage: "phone.fill")
+                        .font(.footnote.weight(.medium))
+                }
+                if emailChanged {
+                    Label("Nuevo correo: \(cleanEmail)", systemImage: "envelope.fill")
+                        .font(.footnote.weight(.medium))
+                }
+            }
+            .foregroundStyle(.secondary)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassEffect(.regular, in: .rect(cornerRadius: 16))
+
+            ZStack {
+                TextField("", text: $otpCode)
+                    .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .focused($otpFocused)
+                    .opacity(0.02)
+                    .onChange(of: otpCode) {
+                        let filtered = String(otpCode.filter(\.isASCIIDigit).prefix(6))
+                        if filtered != otpCode { otpCode = filtered }
+                        if otpCode.count == 6 {
+                            Task { await confirmWithOTP() }
+                        }
+                    }
+                    .accessibilityLabel(Text("Código de verificación"))
+                HStack(spacing: 10) {
+                    ForEach(0..<6, id: \.self) { index in
+                        let characters = Array(otpCode)
+                        Text(verbatim: index < characters.count ? String(characters[index]) : "")
+                            .font(.title2.weight(.semibold))
+                            .monospacedDigit()
+                            .frame(maxWidth: .infinity, minHeight: 56)
+                            .glassEffect(
+                                index == characters.count ? Glass.regular.tint(Theme.spruce.opacity(0.25)) : Glass.regular,
+                                in: .rect(cornerRadius: 16)
+                            )
+                    }
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+            .contentShape(.rect)
+            .onTapGesture { otpFocused = true }
+
+            if app.environment.isMock {
+                Label("Entorno demo: usa el código 123456", systemImage: "info.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let errorMessage {
+                ErrorBanner(message: errorMessage)
+            }
+
+            PrimaryButton(
+                title: saveButtonTitle,
+                systemImage: "checkmark.shield.fill",
+                isLoading: isSaving,
+                isEnabled: otpCode.count == 6
+            ) {
+                Task { await confirmWithOTP() }
+            }
+
+            VStack(spacing: 12) {
+                Button("Reenviar código por WhatsApp") {
+                    Task { await requestVerificationCode(channel: "whatsapp") }
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.spruce)
+                .disabled(isSaving)
+
+                if !phoneChanged, otpResponse?.emailOtpAvailable == true {
+                    Button("Enviar código al nuevo correo electrónico") {
+                        Task { await requestVerificationCode(channel: "email") }
+                    }
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .disabled(isSaving)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 4)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 28)
+        .onAppear { otpFocused = true }
+    }
+
+    private func handleFormSubmit() async {
+        guard isFormValid, !isSaving else { return }
+        if requiresOTPConfirmation {
+            await requestVerificationCode(channel: "whatsapp")
+        } else {
+            await saveNameOnly()
+        }
+    }
+
+    private func requestVerificationCode(channel: String) async {
         guard isFormValid, !isSaving else { return }
         isSaving = true
         errorMessage = nil
         defer { isSaving = false }
 
         do {
+            let response = try await app.api.requestContactOTP(
+                ContactOTPRequest(
+                    phone: phoneChanged ? e164Phone : nil,
+                    email: emailChanged ? cleanEmail : nil,
+                    channel: channel
+                )
+            )
+            otpResponse = response
+            otpCode = ""
+            withAnimation(.smooth(duration: 0.25)) {
+                step = .otp
+            }
+            otpFocused = true
+        } catch {
+            errorMessage = error.userMessage
+        }
+    }
+
+    private func confirmWithOTP() async {
+        guard otpCode.count == 6, !isSaving, let otpId = otpResponse?.otpId else { return }
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+
+        do {
+            let updated = try await app.api.confirmContactUpdate(
+                ConfirmContactUpdateRequest(
+                    otpId: otpId,
+                    otpCode: otpCode,
+                    firstName: cleanFirstName,
+                    lastName: cleanLastName,
+                    email: cleanEmail,
+                    phone: e164Phone
+                )
+            )
+            app.user = updated
+            dismiss()
+            onSaved?(updated)
+        } catch {
+            errorMessage = error.userMessage
+            otpCode = ""
+        }
+    }
+
+    private func saveNameOnly() async {
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+
+        do {
             let req = UpdateProfileRequest(
-                firstName: firstName.trimmingCharacters(in: .whitespacesAndNewlines),
-                lastName: lastName.trimmingCharacters(in: .whitespacesAndNewlines),
-                email: email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-                phone: "+57" + phoneDigits
+                firstName: cleanFirstName,
+                lastName: cleanLastName
             )
             let updated = try await app.api.updateProfile(req)
             app.user = updated

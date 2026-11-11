@@ -238,9 +238,27 @@ export interface BrlLiquidityProvider {
   healthCheck?(): Promise<void>;
 }
 
-// ───────────────────────── OTP ─────────────────────────
+// ───────────────────────── OTP (WhatsApp / SMS / Email) ─────────────────────────
+
+export interface OtpDispatchResult {
+  verificationMode?: 'local' | 'twilio_verify';
+  channel?: 'whatsapp' | 'sms';
+  externalSid?: string;
+}
 
 export interface OtpSender {
-  send(phone: string, code: string): Promise<void>;
+  send(phone: string, code: string): Promise<OtpDispatchResult | void>;
+  verifyExternal?(phone: string, code: string): Promise<boolean>;
+  healthCheck?(): Promise<void>;
+}
+
+export interface EmailOtpSender {
+  readonly isConfigured: boolean;
+  sendEmailOtp(input: {
+    email: string;
+    code: string;
+    purpose: 'verify_email' | 'change_contact';
+    firstName?: string;
+  }): Promise<void>;
   healthCheck?(): Promise<void>;
 }

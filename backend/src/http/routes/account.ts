@@ -10,11 +10,30 @@ const TxQuery = z.object({
   cursor: z.string().max(200).optional(),
 });
 const IdParam = z.object({ id: z.string().min(1).max(64) });
+const Phone = z.string().regex(/^\+[1-9]\d{7,14}$/, 'Teléfono en formato E.164');
+
 const UpdateMe = z.object({
   firstName: z.string().trim().min(2).max(80).optional(),
   lastName: z.string().trim().min(2).max(80).optional(),
   email: z.string().trim().email().max(254).optional(),
-  phone: z.string().regex(/^\+[1-9]\d{7,14}$/, 'Teléfono en formato E.164').optional(),
+  phone: Phone.optional(),
+  otpId: z.string().min(1).max(64).optional(),
+  otpCode: z.string().regex(/^\d{4,8}$/).optional(),
+});
+
+const ContactOtpReq = z.object({
+  phone: Phone.optional(),
+  email: z.string().trim().email().max(254).optional(),
+  channel: z.enum(['whatsapp', 'email']).optional(),
+});
+
+const ContactConfirmReq = z.object({
+  otpId: z.string().min(1).max(64),
+  otpCode: z.string().regex(/^\d{4,8}$/),
+  firstName: z.string().trim().min(2).max(80).optional(),
+  lastName: z.string().trim().min(2).max(80).optional(),
+  email: z.string().trim().email().max(254).optional(),
+  phone: Phone.optional(),
 });
 
 import { getFxSettings } from '../../services/runtime-config.js';
@@ -22,6 +41,7 @@ import { getFxSettings } from '../../services/runtime-config.js';
 export function registerAccountRoutes(app: FastifyInstance, { deps, services }: Container, h: RouteHelpers) {
   const auth = { preHandler: [h.authenticate] };
   const signed = { preHandler: [h.authenticate, h.requireSignature] };
+  const authRl = { preHandler: [h.authenticate], config: h.authRateLimit };
 
   app.get('/me', auth, async (req) => {
     const user = await h.currentUser(req);
@@ -34,6 +54,24 @@ export function registerAccountRoutes(app: FastifyInstance, { deps, services }: 
   app.put('/me', auth, async (req) => {
     const body = parse(UpdateMe, req.body);
     const updated = await services.auth.updateProfile(req.auth!.userId, body);
+    return presentUser(updated);
+  });
+
+  app.post('/me/contact/otp/request', authRl, async (req) => {
+    const body = parse(ContactOtpReq, req.body);
+    const r = await services.auth.requestContactChangeOtp(req.auth!.userId, body);
+    return {
+      otpId: r.otpId,
+      channel: r.channel,
+      maskedDestination: r.maskedDestination,
+      expiresAt: r.expiresAt.toISOString(),
+      emailOtpAvailable: r.emailOtpAvailable,
+    };
+  });
+
+  app.post('/me/contact/confirm', authRl, async (req) => {
+    const body = parse(ContactConfirmReq, req.body);
+    const updated = await services.auth.confirmContactUpdate(req.auth!.userId, body);
     return presentUser(updated);
   });
 

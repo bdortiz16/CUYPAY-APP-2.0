@@ -23,16 +23,18 @@ CREATE TYPE ledger_account_kind AS ENUM ('user_available', 'user_held', 'card_po
 
 -- ── Usuarios y dispositivos ────────────────────────────────────────────────
 CREATE TABLE users (
-  id            TEXT PRIMARY KEY,
-  phone         TEXT NOT NULL UNIQUE,              -- E.164
-  email         CITEXT NOT NULL UNIQUE,            -- requiere extensión citext
-  first_name    TEXT NOT NULL,
-  last_name     TEXT NOT NULL,
-  country       CHAR(2) NOT NULL DEFAULT 'CO',
-  kyc_status    kyc_status NOT NULL DEFAULT 'not_started',
-  tier          user_tier NOT NULL DEFAULT 'basic',
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  id                TEXT PRIMARY KEY,
+  phone             TEXT NOT NULL UNIQUE,              -- E.164
+  email             CITEXT NOT NULL UNIQUE,            -- requiere extensión citext
+  first_name        TEXT NOT NULL,
+  last_name         TEXT NOT NULL,
+  country           CHAR(2) NOT NULL DEFAULT 'CO',
+  kyc_status        kyc_status NOT NULL DEFAULT 'not_started',
+  tier              user_tier NOT NULL DEFAULT 'basic',
+  phone_verified_at TIMESTAMPTZ,
+  email_verified_at TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE devices (
@@ -47,13 +49,19 @@ CREATE TABLE devices (
 CREATE INDEX devices_user_idx ON devices(user_id) WHERE revoked_at IS NULL;
 
 CREATE TABLE otps (
-  id            TEXT PRIMARY KEY,
-  phone         TEXT NOT NULL,
-  code_hash     TEXT NOT NULL,                     -- HMAC, nunca el código en claro
-  attempts      INT NOT NULL DEFAULT 0,
-  expires_at    TIMESTAMPTZ NOT NULL,
-  consumed_at   TIMESTAMPTZ,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  id                TEXT PRIMARY KEY,
+  phone             TEXT NOT NULL,
+  email             CITEXT,
+  user_id           TEXT REFERENCES users(id),
+  purpose           TEXT NOT NULL DEFAULT 'auth',  -- 'auth' | 'contact_change' | 'email_verify'
+  channel           TEXT NOT NULL DEFAULT 'whatsapp', -- 'whatsapp' | 'sms' | 'email'
+  verification_mode TEXT NOT NULL DEFAULT 'local', -- 'local' | 'twilio_verify'
+  code_hash         TEXT NOT NULL,                 -- HMAC, nunca el código en claro
+  attempts          INT NOT NULL DEFAULT 0,
+  verified_at       TIMESTAMPTZ,
+  expires_at        TIMESTAMPTZ NOT NULL,
+  consumed_at       TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE challenges (

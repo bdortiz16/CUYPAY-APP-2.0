@@ -13,6 +13,7 @@ protocol CuyPayAPI: Sendable {
 
     // MARK: Auth y onboarding
     func requestOTP(phone: String) async throws -> OTPRequestResponse
+    func verifyOTP(otpId: String, phone: String, otpCode: String) async throws -> OTPVerifyResponse
     func register(_ request: RegisterRequest) async throws -> AuthSession
     func challenge(deviceId: String) async throws -> AuthChallenge
     func login(challengeId: String, deviceId: String, signature: String) async throws -> AuthSession
@@ -20,6 +21,8 @@ protocol CuyPayAPI: Sendable {
     func logout() async throws
     func me() async throws -> User
     func updateProfile(_ request: UpdateProfileRequest) async throws -> User
+    func requestContactOTP(_ request: ContactOTPRequest) async throws -> ContactOTPResponse
+    func confirmContactUpdate(_ request: ConfirmContactUpdateRequest) async throws -> User
 
     // MARK: KYC
     func sumsubToken() async throws -> SumsubTokenResponse

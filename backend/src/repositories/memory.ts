@@ -107,6 +107,7 @@ export function createMemoryRepositories(): Repositories {
       const data = {
         users: Array.from(users.entries()),
         devices: Array.from(devices.entries()),
+        otps: Array.from(otps.entries()),
         kyc: Array.from(kyc.entries()),
         brebKeys: Array.from(brebKeys.entries()),
         cards: Array.from(cards.entries()),
@@ -155,6 +156,7 @@ export function createMemoryRepositories(): Repositories {
       });
       if (data.users) for (const [k, v] of data.users) users.set(k, v);
       if (data.devices) for (const [k, v] of data.devices) devices.set(k, v);
+      if (data.otps) for (const [k, v] of data.otps) otps.set(k, v);
       if (data.kyc) for (const [k, v] of data.kyc) kyc.set(k, v);
       if (data.brebKeys) for (const [k, v] of data.brebKeys) brebKeys.set(k, v);
       if (data.cards) for (const [k, v] of data.cards) cards.set(k, v);
@@ -216,9 +218,11 @@ export function createMemoryRepositories(): Repositories {
     otps: {
       async create(o) {
         otps.set(o.id, clone(o));
+        save();
       },
       async update(o) {
         otps.set(o.id, clone(o));
+        save();
       },
       async byId(id) {
         return opt(otps.get(id));

@@ -15,6 +15,8 @@ export const presentUser = (u: User) => ({
   lastName: u.lastName,
   email: u.email,
   phone: u.phone,
+  phoneVerified: Boolean(u.phoneVerifiedAt ?? true),
+  emailVerified: Boolean(u.emailVerifiedAt),
   country: u.country,
   kycStatus: u.kycStatus,
   tier: u.tier,

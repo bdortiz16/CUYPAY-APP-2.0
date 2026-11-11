@@ -4,7 +4,7 @@ import type { AppConfig } from './config.js';
 import { systemClock, type Clock } from './lib/clock.js';
 import { createMemoryRepositories } from './repositories/memory.js';
 import type { Repositories } from './repositories/types.js';
-import type { AmlProvider, BrlLiquidityProvider, CoinsendaGateway, KycProvider, OtpSender } from './ports/index.js';
+import type { AmlProvider, BrlLiquidityProvider, CoinsendaGateway, EmailOtpSender, KycProvider, OtpSender } from './ports/index.js';
 import { MockCoinsendaGateway } from './adapters/coinsenda/mock.js';
 import { LiveCoinsendaGateway } from './adapters/coinsenda/live.js';
 import { LiveSumsubProvider, MockSumsubProvider } from './adapters/sumsub/provider.js';
@@ -12,6 +12,7 @@ import { LiveSartblockProvider, MockAmlProvider } from './adapters/sartblock/pro
 import { LiveBrlLiquidityProvider, MockBrlLiquidityProvider } from './adapters/brl/provider.js';
 import { MockOtpSender, UnconfiguredOtpSender } from './adapters/otp/sender.js';
 import { TwilioWhatsAppOtpSender } from './adapters/otp/twilio.js';
+import { MockEmailOtpSender, ResendEmailOtpSender, UnconfiguredEmailOtpSender } from './adapters/otp/resend.js';
 import { KeyedMutex, type ServiceDeps } from './services/deps.js';
 import { LedgerService } from './services/ledger.js';
 import { LimitsService } from './services/limits.js';
@@ -83,6 +84,7 @@ export interface ContainerOverrides {
   aml?: AmlProvider;
   brl?: BrlLiquidityProvider;
   otp?: OtpSender;
+  emailOtp?: EmailOtpSender;
   events?: EventBus;
   /** JWKS de Cloudflare Access (tests); por defecto el remoto del equipo. */
   cfAccessKeySet?: JWTVerifyGetKey;
@@ -126,17 +128,30 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
       ? new TwilioWhatsAppOtpSender({
           accountSid: config.TWILIO_ACCOUNT_SID,
           authToken: config.TWILIO_AUTH_TOKEN,
+          verifyServiceSid: config.TWILIO_VERIFY_SERVICE_SID,
           whatsappFrom: config.TWILIO_WHATSAPP_FROM,
+          whatsappContentSid: config.TWILIO_WHATSAPP_CONTENT_SID,
           smsFrom: config.TWILIO_SMS_FROM,
           logger,
         })
       : config.OTP_PROVIDER_MODE === 'live'
         ? new UnconfiguredOtpSender()
         : new MockOtpSender(logger));
+  const emailOtp =
+    o.emailOtp ??
+    (config.RESEND_API_KEY
+      ? new ResendEmailOtpSender({
+          apiKey: config.RESEND_API_KEY,
+          fromEmail: config.RESEND_FROM_EMAIL,
+          logger,
+        })
+      : live
+        ? new UnconfiguredEmailOtpSender()
+        : new MockEmailOtpSender(logger));
 
   const repos = o.repos ?? createMemoryRepositories();
   const events = o.events ?? new EventBus(logger);
-  const deps: ServiceDeps = { config, repos, clock, logger, coinsenda, kyc, aml, brl, otp, events };
+  const deps: ServiceDeps = { config, repos, clock, logger, coinsenda, kyc, aml, brl, otp, emailOtp, events };
   const mutex = new KeyedMutex();
   const ledger = new LedgerService(deps);
   const limits = new LimitsService(deps);

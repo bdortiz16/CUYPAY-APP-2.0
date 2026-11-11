@@ -91,11 +91,23 @@ final class OnboardingModel {
         }
     }
 
-    func confirmOTP() {
-        guard isOTPComplete else { return }
+    func confirmOTP(api: any CuyPayAPI) async {
+        guard isOTPComplete, !isLoading else { return }
+        guard let otpId else {
+            errorMessage = String(localized: "Solicita un nuevo código por WhatsApp.")
+            return
+        }
+        isLoading = true
         errorMessage = nil
-        if path.last != .profile {
-            path.append(.profile)
+        defer { isLoading = false }
+        do {
+            _ = try await api.verifyOTP(otpId: otpId, phone: e164Phone, otpCode: otpCode)
+            if path.last != .profile {
+                path.append(.profile)
+            }
+        } catch {
+            errorMessage = error.userMessage
+            otpCode = ""
         }
     }
 

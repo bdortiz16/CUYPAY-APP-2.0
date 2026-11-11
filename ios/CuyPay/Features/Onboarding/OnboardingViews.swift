@@ -212,7 +212,9 @@ struct OTPEntryView: View {
                     .opacity(0.02)
                     .onChange(of: model.otpCode) {
                         model.sanitizeOTP()
-                        if model.isOTPComplete { model.confirmOTP() }
+                        if model.isOTPComplete {
+                            Task { await model.confirmOTP(api: app.api) }
+                        }
                     }
                     .accessibilityLabel(Text("Código de verificación"))
                 HStack(spacing: 10) {
@@ -234,22 +236,22 @@ struct OTPEntryView: View {
             .contentShape(.rect)
             .onTapGesture { focused = true }
 
-            if app.environment.isMock || app.environment.name == "Dev" {
-                Label("Entorno de desarrollo: usa el código 123456", systemImage: "info.circle")
+            if app.environment.isMock {
+                Label("Entorno demo: usa el código 123456", systemImage: "info.circle")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
             if let error = model.errorMessage {
                 ErrorBanner(message: error)
             }
-            Button("Reenviar código") {
+            Button("Reenviar código por WhatsApp") {
                 Task { await model.requestOTP(api: app.api) }
             }
             .font(.subheadline.weight(.semibold))
             .disabled(model.isLoading)
         } footer: {
-            PrimaryButton(title: "Continuar", isEnabled: model.isOTPComplete) {
-                model.confirmOTP()
+            PrimaryButton(title: "Verificar código", isLoading: model.isLoading, isEnabled: model.isOTPComplete) {
+                Task { await model.confirmOTP(api: app.api) }
             }
         }
         .onAppear { focused = true }

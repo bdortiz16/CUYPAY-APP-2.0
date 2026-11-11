@@ -5,6 +5,7 @@ import type {
   AmlProvider,
   BrlLiquidityProvider,
   CoinsendaGateway,
+  EmailOtpSender,
   KycProvider,
   OtpSender,
 } from '../ports/index.js';
@@ -22,6 +23,7 @@ export interface ServiceDeps {
   aml: AmlProvider;
   brl: BrlLiquidityProvider;
   otp: OtpSender;
+  emailOtp?: EmailOtpSender;
   /** Bus de eventos interno (SSE del portal admin, alertas de cumplimiento). */
   events: EventBus;
 }
