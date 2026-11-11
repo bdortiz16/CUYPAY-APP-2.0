@@ -31,177 +31,12 @@ struct ProfileView: View {
             BrandBackground()
             List {
                 if let user = app.user {
-                    Section {
-                        HStack(spacing: 14) {
-                            AvatarView(initials: user.initials, size: 60, seed: user.id)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(verbatim: user.fullName).font(.title3.weight(.semibold))
-                                HStack(spacing: 6) {
-                                    Text(verbatim: user.phone)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                    if user.phoneVerified == true {
-                                        StatusBadge(text: "WhatsApp", color: Theme.success)
-                                    }
-                                }
-                                if user.hasPlaceholderEmail {
-                                    Text("Sin correo real configurado")
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(Theme.warning)
-                                } else {
-                                    Text(verbatim: user.email).font(.subheadline).foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .padding(.vertical, 6)
-
-                        if user.hasPlaceholderContact {
-                            HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(Theme.warning)
-                                Text("Actualiza tu correo y nombre reales para recibir los códigos de verificación de tu tarjeta virtual y Apple Wallet.")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(.vertical, 4)
-                        }
-
-                        Button {
-                            editContactFocus = .phone
-                            showEditContact = true
-                        } label: {
-                            HStack {
-                                Label("Cambiar celular por WhatsApp", systemImage: "phone.badge.checkmark")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(Theme.spruce)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-
-                        Button {
-                            editContactFocus = .email
-                            showEditContact = true
-                        } label: {
-                            HStack {
-                                Label("Cambiar correo con código WhatsApp", systemImage: "envelope.badge.shield.half.filled")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(Theme.spruce)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-
-                        Button {
-                            editContactFocus = .firstName
-                            showEditContact = true
-                        } label: {
-                            HStack {
-                                Label("Editar nombre del titular", systemImage: "pencil.line")
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                    } footer: {
-                        Text("Cualquier cambio de celular o correo se confirma con un código de 6 dígitos enviado por WhatsApp. Si ya tienes una tarjeta activa, reemplázala en Tarjeta Virtual para sincronizar el nuevo contacto con Apple Wallet.")
-                    }
-                    .listRowBackground(Rectangle().fill(.thinMaterial))
-
-                    Section("Verificación de identidad") {
-                        Button {
-                            showKYC = true
-                        } label: {
-                            HStack {
-                                Label("Estado KYC", systemImage: "person.text.rectangle")
-                                Spacer()
-                                StatusBadge(text: user.kycStatus.badgeText, color: user.kycStatus.badgeColor)
-                            }
-                        }
-                        .foregroundStyle(.primary)
-                        HStack {
-                            Label("Nivel de cuenta", systemImage: "rosette")
-                            Spacer()
-                            Text(user.tier == .full ? LocalizedStringKey("Completo") : LocalizedStringKey("Básico"))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .listRowBackground(Rectangle().fill(.thinMaterial))
+                    contactSection(for: user)
+                    kycSection(for: user)
                 }
 
-                Section {
-                    HStack {
-                        Label("Biometría", systemImage: "faceid")
-                        Spacer()
-                        Text(verbatim: biometryName).foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Label("Llave del dispositivo", systemImage: "cpu")
-                        Spacer()
-                        Text(usesSoftwareKey ? LocalizedStringKey("Software (solo desarrollo)") : LocalizedStringKey("Secure Enclave"))
-                            .foregroundStyle(usesSoftwareKey ? Theme.warning : .secondary)
-                    }
-                    Picker(selection: Binding(
-                        get: { UserDefaults.standard.integer(forKey: AppModel.autoLockKey).clampedToOptions() },
-                        set: { UserDefaults.standard.set($0, forKey: AppModel.autoLockKey) }
-                    )) {
-                        Text("Inmediato").tag(0)
-                        Text("1 minuto").tag(60)
-                        Text("5 minutos").tag(300)
-                        Text("15 minutos").tag(900)
-                    } label: {
-                        Label("Bloqueo automático", systemImage: "timer")
-                    }
-                } header: {
-                    Text("Seguridad")
-                } footer: {
-                    Text("Tu llave privada vive en el Secure Enclave y nunca sale de este iPhone. Cada envío, conversión o cambio de seguridad se firma con Face ID. Si cambias tus biometrías deberás registrar el dispositivo de nuevo.")
-                }
-                .listRowBackground(Rectangle().fill(.thinMaterial))
-
-                Section("Dispositivos") {
-                    if !devicesLoaded {
-                        ProgressView()
-                    }
-                    ForEach(devices) { device in
-                        HStack(spacing: 12) {
-                            Image(systemName: device.name.localizedCaseInsensitiveContains("ipad") ? "ipad" : "iphone")
-                                .font(.title3)
-                                .foregroundStyle(Theme.spruce)
-                                .frame(width: 28)
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 6) {
-                                    Text(verbatim: device.name).font(.body.weight(.medium))
-                                    if device.current {
-                                        StatusBadge(text: "Este dispositivo", color: Theme.spruce)
-                                    }
-                                }
-                                if let lastUsed = device.lastUsedAt {
-                                    Text("Último uso: \(lastUsed.formatted(.relative(presentation: .named)))")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            if !device.current {
-                                Button(role: .destructive) {
-                                    deviceToRemove = device
-                                } label: {
-                                    Label("Eliminar", systemImage: "trash")
-                                }
-                            }
-                        }
-                    }
-                }
-                .listRowBackground(Rectangle().fill(.thinMaterial))
+                securitySection
+                devicesSection
 
                 if let errorMessage {
                     Section {
@@ -210,17 +45,7 @@ struct ProfileView: View {
                     .listRowBackground(Color.clear)
                 }
 
-                Section {
-                    Button("Cerrar sesión", systemImage: "rectangle.portrait.and.arrow.right") {
-                        confirmLogout = true
-                    }
-                    Button("Desvincular este dispositivo", systemImage: "iphone.slash", role: .destructive) {
-                        confirmForget = true
-                    }
-                } footer: {
-                    Text(verbatim: "CuyPay \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") · \(app.environment.name)\(app.environment.isMock ? " · mock" : "")")
-                }
-                .listRowBackground(Rectangle().fill(.thinMaterial))
+                sessionSection
             }
             .scrollContentBackground(.hidden)
         }
@@ -261,6 +86,205 @@ struct ProfileView: View {
             await loadDevices()
             await app.refreshUser()
         }
+    }
+
+    @ViewBuilder
+    private func contactSection(for user: User) -> some View {
+        Section {
+            HStack(spacing: 14) {
+                AvatarView(initials: user.initials, size: 60, seed: user.id)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(verbatim: user.fullName).font(.title3.weight(.semibold))
+                    HStack(spacing: 6) {
+                        Text(verbatim: user.phone)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        if user.phoneVerified == true {
+                            StatusBadge(text: "WhatsApp", color: Theme.positive, systemImage: "checkmark.seal.fill")
+                        }
+                    }
+                    if user.hasPlaceholderEmail {
+                        Text("Sin correo real configurado")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Theme.warning)
+                    } else {
+                        Text(verbatim: user.email)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.vertical, 6)
+
+            if user.hasPlaceholderContact {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Theme.warning)
+                    Text("Actualiza tu correo y nombre reales para recibir los códigos de verificación de tu tarjeta virtual y Apple Wallet.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+
+            Button {
+                editContactFocus = .phone
+                showEditContact = true
+            } label: {
+                HStack {
+                    Label("Cambiar celular por WhatsApp", systemImage: "phone.badge.checkmark")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.spruce)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            Button {
+                editContactFocus = .email
+                showEditContact = true
+            } label: {
+                HStack {
+                    Label("Cambiar correo con código WhatsApp", systemImage: "envelope.badge.shield.half.filled")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.spruce)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            Button {
+                editContactFocus = .firstName
+                showEditContact = true
+            } label: {
+                HStack {
+                    Label("Editar nombre del titular", systemImage: "pencil.line")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        } footer: {
+            Text("Cualquier cambio de celular o correo se confirma con un código de 6 dígitos enviado por WhatsApp. Si ya tienes una tarjeta activa, reemplázala en Tarjeta Virtual para sincronizar el nuevo contacto con Apple Wallet.")
+        }
+        .listRowBackground(Rectangle().fill(.thinMaterial))
+    }
+
+    @ViewBuilder
+    private func kycSection(for user: User) -> some View {
+        Section("Verificación de identidad") {
+            Button {
+                showKYC = true
+            } label: {
+                HStack {
+                    Label("Estado KYC", systemImage: "person.text.rectangle")
+                    Spacer()
+                    StatusBadge(text: user.kycStatus.badgeText, color: user.kycStatus.badgeColor)
+                }
+            }
+            .foregroundStyle(.primary)
+            HStack {
+                Label("Nivel de cuenta", systemImage: "rosette")
+                Spacer()
+                Text(user.tier == .full ? LocalizedStringKey("Completo") : LocalizedStringKey("Básico"))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .listRowBackground(Rectangle().fill(.thinMaterial))
+    }
+
+    private var securitySection: some View {
+        Section {
+            HStack {
+                Label("Biometría", systemImage: "faceid")
+                Spacer()
+                Text(verbatim: biometryName).foregroundStyle(.secondary)
+            }
+            HStack {
+                Label("Llave del dispositivo", systemImage: "cpu")
+                Spacer()
+                Text(usesSoftwareKey ? LocalizedStringKey("Software (solo desarrollo)") : LocalizedStringKey("Secure Enclave"))
+                    .foregroundStyle(usesSoftwareKey ? Theme.warning : .secondary)
+            }
+            Picker(selection: Binding(
+                get: { UserDefaults.standard.integer(forKey: AppModel.autoLockKey).clampedToOptions() },
+                set: { UserDefaults.standard.set($0, forKey: AppModel.autoLockKey) }
+            )) {
+                Text("Inmediato").tag(0)
+                Text("1 minuto").tag(60)
+                Text("5 minutos").tag(300)
+                Text("15 minutos").tag(900)
+            } label: {
+                Label("Bloqueo automático", systemImage: "timer")
+            }
+        } header: {
+            Text("Seguridad")
+        } footer: {
+            Text("Tu llave privada vive en el Secure Enclave y nunca sale de este iPhone. Cada envío, conversión o cambio de seguridad se firma con Face ID. Si cambias tus biometrías deberás registrar el dispositivo de nuevo.")
+        }
+        .listRowBackground(Rectangle().fill(.thinMaterial))
+    }
+
+    private var devicesSection: some View {
+        Section("Dispositivos") {
+            if !devicesLoaded {
+                ProgressView()
+            }
+            ForEach(devices) { device in
+                HStack(spacing: 12) {
+                    Image(systemName: device.name.localizedCaseInsensitiveContains("ipad") ? "ipad" : "iphone")
+                        .font(.title3)
+                        .foregroundStyle(Theme.spruce)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(verbatim: device.name).font(.body.weight(.medium))
+                            if device.current {
+                                StatusBadge(text: "Este dispositivo", color: Theme.spruce)
+                            }
+                        }
+                        if let lastUsed = device.lastUsedAt {
+                            Text("Último uso: \(lastUsed.formatted(.relative(presentation: .named)))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    if !device.current {
+                        Button(role: .destructive) {
+                            deviceToRemove = device
+                        } label: {
+                            Label("Eliminar", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+        }
+        .listRowBackground(Rectangle().fill(.thinMaterial))
+    }
+
+    private var sessionSection: some View {
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        let modeSuffix = app.environment.isMock ? " · mock" : ""
+        return Section {
+            Button("Cerrar sesión", systemImage: "rectangle.portrait.and.arrow.right") {
+                confirmLogout = true
+            }
+            Button("Desvincular este dispositivo", systemImage: "iphone.slash", role: .destructive) {
+                confirmForget = true
+            }
+        } footer: {
+            Text(verbatim: "CuyPay \(appVersion) · \(app.environment.name)\(modeSuffix)")
+        }
+        .listRowBackground(Rectangle().fill(.thinMaterial))
     }
 
     private func loadDevices() async {
