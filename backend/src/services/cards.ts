@@ -39,6 +39,7 @@ export class CardService {
     }
 
     const holderName = `${user.firstName} ${user.lastName}`.trim();
+    const cardLabel = input?.label?.trim() || 'CuyPay Virtual';
     let issued;
     try {
       issued = await this.d.coinsenda.issueCard({
@@ -46,6 +47,7 @@ export class CardService {
         holderName,
         email: user.email,
         currency: 'COP',
+        label: cardLabel,
       });
     } catch (err) {
       if (isAppError(err)) throw err;
@@ -58,7 +60,7 @@ export class CardService {
       userId: user.id,
       cardType: 'virtual',
       status: issued.status,
-      label: input?.label?.trim() || 'CuyPay Virtual',
+      label: cardLabel,
       lastFour: issued.lastFour,
       brand: issued.brand,
       currency: 'COP',

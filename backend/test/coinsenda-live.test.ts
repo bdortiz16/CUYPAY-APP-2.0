@@ -149,4 +149,137 @@ describe('Coinsenda live adapter (SDK doble)', () => {
     expect(deps).toHaveLength(1);
     expect(deps[0]).toMatchObject({ id: 'd1', providerKeyId: 'dp_9', amountMinor: 15_000_050n, state: 'accepted' });
   });
+
+  it('emite tarjeta virtual Visa COP, consulta look-url y actualiza estado/etiqueta con rawPayload', async () => {
+    const { gw } = makeGateway();
+    const calls: { service: string; method: string; endpoint: string; data: any; options: any }[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+    let cardIssued = false;
+    let cardHolderAttached = false;
+
+    const baseFake = (gw as unknown as { client: any }).client; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const origRequest = baseFake.request.bind(baseFake);
+    baseFake.request = async (service: string, method: string, endpoint: string, data: any, options: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      calls.push({ service, method, endpoint, data, options });
+      if (endpoint === '/users/{id}/ledgerAccounts') {
+        return { status: 200, data: [{ id: 'lacc_cop_1', currency: 'cop', provider: 'mono_cop' }] };
+      }
+      if (endpoint === '/users/{id}/cardHolders') {
+        return { status: 200, data: [{ id: 'ch_1', provider: 'mono_cop', info_needed: { email: 'ops@cuypay.com' } }] };
+      }
+      if (endpoint === '/products') {
+        return {
+          status: 200,
+          data: [
+            {
+              id: 'prod_vcard_cop',
+              key: 'coinsenda-virtual-cop-card',
+              name: 'Tarjeta virtual Coinsenda Visa en COP',
+              status: 'available',
+              stocks: [{ id: 'stk_1', available: '100', shipping_provider_id: 'sprov_1' }],
+            },
+          ],
+        };
+      }
+      if (endpoint === '/users/{id}/shippingAddresses') {
+        return { status: 200, data: [] };
+      }
+      if (endpoint === '/shippingAddresses/add-new-shipping-address-public') {
+        return { status: 200, data: { data: { id: 'saddr_1', address_type: 'digital', transport_type: 'email' } } };
+      }
+      if (endpoint === '/sales/add-new-sale-public') {
+        cardIssued = true;
+        return { status: 200, data: { data: { id: 'sale_1', trade_ids: ['trd_1'], state: 'accepted' } } };
+      }
+      if (endpoint === '/cards/assign-active-card-to-confirmed-cards-public') {
+        return { status: 200, data: { data: { assigned: 1 } } };
+      }
+      if (endpoint === '/users/{id}/cards') {
+        if (!cardIssued) return { status: 200, data: [] };
+        return {
+          status: 200,
+          data: [
+            {
+              id: 'cs_card_1',
+              trade_id: 'trd_1',
+              ledger_account_id: 'lacc_cop_1',
+              card_holder_id: cardHolderAttached ? 'ch_1' : null,
+              last_four: cardHolderAttached ? '9876' : null,
+              working_state: 'active',
+            },
+          ],
+        };
+      }
+      if (endpoint === '/cards/attach-card-holder-public') {
+        cardHolderAttached = true;
+        return { status: 200, data: { data: { ok: true } } };
+      }
+      if (endpoint === '/cards/get-card-look-url-public') {
+        return { status: 200, data: { data: { url: 'https://iframe.pomelo.la/look/cs_card_1' } } };
+      }
+      if (endpoint === '/cards/update-working-state-public') {
+        return { status: 200, data: { data: { ok: true } } };
+      }
+      if (endpoint === '/cards/update-label-public') {
+        return { status: 200, data: { data: { ok: true } } };
+      }
+      return origRequest(service, method, endpoint, data, options);
+    };
+
+    const issued = await gw.issueCard({
+      userId: 'usr_1',
+      holderName: 'Bryan Ortiz',
+      email: 'bryan@cuypay.com',
+      currency: 'COP',
+      label: 'CuyPay Virtual!',
+    });
+
+    expect(issued).toMatchObject({
+      providerCardId: 'cs_card_1',
+      ledgerAccountId: 'lacc_cop_1',
+      lastFour: '9876',
+      brand: 'Visa',
+      status: 'active',
+    });
+
+    const saleCall = calls.find((c) => c.endpoint === '/sales/add-new-sale-public')!;
+    expect(saleCall.options).toEqual({ rawPayload: true });
+    expect(saleCall.data).toEqual({
+      data: {
+        country: 'international',
+        shipping_address_ids: ['saddr_1'],
+        products: [
+          {
+            product_id: 'prod_vcard_cop',
+            quantity: 1,
+            ledger_account_id: 'lacc_cop_1',
+            card_label: 'CuyPay Virtual',
+            card_holder_id: 'ch_1',
+          },
+        ],
+      },
+    });
+
+    const look = await gw.getCardLookUrl('cs_card_1');
+    expect(look.url).toBe('https://iframe.pomelo.la/look/cs_card_1');
+    const lookCall = calls.find((c) => c.endpoint === '/cards/get-card-look-url-public')!;
+    expect(lookCall.data).toEqual({
+      data: {
+        card_id: 'cs_card_1',
+        ledger_account_id: 'lacc_cop_1',
+        cardholder_id: 'ch_1',
+        country: 'international',
+      },
+    });
+
+    await gw.updateCardWorkingState('cs_card_1', 'frozen');
+    expect(calls.find((c) => c.endpoint === '/cards/update-working-state-public')!.data).toEqual({
+      data: { card_id: 'cs_card_1', new_working_state: 'frozen', country: 'international' },
+    });
+
+    await gw.updateCardLabel('cs_card_1', 'Compras Online');
+    expect(calls.find((c) => c.endpoint === '/cards/update-label-public')!.data).toEqual({
+      data: { card_id: 'cs_card_1', new_label: 'Compras Online', country: 'international' },
+    });
+  });
 });
+

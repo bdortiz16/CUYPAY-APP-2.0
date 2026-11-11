@@ -184,7 +184,7 @@ struct CardView: View {
             // Información
             GlassCard {
                 VStack(alignment: .leading, spacing: 10) {
-                    Label("Usa el saldo de tu bolsillo COP en cualquier comercio que acepte Mastercard.", systemImage: "cart.fill")
+                    Label("Usa el saldo de tu bolsillo COP en cualquier comercio que acepte \(card.brand).", systemImage: "cart.fill")
                     Label("Compras internacionales y nacionales sin comisiones ocultas.", systemImage: "globe")
                     Label("Tus datos sensibles nunca se guardan en el servidor.", systemImage: "shield.lefthalf.filled")
                 }
@@ -271,7 +271,7 @@ struct CardView: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 10)
 
-            PrimaryButton(title: "Crear mi tarjeta virtual", systemImage: "sparkles", isLoading: isIssuing) {
+            PrimaryButton(title: "Crear mi tarjeta virtual", isLoading: isIssuing) {
                 Task { await issueCard() }
             }
             .padding(.top, 10)

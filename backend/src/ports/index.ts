@@ -66,6 +66,7 @@ export interface CoinsendaGateway {
     holderName: string;
     email: string;
     currency: Currency;
+    label?: string;
   }): Promise<{
     providerCardId: string;
     ledgerAccountId: string;

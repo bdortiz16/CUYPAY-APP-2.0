@@ -478,98 +478,339 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
   }
 
   // ── Tarjetas ──
+  private extractList(res: SdkResult): any[] { // eslint-disable-line @typescript-eslint/no-explicit-any
+    const d = this.payload(res);
+    return Array.isArray(d) ? d : Array.isArray(res.data) ? res.data : [];
+  }
+
+  private async listProviderCards(): Promise<any[]> { // eslint-disable-line @typescript-eslint/no-explicit-any
+    const res = await this.call('listCards', (c) =>
+      c.request('farming', 'GET', '/users/{id}/cards', {}, { rawPayload: true }),
+    );
+    if (!sdk.isHttpSuccess(res.status)) return [];
+    return this.extractList(res);
+  }
+
+  private async listCardHolders(): Promise<any[]> { // eslint-disable-line @typescript-eslint/no-explicit-any
+    const res = await this.call('listCardHolders', (c) =>
+      c.request('farming', 'GET', '/users/{id}/cardHolders', {}, { rawPayload: true }),
+    );
+    if (!sdk.isHttpSuccess(res.status)) return [];
+    return this.extractList(res);
+  }
+
   async issueCard(input: {
     userId: string;
     holderName: string;
     email: string;
     currency: Currency;
+    label?: string;
   }) {
-    // 1. Asegurar cuenta contable en Coinsenda (setupAccountPublic)
-    const accRes = await this.call('setupAccountPublic', (c) =>
-      c.farming.card.setupAccountPublic({ account_id: this.opts.copAccountId }),
-    );
-    const accData = this.payload(accRes);
-    const ledgerAccountId = String(accData?.id ?? accData?.ledger_account_id ?? this.opts.copAccountId);
+    await this.ensureSession();
+    const targetCurrency = input.currency.toLowerCase();
+    const cleanEmail = input.email.trim().toLowerCase();
+    const cleanLabel = sanitizeCardLabel(input.label);
 
-    // 2. Registrar card holder si aplica
-    const [firstName = input.holderName, ...rest] = input.holderName.split(' ');
-    let holderId: string | null = null;
-    try {
-      const holderRes = await this.call('addNewCardHolderPublic', (c) =>
-        c.farming.cardHolder.addNewCardHolderPublic({
-          first_name: firstName,
-          last_name: rest.join(' ') || firstName,
-          email: input.email,
-        }),
+    // 1. Obtener o aprovisionar ledgerAccount en Coinsenda Farming (ej. mono_cop)
+    const ledgersRes = await this.call('listLedgerAccounts', (c) =>
+      c.request('farming', 'GET', '/users/{id}/ledgerAccounts', {}, { rawPayload: true }),
+    );
+    let ledgers = sdk.isHttpSuccess(ledgersRes.status) ? this.extractList(ledgersRes) : [];
+    let ledger = ledgers.find((l) => String(l?.currency ?? '').toLowerCase() === targetCurrency);
+
+    if (!ledger?.id) {
+      const setupRes = await this.call('setupAccountPublic', (c) =>
+        c.request(
+          'farming',
+          'POST',
+          '/cards/setup-account-public',
+          { data: { currency: targetCurrency, label: 'CuyPay', country: 'international' } },
+          { rawPayload: true },
+        ),
       );
-      if (sdk.isHttpSuccess(holderRes.status)) {
-        holderId = String(this.payload(holderRes)?.id ?? '');
+      if (!sdk.isHttpSuccess(setupRes.status)) this.fail('setupAccountPublic', setupRes);
+      const setupData = this.payload(setupRes);
+      const retryLedgersRes = await this.call('listLedgerAccountsAfterSetup', (c) =>
+        c.request('farming', 'GET', '/users/{id}/ledgerAccounts', {}, { rawPayload: true }),
+      );
+      if (sdk.isHttpSuccess(retryLedgersRes.status)) {
+        ledgers = this.extractList(retryLedgersRes);
+        ledger = ledgers.find((l) => String(l?.currency ?? '').toLowerCase() === targetCurrency);
       }
-    } catch {
-      // Ignorar si ya existía
+      if (!ledger?.id) {
+        const fallbackId = setupData?.ledger_account?.id ?? setupData?.ledger_account_id ?? setupData?.id;
+        if (fallbackId) ledger = { id: String(fallbackId), currency: targetCurrency };
+      }
     }
+    if (!ledger?.id) {
+      throw new AppError('PROVIDER_ERROR', `Coinsenda no tiene una cuenta de tarjeta activa en ${input.currency}.`, {
+        provider: 'coinsenda',
+      });
+    }
+    const ledgerAccountId = String(ledger.id);
 
-    // 3. Crear orden/compra de tarjeta virtual en marketplace
-    const saleRes = await this.call('addNewSalePublic', (c) =>
-      c.marketplace.sale.addNewSalePublic({
-        category: 'card',
-        type: 'virtual',
-        ledger_account_id: ledgerAccountId,
-        products: [{ quantity: 1, type: 'virtual_card' }],
-      }),
-    );
-    if (!sdk.isHttpSuccess(saleRes.status)) {
-      this.opts.logger?.warn?.({ status: saleRes.status, data: saleRes.data }, 'Fallo al emitir tarjeta virtual en marketplace de Coinsenda');
+    // 2. Obtener o sincronizar titular de tarjeta (cardHolder)
+    let holders = await this.listCardHolders();
+    const matchHolder = (list: any[]) => // eslint-disable-line @typescript-eslint/no-explicit-any
+      list.find(
+        (h) =>
+          (!h?.provider || String(h.provider).toLowerCase().includes(targetCurrency)) &&
+          String(h?.info_needed?.email ?? '').trim().toLowerCase() === cleanEmail,
+      ) ??
+      list.find((h) => !h?.provider || String(h.provider).toLowerCase().includes(targetCurrency)) ??
+      list[0];
+
+    let holder = matchHolder(holders);
+    if (!holder?.id) {
+      const syncHolderRes = await this.call('addNewCardHolderPublic', (c) =>
+        c.request(
+          'farming',
+          'POST',
+          '/cardHolders/add-new-card-holder-public',
+          { data: { currency: targetCurrency, country: 'international' } },
+          { rawPayload: true },
+        ),
+      );
+      if (sdk.isHttpSuccess(syncHolderRes.status)) {
+        const createdHolder = this.payload(syncHolderRes);
+        if (createdHolder?.id) holder = createdHolder;
+      }
+      if (!holder?.id) {
+        holders = await this.listCardHolders();
+        holder = matchHolder(holders);
+      }
+    }
+    if (!holder?.id) {
       throw new AppError(
         'PROVIDER_ERROR',
-        'La emisión de tarjetas Mastercard requiere habilitar la capacidad de Tarjetas en el Blueprint de Coinsenda de tu cuenta.',
-        { provider: 'coinsenda', providerStatus: saleRes.status }
+        'No se encontró un titular de tarjeta (CardHolder) activo en Coinsenda para emitir la tarjeta virtual.',
+        { provider: 'coinsenda' },
       );
     }
-    const saleData = this.payload(saleRes);
-    const providerCardId = String(saleData?.card_id ?? saleData?.id ?? `crd_${Date.now()}`);
+    const cardHolderId = String(holder.id);
 
-    // 4. Vincular holder si tenemos id
-    if (holderId) {
-      try {
-        await this.call('attachCardHolderPublic', (c) =>
-          c.farming.card.attachCardHolderPublic({ card_id: providerCardId, card_holder_id: holderId }),
-        );
-      } catch {
-        // Mejor esfuerzo
+    // 3. Consultar producto de tarjeta virtual e inventario en Marketplace
+    const productKey = targetCurrency === 'cop' ? 'coinsenda-virtual-cop-card' : `coinsenda-virtual-${targetCurrency}-card`;
+    const prodFilter = JSON.stringify({
+      where: { key: productKey },
+      include: [{ relation: 'stocks', scope: { include: ['shippingProvider'] } }],
+    });
+    const prodRes = await this.call('findCardProduct', (c) =>
+      c.request('marketplace', 'GET', '/products', { filter: prodFilter }, { rawPayload: true }),
+    );
+    if (!sdk.isHttpSuccess(prodRes.status)) this.fail('findCardProduct', prodRes);
+    const products = this.extractList(prodRes);
+    const product = products[0];
+    if (!product?.id || product?.status !== 'available') {
+      throw new AppError('PROVIDER_ERROR', 'El producto de tarjeta virtual no está disponible actualmente en Coinsenda.', {
+        provider: 'coinsenda',
+      });
+    }
+    const stocks: any[] = Array.isArray(product.stocks) ? product.stocks : []; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const availableStock = stocks.find((s) => Number(s?.available ?? 0) > 0) ?? stocks[0];
+
+    // 4. Obtener o crear dirección digital de entrega por correo (requerida por Marketplace)
+    const addrsRes = await this.call('listShippingAddresses', (c) =>
+      c.request('marketplace', 'GET', '/users/{id}/shippingAddresses', {}, { rawPayload: true }),
+    );
+    const existingAddrs = sdk.isHttpSuccess(addrsRes.status) ? this.extractList(addrsRes) : [];
+    const digitalAddrs = existingAddrs.filter((a) => a?.address_type === 'digital' || a?.transport_type === 'email');
+    let shippingAddress = digitalAddrs.find((a) => String(a?.info?.email ?? '').trim().toLowerCase() === cleanEmail);
+
+    if (!shippingAddress?.id && availableStock?.shipping_provider_id && cleanEmail) {
+      const createAddrRes = await this.call('addNewShippingAddressPublic', (c) =>
+        c.request(
+          'marketplace',
+          'POST',
+          '/shippingAddresses/add-new-shipping-address-public',
+          {
+            data: {
+              shipping_provider_id: String(availableStock.shipping_provider_id),
+              info_needed: { email: cleanEmail, label: cleanEmail },
+              transport_type: 'email',
+              country: 'international',
+            },
+          },
+          { rawPayload: true },
+        ),
+      );
+      if (sdk.isHttpSuccess(createAddrRes.status)) {
+        const addrData = this.payload(createAddrRes);
+        if (addrData?.id) shippingAddress = addrData;
       }
+    }
+    if (!shippingAddress?.id && digitalAddrs[0]?.id) {
+      shippingAddress = digitalAddrs[0];
+    }
+
+    // 5. Tomar foto de tarjetas previas y registrar la orden de tarjeta virtual (precio 0)
+    const cardsBefore = await this.listProviderCards();
+    const existingCardIds = new Set(cardsBefore.map((c) => String(c.id)));
+
+    const saleRes = await this.call('addNewSalePublic', (c) =>
+      c.request(
+        'marketplace',
+        'POST',
+        '/sales/add-new-sale-public',
+        {
+          data: {
+            country: 'international',
+            shipping_address_ids: shippingAddress?.id ? [String(shippingAddress.id)] : [],
+            products: [
+              {
+                product_id: String(product.id),
+                quantity: 1,
+                ledger_account_id: ledgerAccountId,
+                card_label: cleanLabel,
+                card_holder_id: cardHolderId,
+              },
+            ],
+          },
+        },
+        { rawPayload: true },
+      ),
+    );
+    if (!sdk.isHttpSuccess(saleRes.status)) {
+      const err = saleRes.data?.error ?? saleRes.data?.data?.error;
+      this.opts.logger?.warn?.(
+        { status: saleRes.status, code: err?.code, data: saleRes.data },
+        'Fallo al emitir tarjeta virtual en marketplace de Coinsenda',
+      );
+      throw new AppError(
+        'PROVIDER_ERROR',
+        err?.message ? `Coinsenda rechazó la emisión de la tarjeta: ${err.message}` : `Coinsenda respondió ${saleRes.status} al solicitar la tarjeta virtual.`,
+        { provider: 'coinsenda', providerStatus: saleRes.status, providerCode: err?.code ?? null },
+      );
+    }
+
+    const saleData = this.payload(saleRes);
+    const saleTradeIds = new Set<string>(
+      Array.isArray(saleData?.trade_ids) ? saleData.trade_ids.map((t: unknown) => String(t)) : [],
+    );
+
+    // 6. Activar tarjeta confirmada y recuperar su registro desde Farming
+    const pollDelaysMs = this.opts.domain === 'coinsenda.com' ? [400, 1000, 1500, 1500, 2000, 2000] : [0, 50];
+    let matchedCard: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+    for (const delayMs of pollDelaysMs) {
+      if (delayMs > 0) await sleep(delayMs);
+      await this.call('assignActiveCardToConfirmedCardsPublic', (c) =>
+        c.request(
+          'farming',
+          'POST',
+          '/cards/assign-active-card-to-confirmed-cards-public',
+          { data: { country: 'international' } },
+          { rawPayload: true },
+        ),
+      ).catch(() => null);
+
+      const currentCards = await this.listProviderCards();
+      matchedCard =
+        currentCards.find((c) => c?.trade_id && saleTradeIds.has(String(c.trade_id))) ??
+        currentCards.find((c) => !existingCardIds.has(String(c.id)) && c?.working_state !== 'canceled');
+      if (matchedCard?.id) break;
+    }
+
+    if (!matchedCard?.id) {
+      throw new AppError(
+        'PROVIDER_ERROR',
+        'La orden de tarjeta virtual fue creada en Coinsenda pero aún se está aprovisionando. Intenta recargar en unos segundos.',
+        { provider: 'coinsenda', saleId: saleData?.id ?? null },
+      );
+    }
+
+    const providerCardId = String(matchedCard.id);
+
+    // 7. Vincular cardHolder si aún no está asociado en Farming y refrescar últimos 4 dígitos
+    if (!matchedCard.card_holder_id && cardHolderId) {
+      await this.call('attachCardHolderPublic', (c) =>
+        c.request(
+          'farming',
+          'POST',
+          '/cards/attach-card-holder-public',
+          {
+            data: {
+              card_id: providerCardId,
+              ledger_account_id: ledgerAccountId,
+              card_holder_id: cardHolderId,
+              country: 'international',
+            },
+          },
+          { rawPayload: true },
+        ),
+      ).catch(() => null);
+
+      if (!matchedCard.last_four && this.opts.domain === 'coinsenda.com') {
+        await sleep(800);
+      }
+      const refreshedCards = await this.listProviderCards();
+      const refreshed = refreshedCards.find((c) => String(c.id) === providerCardId);
+      if (refreshed) matchedCard = refreshed;
     }
 
     return {
       providerCardId,
-      ledgerAccountId,
-      lastFour: String(saleData?.last_four ?? '4242'),
-      brand: 'Mastercard',
-      status: 'active' as const,
-      raw: saleData,
+      ledgerAccountId: String(matchedCard.ledger_account_id ?? ledgerAccountId),
+      lastFour: String(matchedCard.last_four ?? matchedCard.last4 ?? '0000'),
+      brand: detectCardBrand(matchedCard, product),
+      status: (matchedCard.working_state === 'frozen' ? 'frozen' : 'active') as 'active' | 'frozen',
+      raw: matchedCard,
     };
   }
 
   async getCardLookUrl(providerCardId: string) {
+    const cards = await this.listProviderCards();
+    const card = cards.find((c) => String(c.id) === providerCardId);
+    const ledgerAccountId = card?.ledger_account_id ? String(card.ledger_account_id) : undefined;
+    let cardHolderId = card?.card_holder_id ? String(card.card_holder_id) : undefined;
+    if (!cardHolderId) {
+      const holders = await this.listCardHolders();
+      if (holders[0]?.id) cardHolderId = String(holders[0].id);
+    }
+
     const res = await this.call('getCardLookUrl', (c) =>
-      c.farming.card.getCardLookUrlPublic({ card_id: providerCardId }),
+      c.request(
+        'farming',
+        'POST',
+        '/cards/get-card-look-url-public',
+        {
+          data: {
+            card_id: providerCardId,
+            ...(ledgerAccountId ? { ledger_account_id: ledgerAccountId } : {}),
+            ...(cardHolderId ? { cardholder_id: cardHolderId } : {}),
+            country: 'international',
+          },
+        },
+        { rawPayload: true },
+      ),
     );
     if (!sdk.isHttpSuccess(res.status)) this.fail('getCardLookUrl', res);
     const d = this.payload(res);
-    return { url: String(d?.url ?? d?.look_url ?? '') };
+    const url = typeof d === 'string' ? d : String(d?.url ?? d?.look_url ?? '');
+    return { url };
   }
 
   async updateCardWorkingState(providerCardId: string, state: 'active' | 'frozen' | 'canceled') {
-    const action = state === 'frozen' ? 'freeze' : state === 'canceled' ? 'cancel' : 'reactivate';
     const res = await this.call('updateCardWorkingState', (c) =>
-      c.farming.card.updateWorkingStatePublic({ card_id: providerCardId, state: action }),
+      c.request(
+        'farming',
+        'POST',
+        '/cards/update-working-state-public',
+        { data: { card_id: providerCardId, new_working_state: state, country: 'international' } },
+        { rawPayload: true },
+      ),
     );
     if (!sdk.isHttpSuccess(res.status)) this.fail('updateCardWorkingState', res);
   }
 
   async updateCardLabel(providerCardId: string, label: string) {
     const res = await this.call('updateCardLabel', (c) =>
-      c.farming.card.updateLabelPublic({ card_id: providerCardId, label }),
+      c.request(
+        'farming',
+        'POST',
+        '/cards/update-label-public',
+        { data: { card_id: providerCardId, new_label: sanitizeCardLabel(label), country: 'international' } },
+        { rawPayload: true },
+      ),
     );
     if (!sdk.isHttpSuccess(res.status)) this.fail('updateCardLabel', res);
   }
@@ -581,12 +822,21 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
     nonceSignature: string;
   }) {
     const res = await this.call('tokenizeApplePay', (c) =>
-      c.farming.card.tokenizeApplePayPublic({
-        card_id: input.providerCardId,
-        certificates: input.certificates,
-        nonce: input.nonce,
-        nonce_signature: input.nonceSignature,
-      }),
+      c.request(
+        'farming',
+        'POST',
+        '/cards/tokenize-apple-pay-public',
+        {
+          data: {
+            card_id: input.providerCardId,
+            certificates: input.certificates,
+            nonce: input.nonce,
+            nonce_signature: input.nonceSignature,
+            country: 'international',
+          },
+        },
+        { rawPayload: true },
+      ),
     );
     if (!sdk.isHttpSuccess(res.status)) this.fail('tokenizeApplePay', res);
     const d = this.payload(res);
@@ -670,3 +920,24 @@ function mapWithdrawState(state: unknown): WithdrawState {
       return 'unknown';
   }
 }
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sanitizeCardLabel(raw?: string): string {
+  const cleaned = String(raw ?? 'CuyPay Virtual')
+    .replace(/[^a-zA-Z\u00C0-\u00FF0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 30);
+  return cleaned.length >= 3 ? cleaned : 'CuyPay Virtual';
+}
+
+function detectCardBrand(card: any, product?: any): string { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const raw = String(card?.brand ?? card?.franchise ?? product?.specs?.brand ?? product?.name ?? '').toLowerCase();
+  if (raw.includes('master')) return 'Mastercard';
+  if (raw.includes('visa')) return 'Visa';
+  return 'Visa';
+}
+
