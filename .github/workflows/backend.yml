@@ -6,6 +6,7 @@ on:
     paths: ["backend/**", ".github/workflows/backend.yml"]
   pull_request:
     paths: ["backend/**", ".github/workflows/backend.yml"]
+  workflow_dispatch:
 
 jobs:
   test:
@@ -35,7 +36,7 @@ jobs:
 
   deploy:
     needs: [test, docker]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
