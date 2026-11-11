@@ -96,4 +96,124 @@ describe('Sumsub live: firma de peticiones', () => {
     expect(JSON.parse(String(calls[1]!.init.body))).toEqual({ userId: 'usr_1', levelName: 'basic kyc', ttlInSecs: 600 });
     expect(signSumsubRequest('s', 1, 'get', '/x')).toBe(createHmac('sha256', 's').update('1GET/x').digest('hex'));
   });
+
+  it('getApplicantProfile extrae datos OCR reales y protege contra documentos sintéticos Mock-Doe en Sandbox', async () => {
+    const fetchReal = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          id: 'app_real_1',
+          email: 'laura@cuypay.com',
+          phone: '+573001112233',
+          fixedInfo: { firstName: 'Laura', lastName: 'Gómez', country: 'COL' },
+          info: {
+            firstName: 'LAURA CAMILA',
+            lastName: 'GOMEZ PEREZ',
+            dob: '1998-04-21',
+            nationality: 'COL',
+            country: 'COL',
+            idDocs: [
+              {
+                idDocType: 'ID_CARD',
+                country: 'COL',
+                number: '1.020.456.789',
+                firstName: 'LAURA CAMILA',
+                lastName: 'GOMEZ PEREZ',
+              },
+            ],
+            addresses: [
+              {
+                country: 'COL',
+                state: 'Antioquia',
+                town: 'Medellín',
+                postCode: '050021',
+                street: 'Calle 10',
+                buildingNumber: '43A',
+                flatNumber: '801',
+              },
+            ],
+          },
+        }),
+        { status: 200 },
+      ),
+    ) as unknown as typeof fetch;
+
+    const pReal = new LiveSumsubProvider({
+      baseUrl: 'https://api.sumsub.com',
+      appToken: 'prd:token',
+      secretKey: 'sek',
+      logger: pino({ level: 'silent' }),
+      fetchImpl: fetchReal,
+    });
+
+    const realProfile = await pReal.getApplicantProfile({ applicantId: 'app_real_1', externalUserId: 'usr_laura' });
+    expect(realProfile).toMatchObject({
+      applicantId: 'app_real_1',
+      firstName: 'LAURA CAMILA',
+      lastName: 'GOMEZ PEREZ',
+      birthdate: '1998-04-21',
+      nationality: 'COL',
+      documentCountry: 'COL',
+      documentType: 'cedula_ciudadania',
+      documentNumber: '1020456789',
+      isSandboxMockDocument: false,
+      address: {
+        country: 'COL',
+        province: 'Antioquia',
+        city: 'Medellín',
+        zipCode: '050021',
+        streetName: 'Calle 10',
+        streetNumber: '43A',
+        additionalInfo: 'Apto 801',
+      },
+    });
+
+    const fetchSandbox = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          id: '6af12e8c67d0626663e31c0f',
+          email: 'bryandavidortiz51@gmail.com',
+          phone: '+573154103795',
+          fixedInfo: { firstName: 'bryan', lastName: 'Ortiz', country: 'COL' },
+          info: {
+            firstName: 'John',
+            lastName: 'Mock-Doe',
+            dob: '1986-07-02',
+            nationality: 'BHR',
+            country: 'COL',
+            idDocs: [
+              {
+                idDocType: 'ID_CARD',
+                country: 'BHR',
+                number: 'Mock-WDXX2U2VBY',
+                firstName: 'John',
+                lastName: 'Mock-Doe',
+              },
+            ],
+          },
+        }),
+        { status: 200 },
+      ),
+    ) as unknown as typeof fetch;
+
+    const pSandbox = new LiveSumsubProvider({
+      baseUrl: 'https://api.sumsub.com',
+      appToken: 'sbx:token',
+      secretKey: 'sek',
+      logger: pino({ level: 'silent' }),
+      fetchImpl: fetchSandbox,
+    });
+
+    const sandboxProfile = await pSandbox.getApplicantProfile({
+      applicantId: '6af12e8c67d0626663e31c0f',
+      externalUserId: 'usr_bryan',
+    });
+    expect(sandboxProfile).toMatchObject({
+      applicantId: '6af12e8c67d0626663e31c0f',
+      firstName: 'bryan',
+      lastName: 'Ortiz',
+      documentType: 'cedula_ciudadania',
+      documentNumber: null,
+      isSandboxMockDocument: true,
+    });
+  });
 });

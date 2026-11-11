@@ -75,7 +75,7 @@ struct HomeView: View {
                         HStack(alignment: .top, spacing: 12) {
                             RateChartCard(rate: store.fxRate)
                             CardQuickCard(
-                                card: store.cards.first { $0.status != .canceled } ?? store.cards.first,
+                                card: store.activeCard,
                                 isLoading: !store.cardsLoaded,
                                 onTap: { openGated(.card) }
                             )

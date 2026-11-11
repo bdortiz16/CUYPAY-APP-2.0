@@ -150,11 +150,24 @@ describe('Coinsenda live adapter (SDK doble)', () => {
     expect(deps[0]).toMatchObject({ id: 'd1', providerKeyId: 'dp_9', amountMinor: 15_000_050n, state: 'accepted' });
   });
 
-  it('emite tarjeta virtual Visa COP, consulta look-url y actualiza estado/etiqueta con rawPayload', async () => {
+  it('emite tarjeta virtual Visa COP creando un CardHolder individual desde Sumsub sin reutilizar titulares ajenos', async () => {
     const { gw } = makeGateway();
     const calls: { service: string; method: string; endpoint: string; data: any; options: any }[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
     let cardIssued = false;
     let cardHolderAttached = false;
+    const holders: any[] = [ // eslint-disable-line @typescript-eslint/no-explicit-any
+      {
+        id: 'ch_kevin',
+        provider: 'mono_cop',
+        info_needed: {
+          name: 'Kevin',
+          surname: 'Echeverri',
+          email: 'ops@cuypay.com',
+          id_number: '1005028744',
+          id_type: 'cedula_ciudadania',
+        },
+      },
+    ];
 
     const baseFake = (gw as unknown as { client: any }).client; // eslint-disable-line @typescript-eslint/no-explicit-any
     const origRequest = baseFake.request.bind(baseFake);
@@ -164,7 +177,16 @@ describe('Coinsenda live adapter (SDK doble)', () => {
         return { status: 200, data: [{ id: 'lacc_cop_1', currency: 'cop', provider: 'mono_cop' }] };
       }
       if (endpoint === '/users/{id}/cardHolders') {
-        return { status: 200, data: [{ id: 'ch_1', provider: 'mono_cop', info_needed: { email: 'ops@cuypay.com' } }] };
+        return { status: 200, data: [...holders] };
+      }
+      if (endpoint === '/cardHolders/add-new-card-holder-public') {
+        const created = {
+          id: 'ch_bryan',
+          provider: 'mono_cop',
+          info_needed: data.data.info_needed,
+        };
+        holders.push(created);
+        return { status: 200, data: { data: created } };
       }
       if (endpoint === '/products') {
         return {
@@ -199,10 +221,18 @@ describe('Coinsenda live adapter (SDK doble)', () => {
           status: 200,
           data: [
             {
+              id: 'cs_kev_old',
+              trade_id: 'trd_0',
+              ledger_account_id: 'lacc_cop_1',
+              card_holder_id: 'ch_kevin',
+              last_four: '1111',
+              working_state: 'active',
+            },
+            {
               id: 'cs_card_1',
               trade_id: 'trd_1',
               ledger_account_id: 'lacc_cop_1',
-              card_holder_id: cardHolderAttached ? 'ch_1' : null,
+              card_holder_id: cardHolderAttached ? 'ch_bryan' : null,
               last_four: cardHolderAttached ? '9876' : null,
               working_state: 'active',
             },
@@ -231,15 +261,66 @@ describe('Coinsenda live adapter (SDK doble)', () => {
       email: 'bryan@cuypay.com',
       currency: 'COP',
       label: 'CuyPay Virtual!',
+      holder: {
+        firstName: 'Bryan',
+        lastName: 'Ortiz',
+        email: 'bryan@cuypay.com',
+        phone: '+573154103795',
+        birthdate: '2003-09-04',
+        nationality: 'COL',
+        documentCountry: 'COL',
+        documentType: 'cedula_ciudadania',
+        documentNumber: '1032489123',
+        address: {
+          country: 'COL',
+          province: 'Bogotá D.C.',
+          city: 'Bogotá',
+          zipCode: '110111',
+          streetName: 'Carrera 15',
+          streetNumber: '88',
+          additionalInfo: 'Apto 402',
+        },
+      },
     });
 
     expect(issued).toMatchObject({
       providerCardId: 'cs_card_1',
+      providerCardHolderId: 'ch_bryan',
+      holderName: 'Bryan Ortiz',
       ledgerAccountId: 'lacc_cop_1',
       lastFour: '9876',
       brand: 'Visa',
       status: 'active',
     });
+
+    const createHolderCall = calls.find((c) => c.endpoint === '/cardHolders/add-new-card-holder-public')!;
+    expect(createHolderCall).toBeDefined();
+    expect(createHolderCall.options).toEqual({ rawPayload: true });
+    expect(createHolderCall.data).toMatchObject({
+      data: {
+        country: 'international',
+        currency: 'cop',
+        info_needed: {
+          id_country: 'colombia',
+          person_type: 'natural',
+          name: 'Bryan',
+          surname: 'Ortiz',
+          email: 'bryan@cuypay.com',
+          phone_number: '573154103795',
+          nationality: 'colombia',
+          id_number: '1032489123',
+          id_type: 'cedula_ciudadania',
+          country: 'colombia',
+          province: 'cundinamarca',
+          city: 'bogota',
+          zip_code: '110111',
+          street_name: 'Carrera 15',
+          street_number: '88',
+          additional_info: 'Apto 402',
+        },
+      },
+    });
+    expect(Number(createHolderCall.data.data.info_needed.birthdate)).toBeGreaterThan(1_000_000_000);
 
     const saleCall = calls.find((c) => c.endpoint === '/sales/add-new-sale-public')!;
     expect(saleCall.options).toEqual({ rawPayload: true });
@@ -253,20 +334,20 @@ describe('Coinsenda live adapter (SDK doble)', () => {
             quantity: 1,
             ledger_account_id: 'lacc_cop_1',
             card_label: 'CuyPay Virtual',
-            card_holder_id: 'ch_1',
+            card_holder_id: 'ch_bryan',
           },
         ],
       },
     });
 
-    const look = await gw.getCardLookUrl('cs_card_1');
+    const look = await gw.getCardLookUrl('cs_card_1', 'ch_bryan');
     expect(look.url).toBe('https://iframe.pomelo.la/look/cs_card_1');
     const lookCall = calls.find((c) => c.endpoint === '/cards/get-card-look-url-public')!;
     expect(lookCall.data).toEqual({
       data: {
         card_id: 'cs_card_1',
         ledger_account_id: 'lacc_cop_1',
-        cardholder_id: 'ch_1',
+        cardholder_id: 'ch_bryan',
         country: 'international',
       },
     });

@@ -104,6 +104,7 @@ export class KycService {
       userId: user.id,
       provider: 'sumsub',
       applicantId: info.applicantId ?? existing?.applicantId ?? null,
+      ...(existing?.providerCardHolderId ? { providerCardHolderId: existing.providerCardHolderId } : {}),
       levelName: existing?.levelName ?? this.d.config.SUMSUB_LEVEL_NAME,
       status,
       reviewAnswer: info.reviewAnswer ?? existing?.reviewAnswer ?? null,

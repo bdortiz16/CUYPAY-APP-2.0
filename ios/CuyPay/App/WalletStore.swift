@@ -35,6 +35,11 @@ final class WalletStore {
         beneficiaries.filter { $0.status == .active }
     }
 
+    /// Tarjeta activa o congelada del usuario (ignora tarjetas canceladas para permitir crear una nueva).
+    var activeCard: CardItem? {
+        cards.first { $0.status != .canceled }
+    }
+
     /// Movimientos relevantes para un bolsillo.
     /// Una conversión COP→BRL aparece una sola vez (con `currency` = COP) pero también la mostramos en BRL como ingreso.
     func transactions(for currency: Currency) -> [WalletTransaction] {

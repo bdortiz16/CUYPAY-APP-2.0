@@ -12,6 +12,7 @@ struct CardView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var isIssuing = false
+    @State private var isCanceling = false
     @State private var isTogglingState = false
     @State private var isLoadingSecrets = false
     @State private var showSecrets = false
@@ -26,10 +27,14 @@ struct CardView: View {
     @State private var errorMessage: String?
 
     private var activeCard: CardItem? {
-        store.cards.first { $0.status != .canceled } ?? store.cards.first
+        store.activeCard
     }
 
     private var holderName: String {
+        let verifiedHolder = activeCard?.holderName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !verifiedHolder.isEmpty {
+            return verifiedHolder.uppercased()
+        }
         let name = app.user?.fullName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return name.isEmpty ? "TITULAR CUYPAY" : name.uppercased()
     }
@@ -139,15 +144,19 @@ struct CardView: View {
                 }
             }
             .confirmationDialog(
-                "¿Cancelar definitivamente tu tarjeta?",
+                "¿Eliminar o reemplazar tu tarjeta?",
                 isPresented: $showCancelConfirm,
                 titleVisibility: .visible
             ) {
-                Button("Cancelar tarjeta", role: .destructive) {
+                Button("Eliminar y crear nueva tarjeta", role: .destructive) {
+                    Task { await cancelAndReissueCard() }
+                }
+                Button("Solo eliminar tarjeta", role: .destructive) {
                     Task { await cancelCard() }
                 }
+                Button("Volver", role: .cancel) {}
             } message: {
-                Text("Esta acción es irreversible y tu tarjeta dejará de funcionar inmediatamente. Podrás crear una nueva cuando quieras.")
+                Text("Esta acción es permanente y tu tarjeta actual dejará de funcionar de inmediato. Puedes emitir una nueva ahora mismo o crearla cuando quieras.")
             }
             .alert("Apple Wallet", isPresented: $showApplePaySuccess) {
                 Button("Listo") {}
@@ -586,11 +595,11 @@ struct CardView: View {
             Divider()
 
             settingsRow(
-                icon: "creditcard.trianglebadge.exclamationmark",
+                icon: "trash",
                 iconColor: Theme.negative,
-                title: "Cancelar o reemplazar tarjeta",
-                subtitle: "Cancela definitivamente esta tarjeta si necesitas emitir una nueva.",
-                disabled: card.status == .canceled
+                title: "Eliminar o reemplazar tarjeta",
+                subtitle: "Elimina esta tarjeta y emite una nueva tarjeta virtual al instante.",
+                disabled: card.status == .canceled || isCanceling || isIssuing
             ) {
                 showCancelConfirm = true
             }
@@ -935,17 +944,28 @@ struct CardView: View {
         }
     }
 
-    private func cancelCard() async {
-        guard let card = activeCard else { return }
+    @discardableResult
+    private func cancelCard() async -> Bool {
+        guard let card = activeCard else { return false }
+        isCanceling = true
         errorMessage = nil
+        defer { isCanceling = false }
         do {
             _ = try await app.api.updateCardStatus(id: card.id, state: "canceled")
             cardSecrets = nil
             showSecrets = false
             await store.refreshCards()
+            return true
         } catch {
             errorMessage = error.userMessage
+            return false
         }
+    }
+
+    private func cancelAndReissueCard() async {
+        let canceled = await cancelCard()
+        guard canceled else { return }
+        await issueCard()
     }
 
     private func startAppleWalletFlow(_ card: CardItem) async {

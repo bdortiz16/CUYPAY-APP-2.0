@@ -64,6 +64,7 @@ export interface KycApplicant {
   userId: string;
   provider: 'sumsub';
   applicantId: string | null;
+  providerCardHolderId?: string | null;
   levelName: string;
   status: KycStatus;
   reviewAnswer: string | null;
@@ -93,10 +94,12 @@ export interface Card {
   cardType: CardType;
   status: CardStatus;
   label: string;
+  holderName?: string;
   lastFour: string;
   brand: string;
   currency: Currency;
   providerCardId: string;
+  providerCardHolderId?: string;
   ledgerAccountId: string;
   createdAt: Date;
   updatedAt: Date;

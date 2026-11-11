@@ -188,4 +188,30 @@ struct DecodingTests {
         let json = String(decoding: try JSONCoding.makeEncoder().encode(request), as: UTF8.self)
         #expect(json == #"{"amountMinor":5000000,"beneficiaryId":"ben_1","idempotencyKey":"k1"}"#)
     }
+
+    @Test("CardItem decodifica holderName opcional y WalletStore.activeCard ignora canceladas")
+    @MainActor
+    func cardHolderAndCanceledFiltering() throws {
+        let response = try decode(ItemsResponse<CardItem>.self, """
+        { "items": [
+          { "id": "crd_old", "cardType": "virtual", "status": "canceled", "label": "CuyPay Virtual",
+            "holderName": null, "lastFour": "1234", "brand": "Visa", "currency": "COP",
+            "createdAt": "2026-11-10T10:00:00Z", "updatedAt": "2026-11-11T10:00:00Z" },
+          { "id": "crd_new", "cardType": "virtual", "status": "active", "label": "CuyPay Virtual",
+            "holderName": "Bryan Ortiz", "lastFour": "9876", "brand": "Visa", "currency": "COP",
+            "createdAt": "2026-11-11T10:05:00Z", "updatedAt": "2026-11-11T10:05:00Z" }
+        ] }
+        """)
+        #expect(response.items.count == 2)
+        #expect(response.items[0].holderName == nil)
+        #expect(response.items[1].holderName == "Bryan Ortiz")
+
+        let store = WalletStore(api: MockAPIClient())
+        store.cards = [response.items[0]]
+        #expect(store.activeCard == nil)
+
+        store.cards = response.items
+        #expect(store.activeCard?.id == "crd_new")
+        #expect(store.activeCard?.holderName == "Bryan Ortiz")
+    }
 }

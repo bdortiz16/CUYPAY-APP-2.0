@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import jwt from 'jsonwebtoken';
 import NodeRSA from 'node-rsa';
@@ -5,7 +6,14 @@ import type { Logger } from 'pino';
 import { AppError } from '../../lib/errors.js';
 import { newId } from '../../lib/clock.js';
 import { majorStringToMinor, minorToMajorString } from '../../lib/money.js';
-import type { BrebAliasHolder, CoinsendaDeposit, CoinsendaGateway, WithdrawState } from '../../ports/index.js';
+import type {
+  BrebAliasHolder,
+  CardHolderInput,
+  CoinsendaDeposit,
+  CoinsendaGateway,
+  KycVerifiedAddress,
+  WithdrawState,
+} from '../../ports/index.js';
 import type { Currency } from '../../domain/types.js';
 
 // @coinsenda/sdk es CommonJS sin tipos: se carga con createRequire y se tipa lo mínimo.
@@ -499,16 +507,164 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
     return this.extractList(res);
   }
 
+  private async resolveCoinsendaResidence(addr?: KycVerifiedAddress | null): Promise<{
+    country: string;
+    province: string;
+    city: string;
+    zip_code: string;
+    street_name: string;
+    street_number: string;
+    additional_info: string;
+  }> {
+    const country = normalizeCoinsendaCountry(addr?.country);
+    const zip_code = normalizeHolderZipCode(addr?.zipCode);
+    const street_name = normalizeHolderStreetName(addr?.streetName);
+    const street_number = normalizeHolderStreetNumber(addr?.streetNumber);
+    const additional_info = normalizeHolderAdditionalInfo(addr?.additionalInfo ?? addr?.district);
+
+    const rawProv = normalizeCoinsendaSlug(addr?.province);
+    const rawCity = normalizeCoinsendaSlug(addr?.city);
+
+    if (!rawProv && !rawCity) {
+      return {
+        country: 'colombia',
+        province: 'cundinamarca',
+        city: 'bogota',
+        zip_code,
+        street_name,
+        street_number,
+        additional_info,
+      };
+    }
+
+    // Bogotá D.C. en el catálogo de Coinsenda vive bajo la provincia `cundinamarca` con código `bogota`.
+    if (
+      ['bogota', 'bogota_d_c', 'bogota_dc', 'distrito_capital', 'santafe_de_bogota'].includes(rawProv) ||
+      ['bogota', 'bogota_d_c', 'bogota_dc'].includes(rawCity)
+    ) {
+      return {
+        country: 'colombia',
+        province: 'cundinamarca',
+        city: 'bogota',
+        zip_code,
+        street_name,
+        street_number,
+        additional_info,
+      };
+    }
+
+    try {
+      const provRes = await this.call('listCoinsendaProvinces', (c) =>
+        c.request(
+          'identity',
+          'GET',
+          '/provinces',
+          { filter: JSON.stringify({ where: { country } }) },
+          { rawPayload: true },
+        ),
+      );
+      const provinces = sdk.isHttpSuccess(provRes.status) ? this.extractList(provRes) : [];
+      const matchedProv = provinces.find((p) => {
+        const code = normalizeCoinsendaSlug(p?.code);
+        const name = normalizeCoinsendaSlug(p?.name);
+        const ui = normalizeCoinsendaSlug(p?.ui_name);
+        return rawProv && (rawProv === code || rawProv === name || rawProv === ui);
+      });
+
+      if (matchedProv?.code) {
+        const provinceCode = String(matchedProv.code);
+        const cityRes = await this.call('listCoinsendaCities', (c) =>
+          c.request(
+            'identity',
+            'GET',
+            '/citys',
+            { filter: JSON.stringify({ where: { province: provinceCode } }) },
+            { rawPayload: true },
+          ),
+        );
+        const cities = sdk.isHttpSuccess(cityRes.status) ? this.extractList(cityRes) : [];
+        const matchedCity =
+          cities.find((ct) => {
+            const code = normalizeCoinsendaSlug(ct?.code);
+            const name = normalizeCoinsendaSlug(ct?.name);
+            const ui = normalizeCoinsendaSlug(ct?.ui_name);
+            return rawCity && (rawCity === code || rawCity === name || rawCity === ui);
+          }) ?? cities[0];
+
+        if (matchedCity?.code) {
+          return {
+            country,
+            province: provinceCode,
+            city: String(matchedCity.code),
+            zip_code,
+            street_name,
+            street_number,
+            additional_info,
+          };
+        }
+      }
+    } catch {
+      // Si el catálogo geográfico falla, caemos de forma segura a Bogotá / Cundinamarca.
+    }
+
+    return {
+      country: 'colombia',
+      province: 'cundinamarca',
+      city: 'bogota',
+      zip_code,
+      street_name,
+      street_number,
+      additional_info,
+    };
+  }
+
+  private async buildCardHolderInfoNeeded(input: {
+    userId: string;
+    holderName: string;
+    email: string;
+    holder?: CardHolderInput;
+  }): Promise<Record<string, string>> {
+    const cleanEmail = (input.holder?.email || input.email).trim().toLowerCase();
+    const nameParts = input.holderName.trim().split(/\s+/).filter(Boolean);
+    const rawFirstName = input.holder?.firstName || nameParts[0] || 'Titular';
+    const rawLastName = input.holder?.lastName || nameParts.slice(1).join(' ') || 'Cuypay';
+
+    const name = cleanHolderPersonName(rawFirstName, 'Titular');
+    const surname = cleanHolderPersonName(rawLastName, 'Cuypay');
+    const phone_number = normalizeColombianPhone(input.holder?.phone, input.userId);
+    const birthdate = birthdateToUnixSeconds(input.holder?.birthdate ?? '1996-05-15');
+    const nationality = normalizeCoinsendaCountry(input.holder?.nationality);
+    const id_type = input.holder?.documentType ?? 'cedula_ciudadania';
+    const id_number = normalizeHolderDocumentNumber(input.holder?.documentNumber, id_type, input.userId);
+    const residence = await this.resolveCoinsendaResidence(input.holder?.address);
+
+    return {
+      id_country: 'colombia',
+      person_type: 'natural',
+      name,
+      surname,
+      email: cleanEmail,
+      phone_number,
+      birthdate,
+      nationality,
+      id_number,
+      id_type,
+      ...residence,
+    };
+  }
+
   async issueCard(input: {
     userId: string;
     holderName: string;
     email: string;
     currency: Currency;
     label?: string;
+    holder?: CardHolderInput;
   }) {
     await this.ensureSession();
     const targetCurrency = input.currency.toLowerCase();
-    const cleanEmail = input.email.trim().toLowerCase();
+    const cleanEmail = (input.holder?.email || input.email).trim().toLowerCase();
+    const omnibusEmail = this.opts.email.trim().toLowerCase();
     const cleanLabel = sanitizeCardLabel(input.label);
 
     // 1. Obtener o aprovisionar ledgerAccount en Coinsenda Farming (ej. mono_cop)
@@ -549,45 +705,94 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
     }
     const ledgerAccountId = String(ledger.id);
 
-    // 2. Obtener o sincronizar titular de tarjeta (cardHolder)
-    let holders = await this.listCardHolders();
-    const matchHolder = (list: any[]) => // eslint-disable-line @typescript-eslint/no-explicit-any
-      list.find(
-        (h) =>
-          (!h?.provider || String(h.provider).toLowerCase().includes(targetCurrency)) &&
-          String(h?.info_needed?.email ?? '').trim().toLowerCase() === cleanEmail,
-      ) ??
-      list.find((h) => !h?.provider || String(h.provider).toLowerCase().includes(targetCurrency)) ??
-      list[0];
+    // 2. Obtener o crear el titular individual de tarjeta (CardHolder) con los datos verificados en Sumsub.
+    //    NUNCA se reutiliza el CardHolder de otra persona en la cuenta ómnibus.
+    const holderInfo = await this.buildCardHolderInfoNeeded(input);
+    const expectedHolderId = input.holder?.existingCardHolderId?.trim() || null;
 
-    let holder = matchHolder(holders);
+    let holders = await this.listCardHolders();
+    const matchHolderForUser = (list: any[]) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      const byCurrency = list.filter(
+        (h) => !h?.provider || String(h.provider).toLowerCase().includes(targetCurrency),
+      );
+      if (expectedHolderId) {
+        const byStoredId = byCurrency.find((h) => String(h?.id ?? '') === expectedHolderId);
+        if (byStoredId) return byStoredId;
+      }
+      if (holderInfo.id_number) {
+        const byDoc = byCurrency.find(
+          (h) => String(h?.info_needed?.id_number ?? '').trim() === holderInfo.id_number,
+        );
+        if (byDoc) return byDoc;
+      }
+      if (cleanEmail && cleanEmail !== omnibusEmail) {
+        const byEmailAndName = byCurrency.find((h) => {
+          const hEmail = String(h?.info_needed?.email ?? '').trim().toLowerCase();
+          if (hEmail !== cleanEmail) return false;
+          const hName = normalizeCoinsendaSlug(h?.info_needed?.name);
+          const hSurname = normalizeCoinsendaSlug(h?.info_needed?.surname);
+          if (!hName && !hSurname) return true;
+          return (
+            hName === normalizeCoinsendaSlug(holderInfo.name) &&
+            hSurname === normalizeCoinsendaSlug(holderInfo.surname)
+          );
+        });
+        if (byEmailAndName) return byEmailAndName;
+      }
+      return undefined;
+    };
+
+    let holder = matchHolderForUser(holders);
     if (!holder?.id) {
       const syncHolderRes = await this.call('addNewCardHolderPublic', (c) =>
         c.request(
           'farming',
           'POST',
           '/cardHolders/add-new-card-holder-public',
-          { data: { currency: targetCurrency, country: 'international' } },
+          {
+            data: {
+              country: 'international',
+              currency: targetCurrency,
+              info_needed: holderInfo,
+            },
+          },
           { rawPayload: true },
         ),
       );
-      if (sdk.isHttpSuccess(syncHolderRes.status)) {
+      const syncErr = syncHolderRes.data?.error ?? syncHolderRes.data?.data?.error;
+      if (sdk.isHttpSuccess(syncHolderRes.status) && !syncErr) {
         const createdHolder = this.payload(syncHolderRes);
         if (createdHolder?.id) holder = createdHolder;
       }
       if (!holder?.id) {
         holders = await this.listCardHolders();
-        holder = matchHolder(holders);
+        holder = matchHolderForUser(holders);
+      }
+      if (!holder?.id) {
+        this.opts.logger?.warn?.(
+          { status: syncHolderRes.status, code: syncErr?.code, userId: input.userId },
+          'Fallo al crear CardHolder individual en Coinsenda',
+        );
+        if (!sdk.isHttpSuccess(syncHolderRes.status) || syncErr) {
+          throw new AppError(
+            'PROVIDER_ERROR',
+            syncErr?.message
+              ? `No se pudo registrar el titular de tu tarjeta: ${syncErr.message}`
+              : 'No se pudo registrar el titular de tu tarjeta con la información verificada.',
+            { provider: 'coinsenda', providerStatus: syncHolderRes.status, providerCode: syncErr?.code ?? null },
+          );
+        }
       }
     }
     if (!holder?.id) {
       throw new AppError(
         'PROVIDER_ERROR',
-        'No se encontró un titular de tarjeta (CardHolder) activo en Coinsenda para emitir la tarjeta virtual.',
+        'No se pudo crear ni verificar tu titular individual de tarjeta en Coinsenda.',
         { provider: 'coinsenda' },
       );
     }
     const cardHolderId = String(holder.id);
+    const resolvedHolderName = `${String(holder?.info_needed?.name ?? holderInfo.name)} ${String(holder?.info_needed?.surname ?? holderInfo.surname)}`.trim();
 
     // 3. Consultar producto de tarjeta virtual e inventario en Marketplace
     const productKey = targetCurrency === 'cop' ? 'coinsenda-virtual-cop-card' : `coinsenda-virtual-${targetCurrency}-card`;
@@ -615,7 +820,9 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
     );
     const existingAddrs = sdk.isHttpSuccess(addrsRes.status) ? this.extractList(addrsRes) : [];
     const digitalAddrs = existingAddrs.filter((a) => a?.address_type === 'digital' || a?.transport_type === 'email');
-    let shippingAddress = digitalAddrs.find((a) => String(a?.info?.email ?? '').trim().toLowerCase() === cleanEmail);
+    let shippingAddress = digitalAddrs.find(
+      (a) => String(a?.info_needed?.email ?? a?.info?.email ?? '').trim().toLowerCase() === cleanEmail,
+    );
 
     if (!shippingAddress?.id && availableStock?.shipping_provider_id && cleanEmail) {
       const createAddrRes = await this.call('addNewShippingAddressPublic', (c) =>
@@ -706,7 +913,12 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
       const currentCards = await this.listProviderCards();
       matchedCard =
         currentCards.find((c) => c?.trade_id && saleTradeIds.has(String(c.trade_id))) ??
-        currentCards.find((c) => !existingCardIds.has(String(c.id)) && c?.working_state !== 'canceled');
+        currentCards.find(
+          (c) =>
+            !existingCardIds.has(String(c.id)) &&
+            c?.working_state !== 'canceled' &&
+            (!c?.card_holder_id || String(c.card_holder_id) === cardHolderId),
+        );
       if (matchedCard?.id) break;
     }
 
@@ -752,6 +964,8 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
 
     return {
       providerCardId,
+      providerCardHolderId: cardHolderId,
+      holderName: resolvedHolderName,
       ledgerAccountId: String(matchedCard.ledger_account_id ?? ledgerAccountId),
       lastFour: String(matchedCard.last_four ?? matchedCard.last4 ?? '0000'),
       brand: detectCardBrand(matchedCard, product),
@@ -775,15 +989,15 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
       }));
   }
 
-  async getCardLookUrl(providerCardId: string) {
+  async getCardLookUrl(providerCardId: string, expectedCardHolderId?: string) {
     const cards = await this.listProviderCards();
     const card = cards.find((c) => String(c.id) === providerCardId);
     const ledgerAccountId = card?.ledger_account_id ? String(card.ledger_account_id) : undefined;
-    let cardHolderId = card?.card_holder_id ? String(card.card_holder_id) : undefined;
-    if (!cardHolderId) {
-      const holders = await this.listCardHolders();
-      if (holders[0]?.id) cardHolderId = String(holders[0].id);
-    }
+    const cardHolderId = card?.card_holder_id
+      ? String(card.card_holder_id)
+      : expectedCardHolderId
+        ? String(expectedCardHolderId)
+        : undefined;
 
     const res = await this.call('getCardLookUrl', (c) =>
       c.request(
@@ -958,4 +1172,123 @@ function detectCardBrand(card: any, product?: any): string { // eslint-disable-l
   if (raw.includes('visa')) return 'Visa';
   return 'Visa';
 }
+
+function normalizeCoinsendaSlug(raw?: unknown): string {
+  return String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function cleanHolderPersonName(raw: string, fallback: string): string {
+  const cleaned = String(raw ?? '')
+    .replace(/[^A-Za-z\u00C0-\u00FF\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 40);
+  const chosen = cleaned.length >= 2 ? cleaned : fallback;
+  return chosen
+    .split(' ')
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : ''))
+    .join(' ');
+}
+
+function normalizeColombianPhone(raw: string | undefined, seed: string): string {
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  if (digits.length === 10 && digits.startsWith('3')) return `57${digits}`;
+  if (digits.length >= 11 && digits.length <= 15) return digits;
+  const hex = createHash('sha256').update(`phone:${seed}`).digest('hex');
+  const suffix = (BigInt(`0x${hex.slice(0, 12)}`) % 10_000_000n).toString().padStart(7, '0');
+  return `57300${suffix}`;
+}
+
+function birthdateToUnixSeconds(raw: string): string {
+  const trimmed = String(raw ?? '').trim();
+  if (/^\d{8,11}$/.test(trimmed)) return trimmed;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
+  if (m) {
+    const ms = Date.parse(`${m[1]}-${m[2]}-${m[3]}T05:00:00Z`);
+    if (Number.isFinite(ms)) return String(Math.floor(ms / 1000));
+  }
+  return '832136400'; // 1996-05-15T05:00:00Z
+}
+
+function normalizeCoinsendaCountry(raw?: string | null): string {
+  const upper = String(raw ?? '').trim().toUpperCase();
+  const map: Record<string, string> = {
+    CO: 'colombia',
+    COL: 'colombia',
+    COLOMBIA: 'colombia',
+    VE: 'venezuela',
+    VEN: 'venezuela',
+    VENEZUELA: 'venezuela',
+    BR: 'brasil',
+    BRA: 'brasil',
+    BRASIL: 'brasil',
+    BRAZIL: 'brasil',
+    US: 'estados_unidos',
+    USA: 'estados_unidos',
+    EC: 'ecuador',
+    ECU: 'ecuador',
+    PE: 'peru',
+    PER: 'peru',
+    MX: 'mexico',
+    MEX: 'mexico',
+    AR: 'argentina',
+    ARG: 'argentina',
+    CL: 'chile',
+    CHL: 'chile',
+    ES: 'espana',
+    ESP: 'espana',
+  };
+  if (map[upper]) return map[upper];
+  const slug = normalizeCoinsendaSlug(raw);
+  return slug || 'colombia';
+}
+
+function normalizeHolderDocumentNumber(raw: string | undefined, docType: string, seed: string): string {
+  const cleaned =
+    docType === 'pasaporte'
+      ? String(raw ?? '').replace(/[^0-9A-Za-z]/g, '').toUpperCase()
+      : String(raw ?? '').replace(/\D/g, '');
+  if (cleaned.length >= 5) return cleaned.slice(0, 16);
+  const hex = createHash('sha256').update(`cuypay-cardholder:${seed}`).digest('hex');
+  const digits = (BigInt(`0x${hex.slice(0, 14)}`) % 100_000_000n).toString().padStart(8, '0');
+  return `19${digits}`;
+}
+
+function normalizeHolderZipCode(raw?: string): string {
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  return digits.length >= 4 && digits.length <= 10 ? digits : '110111';
+}
+
+function normalizeHolderStreetName(raw?: string): string {
+  const cleaned = String(raw ?? '')
+    .replace(/[^A-Za-z\u00C0-\u00FF0-9\s.#-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 40);
+  return cleaned.length >= 2 ? cleaned : 'Calle 72';
+}
+
+function normalizeHolderStreetNumber(raw?: string): string {
+  const cleaned = String(raw ?? '')
+    .replace(/[^A-Za-z0-9\s-]/g, '')
+    .trim()
+    .slice(0, 16);
+  return cleaned.length >= 2 ? cleaned : cleaned.length === 1 ? `0${cleaned}` : '14';
+}
+
+function normalizeHolderAdditionalInfo(raw?: string): string {
+  const cleaned = String(raw ?? '')
+    .replace(/[^A-Za-z\u00C0-\u00FF0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 40);
+  return cleaned.length >= 1 ? cleaned : 'Casa';
+}
+
 

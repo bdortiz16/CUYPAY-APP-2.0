@@ -161,6 +161,7 @@ struct CardItem: Codable, Hashable, Sendable, Identifiable {
     var currency: Currency
     var createdAt: Date
     var updatedAt: Date
+    var holderName: String? = nil
 
     var maskedPan: String {
         "•••• " + lastFour

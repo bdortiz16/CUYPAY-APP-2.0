@@ -58,6 +58,7 @@ export const presentCard = (c: Card) => ({
   cardType: c.cardType,
   status: c.status,
   label: c.label,
+  holderName: c.holderName ?? null,
   lastFour: c.lastFour,
   brand: c.brand,
   currency: c.currency,

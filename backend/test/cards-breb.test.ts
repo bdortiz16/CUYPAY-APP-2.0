@@ -104,4 +104,45 @@ describe('Card & Bre-B lifecycle endpoints', () => {
     expect(listRes.body.items[0].lastFour).toBe('6187');
     expect(listRes.body.items[0].brand).toBe('Visa');
   });
+
+  it('permite cancelar una tarjeta y crear una nueva, asignando titulares individuales por usuario desde Sumsub', async () => {
+    const userAClient = await registerUser(env, { firstName: 'Bryan', lastName: 'Ortiz', phone: '+573154103795' });
+    const userBClient = await registerUser(env, { firstName: 'Camila', lastName: 'Rojas', phone: '+573009998877' });
+
+    for (const cl of [userAClient, userBClient]) {
+      // Inicia KYC para registrar el applicant en Sumsub y aprueba el usuario
+      const kycTok = await cl.call('POST', '/v1/kyc/sumsub/token');
+      expect(kycTok.status).toBe(200);
+      const u = (await env.container.deps.repos.users.byId(cl.session.userId))!;
+      u.kycStatus = 'approved';
+      await env.container.deps.repos.users.update(u);
+    }
+
+    // Usuario A emite tarjeta 1
+    const cardA1Res = await userAClient.signed('POST', '/v1/cards/virtual', { label: 'Tarjeta A1' });
+    expect(cardA1Res.status).toBe(201);
+    expect(cardA1Res.body.holderName).toBe('Bryan Ortiz');
+
+    // Cancelar tarjeta A1 y crear inmediatamente una nueva tarjeta A2
+    const cancelRes = await userAClient.signed('PUT', `/v1/cards/${cardA1Res.body.id}/status`, { state: 'canceled' });
+    expect(cancelRes.status).toBe(200);
+    expect(cancelRes.body.status).toBe('canceled');
+
+    const cardA2Res = await userAClient.signed('POST', '/v1/cards/virtual', { label: 'Tarjeta A2 Nueva' });
+    expect(cardA2Res.status).toBe(201);
+    expect(cardA2Res.body.id).not.toBe(cardA1Res.body.id);
+    expect(cardA2Res.body.status).toBe('active');
+    expect(cardA2Res.body.holderName).toBe('Bryan Ortiz');
+
+    // Usuario B emite su propia tarjeta y queda a nombre de Camila Rojas, nunca de Bryan Ortiz
+    const cardBRes = await userBClient.signed('POST', '/v1/cards/virtual', { label: 'Tarjeta Camila' });
+    expect(cardBRes.status).toBe(201);
+    expect(cardBRes.body.holderName).toBe('Camila Rojas');
+
+    const storedCardA2 = (await env.container.deps.repos.cards.byId(cardA2Res.body.id))!;
+    const storedCardB = (await env.container.deps.repos.cards.byId(cardBRes.body.id))!;
+    expect(storedCardA2.providerCardHolderId).toBeTruthy();
+    expect(storedCardB.providerCardHolderId).toBeTruthy();
+    expect(storedCardA2.providerCardHolderId).not.toBe(storedCardB.providerCardHolderId);
+  });
 });

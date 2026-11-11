@@ -29,6 +29,53 @@ export interface CoinsendaDeposit {
   raw: unknown;
 }
 
+export type CardHolderDocumentType =
+  | 'cedula_ciudadania'
+  | 'cedula_extranjeria'
+  | 'ppt'
+  | 'pep'
+  | 'pasaporte';
+
+export interface KycVerifiedAddress {
+  country?: string;
+  province?: string;
+  city?: string;
+  zipCode?: string;
+  streetName?: string;
+  streetNumber?: string;
+  district?: string;
+  additionalInfo?: string;
+}
+
+export interface KycVerifiedProfile {
+  applicantId: string;
+  firstName: string;
+  lastName: string;
+  birthdate: string | null; // YYYY-MM-DD
+  nationality: string | null;
+  documentCountry: string | null;
+  documentType: CardHolderDocumentType;
+  documentNumber: string | null;
+  isSandboxMockDocument: boolean;
+  email: string | null;
+  phone: string | null;
+  address: KycVerifiedAddress | null;
+}
+
+export interface CardHolderInput {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  birthdate: string; // YYYY-MM-DD
+  nationality: string;
+  documentCountry: string;
+  documentType: CardHolderDocumentType;
+  documentNumber: string;
+  address?: KycVerifiedAddress | null;
+  existingCardHolderId?: string | null;
+}
+
 export interface CoinsendaGateway {
   /** Crea (reclama) una llave Bre-B propia para un usuario: depositProvider en la cuenta COP de CuyPay. */
   createBrebKey(input: { alias: string; holderName: string; userRef: string }): Promise<{
@@ -67,8 +114,11 @@ export interface CoinsendaGateway {
     email: string;
     currency: Currency;
     label?: string;
+    holder?: CardHolderInput;
   }): Promise<{
     providerCardId: string;
+    providerCardHolderId?: string;
+    holderName?: string;
     ledgerAccountId: string;
     lastFour: string;
     brand: string;
@@ -76,7 +126,7 @@ export interface CoinsendaGateway {
     raw: unknown;
   }>;
   /** Obtiene la URL segura (iframe del emisor) donde el usuario ve PAN, fecha y CVV. */
-  getCardLookUrl(providerCardId: string): Promise<{ url: string }>;
+  getCardLookUrl(providerCardId: string, providerCardHolderId?: string): Promise<{ url: string }>;
   /** Lista metadatos actuales de las tarjetas en el proveedor para sincronizar últimos 4 dígitos y estado. */
   getProviderCards?(): Promise<
     Array<{
@@ -121,6 +171,7 @@ export interface KycProvider {
     country: string;
   }): Promise<{ applicantId: string }>;
   createSdkAccessToken(input: { externalUserId: string; levelName: string; ttlInSecs: number }): Promise<{ token: string }>;
+  getApplicantProfile?(input: { applicantId?: string | null; externalUserId: string }): Promise<KycVerifiedProfile | null>;
   healthCheck?(): Promise<void>;
 }
 

@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
 import type { Card, CardStatus, User } from '../domain/types.js';
 import { newId } from '../lib/clock.js';
 import { AppError, isAppError } from '../lib/errors.js';
+import type { CardHolderInput } from '../ports/index.js';
 import type { ServiceDeps } from './deps.js';
 import { requireKycApproved } from './kyc.js';
 
@@ -12,6 +14,27 @@ export interface ApplePayTokenizeInput {
   certificates: string[];
   nonce: string;
   nonceSignature: string;
+}
+
+function deterministicSandboxDocumentNumber(seed: string): string {
+  const hex = createHash('sha256').update(`cuypay-cardholder:${seed}`).digest('hex');
+  const digits = (BigInt(`0x${hex.slice(0, 14)}`) % 100_000_000n).toString().padStart(8, '0');
+  return `19${digits}`;
+}
+
+function isAdultBirthdate(ymd: string, now: Date): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!m) return false;
+  const year = Number(m[1]);
+  const month = Number(m[2]) - 1;
+  const day = Number(m[3]);
+  if (year < 1920) return false;
+  let age = now.getUTCFullYear() - year;
+  const monthDiff = now.getUTCMonth() - month;
+  if (monthDiff < 0 || (monthDiff === 0 && now.getUTCDate() < day)) {
+    age -= 1;
+  }
+  return age >= 18;
 }
 
 /**
@@ -72,6 +95,78 @@ export class CardService {
     }
   }
 
+  private async resolveHolderFromKyc(user: User, existingCards: Card[]): Promise<CardHolderInput> {
+    const now = this.d.clock.now();
+    const kycRec = await this.d.repos.kyc.byUser(user.id);
+    const kycProfile = this.d.kyc.getApplicantProfile
+      ? await this.d.kyc.getApplicantProfile({
+          applicantId: kycRec?.applicantId ?? null,
+          externalUserId: user.id,
+        })
+      : null;
+
+    const isSandboxOrMockKyc =
+      !kycProfile ||
+      kycProfile.isSandboxMockDocument ||
+      this.d.config.PROVIDERS_MODE !== 'live' ||
+      Boolean(this.d.config.SUMSUB_APP_TOKEN?.startsWith('sbx:'));
+
+    const firstName = (kycProfile?.firstName || user.firstName).trim();
+    const lastName = (kycProfile?.lastName || user.lastName).trim();
+    const email = (user.email || kycProfile?.email || '').trim().toLowerCase();
+    const phone = (user.phone || kycProfile?.phone || '').trim();
+
+    let documentNumber = kycProfile?.documentNumber ?? null;
+    if (!documentNumber) {
+      const brebKeys = await this.d.repos.brebKeys.listByUser(user.id);
+      const nationalIdKey = brebKeys.find(
+        (k) => k.type === 'national_id' && /^\d{6,10}$/.test(k.alias.replace(/^@/, '')),
+      );
+      if (nationalIdKey) {
+        documentNumber = nationalIdKey.alias.replace(/^@/, '');
+      }
+    }
+    if (!documentNumber && isSandboxOrMockKyc) {
+      documentNumber = deterministicSandboxDocumentNumber(user.id);
+    }
+    if (!documentNumber) {
+      throw new AppError(
+        'KYC_REQUIRED',
+        'No encontramos un documento de identidad válido en Sumsub para crear el titular de tu tarjeta.',
+      );
+    }
+
+    let birthdate = kycProfile?.birthdate ?? null;
+    if (birthdate && !isAdultBirthdate(birthdate, now)) {
+      if (!isSandboxOrMockKyc) {
+        throw new AppError('VALIDATION_ERROR', 'Debes ser mayor de 18 años para emitir una tarjeta virtual.');
+      }
+      birthdate = '1996-05-15';
+    }
+    if (!birthdate) {
+      birthdate = '1996-05-15';
+    }
+
+    const existingCardHolderId =
+      kycRec?.providerCardHolderId ??
+      existingCards.find((c) => c.providerCardHolderId)?.providerCardHolderId ??
+      null;
+
+    return {
+      firstName,
+      lastName,
+      email,
+      phone,
+      birthdate,
+      nationality: kycProfile?.nationality || user.country || 'COL',
+      documentCountry: kycProfile?.documentCountry || user.country || 'COL',
+      documentType: kycProfile?.documentType ?? 'cedula_ciudadania',
+      documentNumber,
+      address: kycProfile?.address ?? null,
+      existingCardHolderId,
+    };
+  }
+
   async issueVirtual(user: User, input?: IssueCardInput): Promise<Card> {
     requireKycApproved(user);
     const existing = await this.d.repos.cards.listByUser(user.id);
@@ -80,16 +175,18 @@ export class CardService {
       throw new AppError('VALIDATION_ERROR', 'Límite de tarjetas activas alcanzado (máximo 3)');
     }
 
-    const holderName = `${user.firstName} ${user.lastName}`.trim();
+    const holder = await this.resolveHolderFromKyc(user, existing);
+    const holderName = `${holder.firstName} ${holder.lastName}`.trim();
     const cardLabel = input?.label?.trim() || 'CuyPay Virtual';
     let issued;
     try {
       issued = await this.d.coinsenda.issueCard({
         userId: user.id,
         holderName,
-        email: user.email,
+        email: holder.email,
         currency: 'COP',
         label: cardLabel,
+        holder,
       });
     } catch (err) {
       if (isAppError(err)) throw err;
@@ -97,16 +194,29 @@ export class CardService {
     }
 
     const now = this.d.clock.now();
+    if (issued.providerCardHolderId) {
+      const kycRec = await this.d.repos.kyc.byUser(user.id);
+      if (kycRec && kycRec.providerCardHolderId !== issued.providerCardHolderId) {
+        await this.d.repos.kyc.upsert({
+          ...kycRec,
+          providerCardHolderId: issued.providerCardHolderId,
+          updatedAt: now,
+        });
+      }
+    }
+
     const card: Card = {
       id: newId('crd', now),
       userId: user.id,
       cardType: 'virtual',
       status: issued.status,
       label: cardLabel,
+      holderName: issued.holderName || holderName,
       lastFour: issued.lastFour,
       brand: issued.brand,
       currency: 'COP',
       providerCardId: issued.providerCardId,
+      ...(issued.providerCardHolderId ? { providerCardHolderId: issued.providerCardHolderId } : {}),
       ledgerAccountId: issued.ledgerAccountId,
       createdAt: now,
       updatedAt: now,
@@ -119,7 +229,7 @@ export class CardService {
     const card = await this.get(userId, cardId);
     if (card.status === 'canceled') throw new AppError('VALIDATION_ERROR', 'La tarjeta está cancelada');
     try {
-      return await this.d.coinsenda.getCardLookUrl(card.providerCardId);
+      return await this.d.coinsenda.getCardLookUrl(card.providerCardId, card.providerCardHolderId);
     } catch (err) {
       if (isAppError(err)) throw err;
       throw new AppError('PROVIDER_ERROR', 'No se pudo obtener el acceso a los datos de la tarjeta');

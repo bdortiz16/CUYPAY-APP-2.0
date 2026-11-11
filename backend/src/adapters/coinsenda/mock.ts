@@ -131,10 +131,21 @@ export class MockCoinsendaGateway implements CoinsendaGateway {
   }
 
   // ── Tarjetas ──
-  async issueCard(input: { userId: string; holderName: string; email: string; currency: Currency }) {
+  async issueCard(input: {
+    userId: string;
+    holderName: string;
+    email: string;
+    currency: Currency;
+    label?: string;
+    holder?: { existingCardHolderId?: string | null; firstName: string; lastName: string };
+  }) {
     const cardId = `crd_cs_${randomUUID().slice(0, 8)}`;
+    const holderId = input.holder?.existingCardHolderId ?? `ch_mock_${input.userId}`;
+    const resolvedName = input.holder ? `${input.holder.firstName} ${input.holder.lastName}`.trim() : input.holderName;
     return {
       providerCardId: cardId,
+      providerCardHolderId: holderId,
+      holderName: resolvedName,
       ledgerAccountId: `acc_card_${randomUUID().slice(0, 8)}`,
       lastFour: '4242',
       brand: 'Mastercard',
@@ -143,7 +154,7 @@ export class MockCoinsendaGateway implements CoinsendaGateway {
     };
   }
 
-  async getCardLookUrl(providerCardId: string) {
+  async getCardLookUrl(providerCardId: string, _providerCardHolderId?: string) {
     return { url: `https://cards.coinsenda.com/look/mock?card=${providerCardId}` };
   }
 
