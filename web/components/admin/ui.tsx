@@ -88,6 +88,20 @@ const STATUS_MAP: Record<string, [Tone, string]> = {
   clear: ["ok", "Limpio"],
   hit: ["bad", "Coincidencia"],
   review: ["warn", "Revisar"],
+  // bolsillo de ahorros y reserva 72h
+  maturing_soon: ["warn", "Vence <72h"],
+  canceled: ["neutral", "Cancelado"],
+  unfunded: ["warn", "Pendiente bloqueo 72h"],
+  funded_locked: ["ok", "Bloqueado p/ reintegro"],
+  settled: ["info", "Reintegrado"],
+  // créditos y pagarés
+  approved_active: ["ok", "Activo"],
+  overdue: ["bad", "En mora"],
+  paid: ["info", "Pagado · Paz y salvo"],
+  signed_custody: ["warn", "Firmado en custodia"],
+  active_enforceable: ["ok", "Vigente (Mérito ejecutivo)"],
+  cancelled_paid: ["info", "Paz y Salvo"],
+  voided_rejected: ["neutral", "Anulado sin desembolso"],
 };
 
 export function StatusBadge({ value, prefix }: { value: string; prefix?: string }) {
@@ -100,7 +114,15 @@ export function StatusBadge({ value, prefix }: { value: string; prefix?: string 
   );
 }
 
-export const TX_TYPE: Record<string, string> = { deposit: "Depósito", transfer: "Envío", conversion: "Conversión" };
+export const TX_TYPE: Record<string, string> = {
+  deposit: "Depósito",
+  transfer: "Envío",
+  conversion: "Conversión",
+  savings: "Bolsillo de ahorro",
+  loan: "Crédito",
+  card_pocket: "Bolsillo tarjeta",
+  card_purchase: "Compra tarjeta",
+};
 export const TIER: Record<string, string> = { basic: "Básico", full: "Completo" };
 export const OPERATION: Record<string, string> = { transfer_out: "Envíos", conversion: "Conversiones", deposit_in: "Depósitos" };
 export const PERIOD: Record<string, string> = { daily: "Diario", monthly: "Mensual", annual: "Anual" };

@@ -18,10 +18,16 @@ import type {
   LedgerEntry,
   LimitItem,
   LimitsConfig,
+  LoanConfigDto,
+  LoanDto,
+  LoanPoolSummaryDto,
   Note,
   Page,
+  PromissoryNoteDto,
   ProviderStatus,
   RiskLevel,
+  SavingsBlockDto,
+  SavingsPoolSummaryDto,
   SeriesPoint,
   StreamEvent,
   Tier,
@@ -769,6 +775,225 @@ export function createMockApi(): AdminApi {
   const bogotaToday = () => new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10);
   const isToday = (isoStr: string) => new Date(Date.parse(isoStr) - 5 * 3_600_000).toISOString().slice(0, 10) === bogotaToday();
 
+  let mockSavingsCfg = {
+    rates: [
+      { termDays: 30, ratePercent: 3.0, enabled: true },
+      { termDays: 60, ratePercent: 4.5, enabled: true },
+      { termDays: 90, ratePercent: 6.0, enabled: true },
+      { termDays: 180, ratePercent: 8.5, enabled: true },
+      { termDays: 360, ratePercent: 11.5, enabled: true },
+    ],
+    minAmountMinor: "5000000",
+    maxAmountMinor: "5000000000",
+    contractTerms: "# Contrato Virtual de Bolsillo de Ahorro a Plazo Fijo — CuyPay (XATECH SERVICES S.A.S.)",
+    updatedAt: new Date().toISOString(),
+    updatedBy: "admin@cuypay.com",
+  };
+
+  const mockSavingsBlocks: SavingsBlockDto[] = [
+    {
+      id: "sbk_demo_001",
+      userId: s.customers[0]?.id ?? "usr_01",
+      customerName: s.customers[0] ? `${s.customers[0].firstName} ${s.customers[0].lastName}` : "Camila Restrepo",
+      customerEmail: s.customers[0]?.email ?? "camila@correo.co",
+      customerPhone: s.customers[0]?.phoneFull ?? "+573154103792",
+      termDays: 30,
+      principalMinor: "150000000",
+      lockedRate: 3.0,
+      expectedYieldMinor: "369863",
+      totalPayoutMinor: "150369863",
+      currency: "COP",
+      status: "maturing_soon",
+      escrowStatus: "unfunded",
+      escrowFundedAt: null,
+      escrowFundedBy: null,
+      startedAt: iso(Date.now() - 28 * DAY),
+      maturesAt: iso(Date.now() + 2 * DAY),
+      completedAt: null,
+      hoursRemaining: 48,
+    },
+    {
+      id: "sbk_demo_002",
+      userId: s.customers[1]?.id ?? "usr_02",
+      customerName: s.customers[1] ? `${s.customers[1].firstName} ${s.customers[1].lastName}` : "Santiago Vargas",
+      customerEmail: s.customers[1]?.email ?? "santiago@correo.co",
+      customerPhone: s.customers[1]?.phoneFull ?? "+573001234567",
+      termDays: 90,
+      principalMinor: "300000000",
+      lockedRate: 6.0,
+      expectedYieldMinor: "4438356",
+      totalPayoutMinor: "304438356",
+      currency: "COP",
+      status: "active",
+      escrowStatus: "unfunded",
+      escrowFundedAt: null,
+      escrowFundedBy: null,
+      startedAt: iso(Date.now() - 12 * DAY),
+      maturesAt: iso(Date.now() + 78 * DAY),
+      completedAt: null,
+      hoursRemaining: 78 * 24,
+    },
+  ];
+  let mockSavingsVaultMinor = 450_000_000n;
+  let mockSavingsEscrowMinor = 0n;
+
+  const buildSavingsPoolSummary = (): SavingsPoolSummaryDto => {
+    let activePrin = 0n;
+    let pendingYield = 0n;
+    let activePayout = 0n;
+    let unescrowedPrin = 0n;
+    let m72Unfunded = 0n;
+    let m72Funded = 0n;
+    let m72UnfundedCount = 0;
+    let m72TotalCount = 0;
+    let activeCount = 0;
+    let completedCount = 0;
+    for (const b of mockSavingsBlocks) {
+      if (b.status === "active" || b.status === "maturing_soon") {
+        activeCount++;
+        const p = BigInt(b.principalMinor);
+        const y = BigInt(b.expectedYieldMinor);
+        const tot = BigInt(b.totalPayoutMinor);
+        activePrin += p;
+        pendingYield += y;
+        activePayout += tot;
+        if (b.escrowStatus !== "funded_locked") unescrowedPrin += p;
+        if ((b.hoursRemaining ?? 999) <= 72) {
+          m72TotalCount++;
+          if (b.escrowStatus === "funded_locked") m72Funded += tot;
+          else {
+            m72UnfundedCount++;
+            m72Unfunded += tot;
+          }
+        }
+      } else if (b.status === "completed") {
+        completedCount++;
+      }
+    }
+    const deployed = unescrowedPrin > mockSavingsVaultMinor ? unescrowedPrin - mockSavingsVaultMinor : 0n;
+    return {
+      currency: "COP",
+      collectionPoolBalanceMinor: mockSavingsVaultMinor.toString(),
+      escrowLockedBalanceMinor: mockSavingsEscrowMinor.toString(),
+      totalActivePrincipalMinor: activePrin.toString(),
+      totalPendingYieldMinor: pendingYield.toString(),
+      totalActivePayoutMinor: activePayout.toString(),
+      deployedExternallyMinor: deployed.toString(),
+      maturing72hUnfundedMinor: m72Unfunded.toString(),
+      maturing72hFundedMinor: m72Funded.toString(),
+      maturing72hUnfundedCount: m72UnfundedCount,
+      maturing72hTotalCount: m72TotalCount,
+      activeBlocksCount: activeCount,
+      completedBlocksCount: completedCount,
+    };
+  };
+
+  let mockLoanCfg: LoanConfigDto = {
+    enabled: true,
+    rates: [
+      { termDays: 30, rateEaPercent: 22.0, enabled: true },
+      { termDays: 60, rateEaPercent: 23.0, enabled: true },
+      { termDays: 90, rateEaPercent: 24.0, enabled: true },
+      { termDays: 180, rateEaPercent: 24.8, enabled: true },
+      { termDays: 360, rateEaPercent: 25.5, enabled: true },
+    ],
+    usuryCeilingEaPercent: 26.5,
+    moratoryRateEaPercent: 26.5,
+    minAmountMinor: "10000000",
+    maxAmountMinor: "2000000000",
+    creditorLegalName: "XATECH SERVICES S.A.S.",
+    creditorNit: "901.799.579",
+    creditorDomicile: "Bogotá D.C., República de Colombia",
+    updatedAt: new Date().toISOString(),
+    updatedBy: "admin@cuypay.com",
+  };
+
+  let mockLoanPoolMinor = 800_000_000n;
+  const mockLoans: LoanDto[] = [
+    {
+      id: "loan_demo_001",
+      userId: s.customers[0]?.id ?? "usr_01",
+      promissoryNoteId: "pag_demo_001",
+      promissoryNoteNumber: "PAG-2026-000101",
+      principalMinor: "120000000",
+      termDays: 60,
+      interestRateEa: 23.0,
+      nominalMonthlyPercent: 1.74,
+      moratoryRateEa: 26.5,
+      interestMinor: "4157260",
+      totalDueMinor: "124157260",
+      paidMinor: "0",
+      principalPaidMinor: "0",
+      interestPaidMinor: "0",
+      remainingMinor: "124157260",
+      currency: "COP",
+      status: "pending_review",
+      purpose: "Capital de trabajo e inventario",
+      debtorFullName: s.customers[0] ? `${s.customers[0].firstName} ${s.customers[0].lastName}` : "Camila Restrepo",
+      debtorDocumentType: "CC",
+      debtorDocumentNumber: s.customers[0]?.documentFull ?? "1032456789",
+      debtorEmail: s.customers[0]?.email ?? "camila@correo.co",
+      debtorPhone: s.customers[0]?.phoneFull ?? "+573154103792",
+      debtorCity: "Bogotá D.C.",
+      requestedAt: iso(Date.now() - 2 * 3_600_000),
+      approvedAt: null,
+      approvedBy: null,
+      disbursedAt: null,
+      dueAt: null,
+      paidAt: null,
+      rejectedAt: null,
+      rejectedReason: null,
+      daysRemaining: null,
+    },
+  ];
+
+  const buildLoanPoolSummary = (): LoanPoolSummaryDto => {
+    let activePrin = 0n;
+    let activeRem = 0n;
+    let pendingInt = 0n;
+    let collectedInt = 0n;
+    let pendingAppPrin = 0n;
+    let overdueRem = 0n;
+    let pendingCount = 0;
+    let activeCount = 0;
+    let overdueCount = 0;
+    let paidCount = 0;
+    for (const l of mockLoans) {
+      collectedInt += BigInt(l.interestPaidMinor);
+      if (l.status === "pending_review") {
+        pendingCount++;
+        pendingAppPrin += BigInt(l.principalMinor);
+      } else if (l.status === "approved_active") {
+        activeCount++;
+        activePrin += BigInt(l.principalMinor) - BigInt(l.principalPaidMinor);
+        activeRem += BigInt(l.remainingMinor);
+        pendingInt += BigInt(l.interestMinor) - BigInt(l.interestPaidMinor);
+      } else if (l.status === "overdue") {
+        overdueCount++;
+        activePrin += BigInt(l.principalMinor) - BigInt(l.principalPaidMinor);
+        activeRem += BigInt(l.remainingMinor);
+        overdueRem += BigInt(l.remainingMinor);
+        pendingInt += BigInt(l.interestMinor) - BigInt(l.interestPaidMinor);
+      } else if (l.status === "paid") {
+        paidCount++;
+      }
+    }
+    return {
+      currency: "COP",
+      availablePoolMinor: mockLoanPoolMinor.toString(),
+      activePortfolioPrincipalMinor: activePrin.toString(),
+      activePortfolioRemainingMinor: activeRem.toString(),
+      pendingExpectedInterestMinor: pendingInt.toString(),
+      collectedInterestMinor: collectedInt.toString(),
+      pendingApplicationsPrincipalMinor: pendingAppPrin.toString(),
+      overdueRemainingMinor: overdueRem.toString(),
+      pendingApplicationsCount: pendingCount,
+      activeLoansCount: activeCount,
+      overdueLoansCount: overdueCount,
+      paidLoansCount: paidCount,
+    };
+  };
+
   const api: AdminApi = {
     mode: "mock",
     async login(email, password) {
@@ -1229,41 +1454,269 @@ export function createMockApi(): AdminApi {
 
     async savingsConfig() {
       await latency();
-      return {
-        rates: [
-          { termDays: 30, ratePercent: 3.0, enabled: true },
-          { termDays: 60, ratePercent: 4.5, enabled: true },
-          { termDays: 90, ratePercent: 6.0, enabled: true },
-          { termDays: 180, ratePercent: 8.5, enabled: true },
-          { termDays: 360, ratePercent: 11.5, enabled: true },
-        ],
-        minAmountMinor: "5000000",
-        maxAmountMinor: "5000000000",
-        contractTerms: "# Contrato Virtual de Bloque de Ahorro a Plazo Fijo",
-        updatedAt: new Date().toISOString(),
-      };
+      return clone(mockSavingsCfg);
     },
-    async updateSavingsConfig(rates, contractTerms) {
+    async updateSavingsConfig(rates, contractTerms, reason = "Ajuste de tasas") {
       await latency();
-      return {
+      const a = requirePerm("treasury:write");
+      mockSavingsCfg = {
+        ...mockSavingsCfg,
         rates,
-        minAmountMinor: "5000000",
-        maxAmountMinor: "5000000000",
-        contractTerms: contractTerms ?? "# Contrato Virtual de Bloque de Ahorro a Plazo Fijo",
+        contractTerms: contractTerms ?? mockSavingsCfg.contractTerms,
         updatedAt: new Date().toISOString(),
+        updatedBy: a.email,
       };
+      audit("savings.config_update", "savings_config", "COP", reason);
+      return clone(mockSavingsCfg);
+    },
+    async savingsPool() {
+      await latency();
+      requirePerm("treasury:read");
+      return buildSavingsPoolSummary();
+    },
+    async withdrawSavingsPool(amountMinor, reason) {
+      await latency();
+      requirePerm("treasury:write");
+      requireReason(reason);
+      const amt = BigInt(amountMinor);
+      if (amt <= 0n || amt > mockSavingsVaultMinor) {
+        throw new ApiError(422, "INSUFFICIENT_FUNDS", "Saldo insuficiente en el Bolsillo Recaudo de Ahorros.");
+      }
+      mockSavingsVaultMinor -= amt;
+      audit("savings.pool_withdraw", "savings_vault", "COP", reason, null, { amountMinor });
+      return buildSavingsPoolSummary();
+    },
+    async depositSavingsPool(amountMinor, reason) {
+      await latency();
+      requirePerm("treasury:write");
+      requireReason(reason);
+      const amt = BigInt(amountMinor);
+      mockSavingsVaultMinor += amt;
+      audit("savings.pool_deposit", "savings_vault", "COP", reason, null, { amountMinor });
+      return buildSavingsPoolSummary();
     },
     async savingsBlocks() {
       await latency();
-      return { items: [] };
+      requirePerm("treasury:read");
+      return { items: clone(mockSavingsBlocks) };
+    },
+    async fundSavingsBlockEscrow(bid, reason) {
+      await latency();
+      const a = requirePerm("treasury:write");
+      requireReason(reason);
+      const b = mockSavingsBlocks.find((x) => x.id === bid);
+      if (!b) throw new ApiError(404, "NOT_FOUND", "Bolsillo no encontrado.");
+      if (b.escrowStatus === "funded_locked") throw new ApiError(409, "CONFLICT", "Ya está bloqueado.");
+      const payout = BigInt(b.totalPayoutMinor);
+      const fromVault = mockSavingsVaultMinor >= payout ? payout : mockSavingsVaultMinor;
+      mockSavingsVaultMinor -= fromVault;
+      mockSavingsEscrowMinor += payout;
+      b.escrowStatus = "funded_locked";
+      b.escrowFundedAt = new Date().toISOString();
+      b.escrowFundedBy = a.email;
+      audit("savings.escrow_lock", "savings_block", bid, reason);
+      return {
+        blockId: b.id,
+        escrowStatus: "funded_locked",
+        totalPayoutMinor: b.totalPayoutMinor,
+        pool: buildSavingsPoolSummary(),
+      };
+    },
+    async fundAllMaturing72h(reason) {
+      await latency();
+      const a = requirePerm("treasury:write");
+      requireReason(reason);
+      let fundedCount = 0;
+      let totalLocked = 0n;
+      for (const b of mockSavingsBlocks) {
+        if ((b.status === "active" || b.status === "maturing_soon") && (b.hoursRemaining ?? 999) <= 72 && b.escrowStatus !== "funded_locked") {
+          const payout = BigInt(b.totalPayoutMinor);
+          const fromVault = mockSavingsVaultMinor >= payout ? payout : mockSavingsVaultMinor;
+          mockSavingsVaultMinor -= fromVault;
+          mockSavingsEscrowMinor += payout;
+          b.escrowStatus = "funded_locked";
+          b.escrowFundedAt = new Date().toISOString();
+          b.escrowFundedBy = a.email;
+          fundedCount++;
+          totalLocked += payout;
+        }
+      }
+      audit("savings.escrow_lock_batch", "savings_escrow", "COP", reason);
+      return { fundedCount, totalLockedMinor: totalLocked.toString(), pool: buildSavingsPoolSummary() };
     },
     async treasurySavingsAlerts() {
       await latency();
-      return { windowHours: 72, totalMaturing72hMinor: "0", totalMaturingCount: 0, maturingBlocks: [] };
+      const maturing = mockSavingsBlocks
+        .filter((b) => (b.status === "active" || b.status === "maturing_soon") && (b.hoursRemaining ?? 999) <= 72)
+        .map((b) => ({ ...b, hoursRemaining: b.hoursRemaining ?? 48 }));
+      const total = maturing.reduce((acc, b) => acc + BigInt(b.totalPayoutMinor), 0n);
+      const unfunded = maturing.filter((b) => b.escrowStatus !== "funded_locked");
+      const unfundedMinor = unfunded.reduce((acc, b) => acc + BigInt(b.totalPayoutMinor), 0n);
+      return {
+        windowHours: 72,
+        totalMaturing72hMinor: total.toString(),
+        unfundedMaturing72hMinor: unfundedMinor.toString(),
+        totalMaturingCount: maturing.length,
+        unfundedMaturingCount: unfunded.length,
+        maturingBlocks: clone(maturing),
+      };
     },
     async processSavingsMaturities() {
       await latency();
+      requirePerm("treasury:write");
       return { completedCount: 0 };
+    },
+
+    async loansConfig() {
+      await latency();
+      requirePerm("treasury:read");
+      return clone(mockLoanCfg);
+    },
+    async updateLoansConfig(patch, reason) {
+      await latency();
+      const a = requirePerm("treasury:write");
+      requireReason(reason);
+      mockLoanCfg = {
+        ...mockLoanCfg,
+        ...patch,
+        updatedAt: new Date().toISOString(),
+        updatedBy: a.email,
+      };
+      audit("loans.config_update", "loan_config", "COP", reason);
+      return clone(mockLoanCfg);
+    },
+    async loansPool() {
+      await latency();
+      requirePerm("treasury:read");
+      return buildLoanPoolSummary();
+    },
+    async fundLoansPool(amountMinor, reason) {
+      await latency();
+      requirePerm("treasury:write");
+      requireReason(reason);
+      mockLoanPoolMinor += BigInt(amountMinor);
+      audit("loans.pool_fund", "loan_pool", "COP", reason, null, { amountMinor });
+      return buildLoanPoolSummary();
+    },
+    async withdrawLoansPool(amountMinor, reason) {
+      await latency();
+      requirePerm("treasury:write");
+      requireReason(reason);
+      const amt = BigInt(amountMinor);
+      if (amt > mockLoanPoolMinor) throw new ApiError(422, "INSUFFICIENT_FUNDS", "Saldo insuficiente en el Bolsillo de Préstamos.");
+      mockLoanPoolMinor -= amt;
+      audit("loans.pool_withdraw", "loan_pool", "COP", reason, null, { amountMinor });
+      return buildLoanPoolSummary();
+    },
+    async loans(status) {
+      await latency();
+      requirePerm("treasury:read");
+      const items = status ? mockLoans.filter((l) => l.status === status) : mockLoans;
+      return { items: clone(items) };
+    },
+    async loanPromissoryNote(lid) {
+      await latency();
+      requirePerm("treasury:read");
+      const loan = mockLoans.find((l) => l.id === lid);
+      if (!loan) throw new ApiError(404, "NOT_FOUND", "Crédito no encontrado.");
+      const noteStatus =
+        loan.status === "approved_active" || loan.status === "overdue"
+          ? "active_enforceable"
+          : loan.status === "paid"
+            ? "cancelled_paid"
+            : loan.status === "rejected"
+              ? "voided_rejected"
+              : "signed_custody";
+      const md = `# PAGARÉ ELECTRÓNICO A LA ORDEN Nº ${loan.promissoryNoteNumber}\n\n**ACREEDOR:** XATECH SERVICES S.A.S. — NIT 901.799.579\n**DEUDOR(A):** ${loan.debtorFullName} (${loan.debtorDocumentType} ${loan.debtorDocumentNumber})\n\nPromesa incondicional de pago por capital de $${(Number(loan.principalMinor) / 100).toLocaleString("es-CO")} COP a ${loan.termDays} días (${loan.interestRateEa}% E.A.) + Carta de Instrucciones (Art. 622 C.Co.) + Autorización Habeas Data (Ley 1266 de 2008).`;
+      const note: PromissoryNoteDto = {
+        id: loan.promissoryNoteId,
+        number: loan.promissoryNoteNumber,
+        loanId: loan.id,
+        userId: loan.userId,
+        status: noteStatus,
+        integrityVerified: true,
+        principalMinor: loan.principalMinor,
+        interestMinor: loan.interestMinor,
+        totalDueMinor: loan.totalDueMinor,
+        paidMinor: loan.paidMinor,
+        remainingMinor: loan.remainingMinor,
+        termDays: loan.termDays,
+        interestRateEa: loan.interestRateEa,
+        nominalMonthlyPercent: loan.nominalMonthlyPercent,
+        moratoryRateEa: loan.moratoryRateEa,
+        currency: "COP",
+        creditorLegalName: "XATECH SERVICES S.A.S.",
+        creditorNit: "901.799.579",
+        creditorDomicile: "Bogotá D.C., República de Colombia",
+        debtorFullName: loan.debtorFullName,
+        debtorDocumentType: loan.debtorDocumentType,
+        debtorDocumentNumber: loan.debtorDocumentNumber,
+        debtorEmail: loan.debtorEmail,
+        debtorPhone: loan.debtorPhone,
+        debtorCity: loan.debtorCity,
+        sumsubApplicantId: "sumsub_demo_verified",
+        documentMarkdown: md,
+        documentSha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        signature: {
+          method: "ECDSA_P256_SHA256_SECURE_ENCLAVE",
+          deviceId: "dev_demo_iphone16",
+          deviceName: "iPhone 16 Pro",
+          devicePublicKey: "BElDemoSecureEnclavePublicKeyX963Base64==",
+          ecdsaSignatureBase64: "MEYCIQDemoSignatureRComponentAiBDemoSignatureSComponent==",
+          canonicalSha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          nonce: "demo-nonce-pagare-001",
+          timestampSec: Math.floor(Date.parse(loan.requestedAt) / 1000),
+          signedAt: loan.requestedAt,
+          signerIp: "181.51.120.44",
+          signerUserAgent: "CuyPay-iOS/2.0",
+          acceptedPagare: true,
+          acceptedInstructionLetter: true,
+          acceptedCreditBureauAuth: true,
+        },
+        disbursedAt: loan.disbursedAt,
+        dueAt: loan.dueAt,
+        cancelledAt: loan.paidAt ?? loan.rejectedAt,
+        createdAt: loan.requestedAt,
+        printableHtml: `<!DOCTYPE html><html lang="es-CO"><head><meta charset="utf-8"/><title>Pagaré ${loan.promissoryNoteNumber}</title></head><body style="font-family:Georgia,serif;max-width:760px;margin:24px auto;line-height:1.6"><h1>PAGARÉ ELECTRÓNICO A LA ORDEN Nº ${loan.promissoryNoteNumber}</h1><p><strong>Acreedor:</strong> XATECH SERVICES S.A.S. — NIT 901.799.579</p><p><strong>Deudor:</strong> ${loan.debtorFullName} (${loan.debtorDocumentType} ${loan.debtorDocumentNumber})</p><p><strong>Capital:</strong> $${(Number(loan.principalMinor) / 100).toLocaleString("es-CO")} COP · <strong>Plazo:</strong> ${loan.termDays} días · <strong>Tasa:</strong> ${loan.interestRateEa}% E.A.</p><p><strong>Total exigible:</strong> $${(Number(loan.totalDueMinor) / 100).toLocaleString("es-CO")} COP</p><hr/><p>Firmado electrónicamente con Secure Enclave ECDSA P-256 conforme a la Ley 527 de 1999, Decreto 2364 de 2012 y Arts. 621, 622 y 709 del Código de Comercio.</p></body></html>`,
+      };
+      return note;
+    },
+    async approveLoan(lid, reason) {
+      await latency();
+      const a = requirePerm("treasury:write");
+      requireReason(reason);
+      const loan = mockLoans.find((l) => l.id === lid);
+      if (!loan) throw new ApiError(404, "NOT_FOUND", "Solicitud no encontrada.");
+      if (loan.status !== "pending_review") throw new ApiError(409, "CONFLICT", "La solicitud ya fue procesada.");
+      const principal = BigInt(loan.principalMinor);
+      if (mockLoanPoolMinor < principal) {
+        throw new ApiError(422, "INSUFFICIENT_FUNDS", "Saldo insuficiente en el Bolsillo de Préstamos. Fondea primero el bolsillo.");
+      }
+      mockLoanPoolMinor -= principal;
+      const now = new Date();
+      const due = new Date(now.getTime() + loan.termDays * DAY);
+      loan.status = "approved_active";
+      loan.approvedAt = now.toISOString();
+      loan.approvedBy = a.email;
+      loan.disbursedAt = now.toISOString();
+      loan.dueAt = due.toISOString();
+      loan.daysRemaining = loan.termDays;
+      audit("loans.approve", "loan", lid, reason);
+      return { loan: clone(loan), pool: buildLoanPoolSummary() };
+    },
+    async rejectLoan(lid, reason) {
+      await latency();
+      requirePerm("treasury:write");
+      requireReason(reason);
+      const loan = mockLoans.find((l) => l.id === lid);
+      if (!loan) throw new ApiError(404, "NOT_FOUND", "Solicitud no encontrada.");
+      if (loan.status !== "pending_review") throw new ApiError(409, "CONFLICT", "La solicitud ya fue procesada.");
+      loan.status = "rejected";
+      loan.rejectedAt = new Date().toISOString();
+      loan.rejectedReason = reason;
+      loan.remainingMinor = "0";
+      audit("loans.reject", "loan", lid, reason);
+      return { loan: clone(loan), pool: buildLoanPoolSummary() };
     },
 
     subscribe(onEvent, onStatus?: (st: StreamStatus) => void) {

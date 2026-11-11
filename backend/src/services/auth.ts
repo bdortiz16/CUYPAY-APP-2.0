@@ -632,22 +632,28 @@ export class AuthService {
 
     const now = this.d.clock.now();
     let device: Device | null = null;
+    const existingDevices = await this.d.repos.devices.listByUser(user.id);
     if (input.devicePublicKey) {
-      p256PublicKeyFromX963(input.devicePublicKey);
-      device = {
-        id: newId('dev', now),
-        userId: user.id,
-        name: (input.deviceName || 'iPhone').trim(),
-        publicKey: input.devicePublicKey.trim(),
-        createdAt: now,
-        lastUsedAt: now,
-        revokedAt: null,
-      };
-      await this.d.repos.devices.create(device);
-      await this.d.events.publish({ type: 'device.created', device });
+      const trimmedPubKey = input.devicePublicKey.trim();
+      p256PublicKeyFromX963(trimmedPubKey);
+      const matchingExisting = existingDevices.find((d: Device) => !d.revokedAt && d.publicKey === trimmedPubKey);
+      if (matchingExisting) {
+        device = matchingExisting;
+      } else {
+        device = {
+          id: newId('dev', now),
+          userId: user.id,
+          name: (input.deviceName || 'iPhone').trim(),
+          publicKey: trimmedPubKey,
+          createdAt: now,
+          lastUsedAt: now,
+          revokedAt: null,
+        };
+        await this.d.repos.devices.create(device);
+        await this.d.events.publish({ type: 'device.created', device });
+      }
     } else {
-      const devices = await this.d.repos.devices.listByUser(user.id);
-      device = devices.find((d: Device) => !d.revokedAt) || null;
+      device = existingDevices.find((d: Device) => !d.revokedAt && Boolean(d.publicKey)) || existingDevices.find((d: Device) => !d.revokedAt) || null;
       if (!device) {
         device = {
           id: newId('dev', now),
@@ -665,6 +671,24 @@ export class AuthService {
     device.lastUsedAt = now;
     await this.d.repos.devices.update(device);
     return this.issueSession(user, device, newId('sfm', now));
+  }
+
+  async changePassword(userId: string, input: { currentPassword?: string; newPassword: string }): Promise<void> {
+    const user = await this.d.repos.users.byId(userId);
+    if (!user) throw new AppError('NOT_FOUND', 'Usuario no encontrado');
+    if (user.passwordHash) {
+      if (!input.currentPassword) {
+        throw new AppError('VALIDATION_ERROR', 'Ingresa tu contraseña actual para cambiarla');
+      }
+      const expectedHash = Buffer.from(user.passwordHash, 'hex');
+      const actualHash = Buffer.from(this.hashPassword(user.id, input.currentPassword), 'hex');
+      if (expectedHash.length !== actualHash.length || !timingSafeEqual(expectedHash, actualHash)) {
+        throw new AppError('UNAUTHORIZED', 'La contraseña actual no es correcta');
+      }
+    }
+    user.passwordHash = this.hashPassword(user.id, input.newPassword);
+    user.updatedAt = this.d.clock.now();
+    await this.d.repos.users.update(user);
   }
 
   // ───────────── Login por desafío ─────────────

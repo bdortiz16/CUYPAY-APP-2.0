@@ -69,15 +69,25 @@ export class PushNotificationService {
 
     const formattedAmount = formatCopAmount(txn.amountMinor);
     const senderTrimmed = txn.title.trim();
+    const isSavingsMaturity = Boolean(txn.providerRef?.startsWith('sbk_'));
+    const isLoanDisbursement = Boolean(txn.providerRef?.startsWith('loan_'));
     const hasSender =
       senderTrimmed.length > 0 &&
       senderTrimmed.toLowerCase() !== 'depósito bre-b' &&
       senderTrimmed.toLowerCase() !== 'deposito bre-b';
 
-    const title = `¡Recibiste ${formattedAmount}!`;
-    const body = hasSender
+    let title = `¡Recibiste ${formattedAmount}!`;
+    let body = hasSender
       ? `Recibiste ${formattedAmount} de ${senderTrimmed} en tu cuenta CuyPay.`
       : `Recibiste ${formattedAmount} por Bre-B en tu cuenta CuyPay.`;
+
+    if (isSavingsMaturity) {
+      title = `¡Recibiste ${formattedAmount}!`;
+      body = `Se reintegró tu Bolsillo de Ahorro (capital + intereses) por ${formattedAmount} en tu cuenta CuyPay.`;
+    } else if (isLoanDisbursement) {
+      title = `¡Crédito desembolsado: ${formattedAmount}!`;
+      body = `Aprobamos tu solicitud y acreditamos ${formattedAmount} en tu cuenta CuyPay.`;
+    }
 
     const payload = JSON.stringify({
       aps: {

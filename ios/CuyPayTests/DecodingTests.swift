@@ -349,4 +349,87 @@ struct DecodingTests {
         #expect(updated.email == "cliente@cuypay.co")
         #expect(updated.phoneVerified == true)
     }
+
+    @Test("Bolsillo de Ahorro soporta plazos 30/60/90/180/360d, reserva 72h y certificado")
+    @MainActor
+    func savingsPocketAndCertificateFlow() async throws {
+        let canceledBlock = try decode(SavingsBlock.self, """
+        { "id": "sav_1", "termDays": 90, "principalMinor": "50000000", "lockedRate": 11.5,
+          "expectedYieldMinor": "1417808", "totalPayoutMinor": "51417808", "currency": "COP",
+          "status": "canceled", "escrowStatus": "funded_locked",
+          "startedAt": "2026-11-11T12:00:00Z", "maturesAt": "2027-02-09T12:00:00Z" }
+        """)
+        #expect(canceledBlock.status == .cancelled)
+        #expect(canceledBlock.escrowStatus == "funded_locked")
+
+        let api = MockAPIClient(latency: .zero)
+        let cfg = try await api.savingsConfig()
+        #expect(cfg.rates.map(\.termDays) == [30, 60, 90, 180, 360])
+
+        let beforeWallets = try await api.wallets()
+        let beforeCop = beforeWallets.first(where: { $0.currency == .cop })?.availableMinor ?? 0
+
+        let created = try await api.createSavingsBlock(termDays: 60, amountMinor: 10_000_000)
+        #expect(created.termDays == 60)
+        #expect(created.principal.minorUnits == 10_000_000)
+
+        let afterWallets = try await api.wallets()
+        let afterCop = afterWallets.first(where: { $0.currency == .cop })?.availableMinor ?? 0
+        #expect(afterCop == beforeCop - 10_000_000)
+
+        let cert = try await api.savingsCertificate(id: created.id)
+        #expect(cert.id == created.id)
+        #expect(cert.termDays == 60)
+    }
+
+    @Test("Créditos CuyPay genera Pagaré Electrónico con SHA-256 y permite pago anticipado sin penalidad")
+    @MainActor
+    func loansAndPromissoryNoteFlow() async throws {
+        let api = MockAPIClient(latency: .zero)
+        let cfg = try await api.loansConfig()
+        #expect(cfg.rates.map(\.termDays) == [30, 60, 90, 180, 360])
+        #expect(cfg.creditorNit == "901.799.579")
+
+        let preview = try await api.previewLoan(
+            LoanPreviewRequest(
+                principalMinor: "20000000",
+                termDays: 90,
+                purpose: "Capital de trabajo",
+                documentType: "CC",
+                documentNumber: "1020304050",
+                city: "Bogotá D.C."
+            )
+        )
+        #expect(preview.termDays == 90)
+        #expect(preview.documentSha256.count == 64)
+        #expect(preview.documentMarkdown.contains("XATECH SERVICES S.A.S."))
+
+        let applied = try await api.applyLoan(
+            LoanApplyRequest(
+                principalMinor: preview.principalMinor,
+                termDays: preview.termDays,
+                purpose: "Capital de trabajo",
+                documentType: "CC",
+                documentNumber: "1020304050",
+                city: "Bogotá D.C.",
+                documentSha256: preview.documentSha256,
+                acceptedPagare: true,
+                acceptedInstructionLetter: true,
+                acceptedCreditBureauAuth: true
+            )
+        )
+        #expect(applied.status == .pendingReview)
+
+        let note = try await api.loanPromissoryNote(id: applied.id)
+        #expect(note.documentSha256 == preview.documentSha256)
+        #expect(note.integrityVerified == true)
+
+        // El crédito activo semilla de MockAPIClient permite pago parcial o total sin penalidad
+        let list = try await api.userLoans()
+        if let activeLoan = list.loans.first(where: { $0.status == .approvedActive }) {
+            let paid = try await api.payLoan(id: activeLoan.id, amountMinor: 5_000_000)
+            #expect(paid.loan.paid.minorUnits >= 5_000_000)
+        }
+    }
 }
+

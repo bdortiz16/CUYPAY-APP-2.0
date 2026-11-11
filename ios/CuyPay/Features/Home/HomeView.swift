@@ -16,6 +16,7 @@ enum HomeSheet: Identifiable, Hashable {
     case convert
     case card
     case savingsVault
+    case loans
     case menu
     case addBeneficiary
     case kyc
@@ -28,6 +29,7 @@ enum HomeSheet: Identifiable, Hashable {
         case .convert: "convert"
         case .card: "card"
         case .savingsVault: "savingsVault"
+        case .loans: "loans"
         case .menu: "menu"
         case .addBeneficiary: "addBeneficiary"
         case .kyc: "kyc"
@@ -73,13 +75,35 @@ struct HomeView: View {
                         }
 
                         HStack(alignment: .top, spacing: 12) {
-                            RateChartCard(rate: store.fxRate)
+                            RateChartCard(
+                                rate: store.fxRate,
+                                isLoading: !store.hasLoadedOnce,
+                                onTap: store.fxRate != nil ? { openGated(.convert) } : nil
+                            )
                             CardQuickCard(
                                 card: store.activeCard,
                                 hideAmounts: hideAmounts,
                                 isLoading: !store.cardsLoaded,
                                 onTap: { openGated(.card) }
                             )
+                        }
+
+                        // Accesos directos a Bolsillo de Ahorro y Créditos
+                        HStack(spacing: 12) {
+                            quickFinancePill(
+                                title: "Bolsillo de Ahorro",
+                                subtitle: "30 a 360 días",
+                                systemImage: "lock.rotation"
+                            ) {
+                                openGated(.savingsVault)
+                            }
+                            quickFinancePill(
+                                title: "Créditos",
+                                subtitle: "Solicita hasta 360d",
+                                systemImage: "banknote.fill"
+                            ) {
+                                openGated(.loans)
+                            }
                         }
 
                         TransactionsSection(
@@ -103,7 +127,7 @@ struct HomeView: View {
                 BottomActionBar(
                     onSend: { openGated(.send(preselected: nil)) },
                     onMenu: { sheet = .menu },
-                    onReceive: { sheet = .receive }
+                    onReceive: { openGated(.receive) }
                 )
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -144,6 +168,46 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    private func quickFinancePill(
+        title: LocalizedStringKey,
+        subtitle: LocalizedStringKey,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(Theme.spruce)
+                    .frame(width: 34, height: 34)
+                    .background(Theme.spruce.opacity(0.12), in: .circle)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            .contentShape(.rect(cornerRadius: 20))
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 20))
     }
 
     // MARK: Encabezado
@@ -213,12 +277,15 @@ struct HomeView: View {
         case .savingsVault:
             SavingsView()
                 .presentationDragIndicator(.visible)
+        case .loans:
+            LoansView()
+                .presentationDragIndicator(.visible)
         case .menu:
             MainMenuSheet(canConvert: store.wallets.count > 1 || store.fxRate != nil) { action in
                 pendingAction = action
                 self.sheet = nil
             }
-            .presentationDetents([.height(440)])
+            .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         case .addBeneficiary:
             AddBeneficiaryFlowView()
@@ -248,8 +315,9 @@ struct HomeView: View {
         switch action {
         case .card: openGated(.card)
         case .savingsVault: openGated(.savingsVault)
+        case .loans: openGated(.loans)
         case .convert: openGated(.convert)
-        case .brebKey: sheet = .receive
+        case .brebKey: openGated(.receive)
         case .beneficiaries: path.append(.beneficiaries)
         case .limits: path.append(.limits)
         case .profile: path.append(.profile)
@@ -387,12 +455,15 @@ enum TransactionFilter: String, CaseIterable, Identifiable, Hashable {
     }
 
     func matches(_ transaction: WalletTransaction, pocket: Currency) -> Bool {
+        let isIncomingConversion = transaction.type == .conversion
+            && transaction.conversion?.toCurrency == pocket
+            && transaction.currency != pocket
         switch self {
-        case .all: true
-        case .incoming: transaction.type == .deposit
-        case .outgoing: transaction.type == .transfer
-        case .cards: transaction.type == .cardPocket || transaction.type == .cardPurchase
-        case .conversions: transaction.type == .conversion
+        case .all: return true
+        case .incoming: return transaction.direction == .in || isIncomingConversion
+        case .outgoing: return transaction.direction == .out && !isIncomingConversion
+        case .cards: return transaction.type == .cardPocket || transaction.type == .cardPurchase
+        case .conversions: return transaction.type == .conversion
         }
     }
 }
@@ -408,7 +479,7 @@ extension WalletTransaction {
 // MARK: - Menú (⊞)
 
 enum MenuAction: Hashable {
-    case card, convert, brebKey, beneficiaries, savingsVault, limits, profile
+    case card, convert, brebKey, beneficiaries, savingsVault, loans, limits, profile
 }
 
 struct MainMenuSheet: View {
@@ -418,26 +489,30 @@ struct MainMenuSheet: View {
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("¿Qué quieres hacer?")
-                .font(.system(.title3, design: .serif).weight(.semibold))
-                .padding(.top, 24)
-            GlassEffectContainer(spacing: 12) {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    tile("Mi Tarjeta", "creditcard.fill", .card)
-                    tile("Bloque de Ahorro", "lock.rotation", .savingsVault)
-                    if canConvert {
-                        tile("Convertir", "arrow.left.arrow.right", .convert)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("¿Qué quieres hacer?")
+                    .font(.system(.title3, design: .serif).weight(.semibold))
+                    .padding(.top, 24)
+                GlassEffectContainer(spacing: 12) {
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        tile("Mi Tarjeta", "creditcard.fill", .card)
+                        tile("Bolsillo de Ahorro", "lock.rotation", .savingsVault)
+                        tile("Créditos", "banknote.fill", .loans)
+                        if canConvert {
+                            tile("Convertir", "arrow.left.arrow.right", .convert)
+                        }
+                        tile("Mi llave Bre-B", "key.fill", .brebKey)
+                        tile("Beneficiarios", "person.2.fill", .beneficiaries)
+                        tile("Límites", "gauge.with.dots.needle.67percent", .limits)
+                        tile("Perfil y seguridad", "lock.shield.fill", .profile)
                     }
-                    tile("Mi llave Bre-B", "key.fill", .brebKey)
-                    tile("Beneficiarios", "person.2.fill", .beneficiaries)
-                    tile("Límites", "gauge.with.dots.needle.67percent", .limits)
-                    tile("Perfil y seguridad", "lock.shield.fill", .profile)
                 }
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
         }
-        .padding(.horizontal, 20)
+        .scrollIndicators(.hidden)
     }
 
     private func tile(_ title: LocalizedStringKey, _ systemImage: String, _ action: MenuAction) -> some View {
@@ -524,6 +599,7 @@ struct NotificationsSheet: View {
 
     private func notificationCard(for txn: WalletTransaction) -> some View {
         let isIncomingDeposit = txn.type == .deposit && txn.direction == .in
+        let isIncomingCredit = (txn.type == .deposit || txn.type == .loan || txn.type == .savings) && txn.direction == .in
         let amountStr = hideAmounts ? txn.amount.maskedString : txn.amount.formatted()
         let sender = txn.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasNamedSender = !sender.isEmpty && sender.lowercased() != "depósito bre-b" && sender.lowercased() != "deposito bre-b"
@@ -539,6 +615,10 @@ struct NotificationsSheet: View {
             txn.direction == .out ? "Recargaste tu tarjeta · \(amountStr)" : "Retiro de tarjeta · \(amountStr)"
         case .conversion:
             "Conversión realizada · \(amountStr)"
+        case .savings:
+            txn.direction == .in ? "¡Reintegro de ahorro · \(amountStr)!" : "Ahorro bloqueado · \(amountStr)"
+        case .loan:
+            txn.direction == .in ? "¡Crédito desembolsado · \(amountStr)!" : "Pago de crédito · \(amountStr)"
         case .unknown:
             "\(txn.title) · \(amountStr)"
         }
@@ -556,10 +636,12 @@ struct NotificationsSheet: View {
         case .transfer: "arrow.up.right.circle.fill"
         case .cardPurchase, .cardPocket: "creditcard.circle.fill"
         case .conversion: "arrow.left.arrow.right.circle.fill"
+        case .savings: "lock.circle.fill"
+        case .loan: "banknote.fill"
         case .unknown: "bell.circle.fill"
         }
 
-        let iconTint: Color = isIncomingDeposit ? Theme.positive : Theme.spruce
+        let iconTint: Color = isIncomingCredit ? Theme.positive : Theme.spruce
 
         return HStack(alignment: .top, spacing: 12) {
             Image(systemName: iconName)

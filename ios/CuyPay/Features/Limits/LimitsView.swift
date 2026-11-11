@@ -2,7 +2,10 @@ import SwiftUI
 
 /// Límites diarios / mensuales / anuales por operación (en COP equivalente, zona America/Bogota).
 struct LimitsView: View {
+    @Environment(AppModel.self) private var app
     @Environment(WalletStore.self) private var store
+    @State private var isFetching = false
+    @State private var loadError: String?
 
     var body: some View {
         ZStack {
@@ -32,17 +35,36 @@ struct LimitsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 4)
+                    } else if let loadError, !isFetching {
+                        VStack(spacing: 14) {
+                            ErrorBanner(message: loadError)
+                            SecondaryButton(title: "Reintentar", systemImage: "arrow.clockwise") {
+                                Task { await reload() }
+                            }
+                        }
+                        .padding(.top, 32)
                     } else {
-                        ProgressView()
+                        ProgressView("Cargando límites…")
                             .padding(.top, 80)
                     }
                 }
                 .padding(Theme.horizontalPadding)
             }
-            .refreshable { await store.refreshLimits() }
+            .refreshable { await reload() }
         }
         .navigationTitle("Límites")
-        .task { await store.refreshLimits() }
+        .task { await reload() }
+    }
+
+    private func reload() async {
+        isFetching = true
+        loadError = nil
+        do {
+            store.limits = try await app.api.limits()
+        } catch {
+            loadError = error.userMessage
+        }
+        isFetching = false
     }
 }
 

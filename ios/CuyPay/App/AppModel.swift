@@ -43,8 +43,9 @@ final class AppModel {
     var isLocked = false
     private var backgroundedAt: Date?
     var autoLockSeconds: TimeInterval {
+        guard UserDefaults.standard.object(forKey: Self.autoLockKey) != nil else { return 60 }
         let val = UserDefaults.standard.double(forKey: Self.autoLockKey)
-        return val > 0 ? val : 60
+        return [0, 60, 300, 900].contains(Int(val)) ? val : 60
     }
 
     init(environment: AppEnvironment, api: any CuyPayAPI, deviceKeys: any DeviceSigning) {
@@ -177,9 +178,17 @@ final class AppModel {
         defer { isAuthenticating = false }
 
         do {
-            let digits = phone.filter(\.isASCIIDigit)
+            var digits = phone.filter(\.isASCIIDigit)
+            if digits.count == 12 && digits.hasPrefix("57") {
+                digits = String(digits.dropFirst(2))
+            }
             let formattedPhone = phone.hasPrefix("+") ? phone : (digits.count == 10 ? "+57\(digits)" : phone)
-            let pubKey = try? await deviceKeys.createKey()
+            let pubKey: String?
+            if deviceKeys.hasKey(), let existing = try? deviceKeys.publicKeyBase64() {
+                pubKey = existing
+            } else {
+                pubKey = try? await deviceKeys.createKey()
+            }
             let session = try await api.loginWithPassword(
                 phone: formattedPhone,
                 password: password,

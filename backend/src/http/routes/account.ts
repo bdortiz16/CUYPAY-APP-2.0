@@ -124,12 +124,27 @@ export function registerAccountRoutes(app: FastifyInstance, { deps, services }: 
     return reply.status(204).send();
   });
 
-  app.get('/me/security', auth, async () => {
+  app.get('/me/security', auth, async (req) => {
+    const user = await h.currentUser(req);
     return {
       idleTimeoutMinutes: 15,
       autoLockSeconds: 60,
       biometryRequired: true,
-      allowedIdleOptions: [60, 300, 900],
+      hasPassword: Boolean(user.passwordHash),
+      allowedIdleOptions: [0, 60, 300, 900],
     };
   });
+
+  app.post('/me/password', authRl, async (req) => {
+    const body = parse(
+      z.object({
+        currentPassword: z.string().min(1).max(200).optional(),
+        newPassword: z.string().min(4, 'La nueva contraseña debe tener al menos 4 caracteres').max(200),
+      }),
+      req.body,
+    );
+    await services.auth.changePassword(req.auth!.userId, body);
+    return { updated: true };
+  });
 }
+

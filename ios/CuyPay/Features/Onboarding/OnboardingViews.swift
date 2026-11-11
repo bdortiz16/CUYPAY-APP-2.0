@@ -59,6 +59,7 @@ struct WelcomeView: View {
     @Environment(AppModel.self) private var app
     let model: OnboardingModel
     @State private var appeared = false
+    @State private var showPasswordLogin = false
 
     var body: some View {
         ZStack {
@@ -72,7 +73,7 @@ struct WelcomeView: View {
                     .font(.system(.largeTitle, design: .rounded).weight(.bold))
                     .fixedSize(horizontal: false, vertical: true)
 
-                    Text("Recibe en COP con Bre-B, convierte a BRL, envía al instante.")
+                    Text("Recibe en COP con Bre-B, ahorra con intereses, pide créditos y envía al instante.")
                         .font(.title3)
                         .foregroundStyle(.secondary)
 
@@ -81,16 +82,16 @@ struct WelcomeView: View {
                             ValuePropRow(
                                 systemImage: "arrow.down.left.circle.fill",
                                 title: "Recibe en COP con Bre-B",
-                                subtitle: "Tu propia llave Bre-B para recibir desde cualquier banco."
+                                subtitle: "Tu propia llave Bre-B personalizada desde cualquier banco."
                             )
                             ValuePropRow(
-                                systemImage: "arrow.left.arrow.right.circle.fill",
-                                title: "Convierte a BRL",
-                                subtitle: "Tasa transparente y sin costos ocultos."
+                                systemImage: "creditcard.circle.fill",
+                                title: "Tarjeta Virtual, Ahorro y Créditos",
+                                subtitle: "Paga con Apple Pay, bloquea ahorro con intereses o solicita crédito."
                             )
                             ValuePropRow(
                                 systemImage: "paperplane.circle.fill",
-                                title: "Envía al instante",
+                                title: "Envía al instante sin 4x1000",
                                 subtitle: "Pagos Bre-B 24/7 a tus beneficiarios inscritos."
                             )
                         }
@@ -112,16 +113,25 @@ struct WelcomeView: View {
                 PrimaryButton(title: "Crear cuenta", systemImage: "person.badge.plus") {
                     model.path.append(.phone)
                 }
+                SecondaryButton(title: "Ya tengo cuenta · Iniciar sesión", systemImage: "person.crop.circle.badge.checkmark") {
+                    showPasswordLogin = true
+                }
                 if app.environment.isMock {
-                    SecondaryButton(title: "Explorar demo", systemImage: "sparkles") {
+                    Button("Explorar modo demo") {
                         app.enterDemo()
                     }
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.spruce)
+                    .padding(.top, 2)
                 }
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 8)
         }
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $showPasswordLogin) {
+            PasswordLoginSheet()
+        }
         .onAppear {
             withAnimation(.smooth(duration: 0.8).delay(0.15)) { appeared = true }
         }

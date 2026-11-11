@@ -205,9 +205,18 @@ struct PasswordLoginSheet: View {
                             TextField("300 123 4567", text: $phoneDigits)
                                 .keyboardType(.numberPad)
                                 .textContentType(.telephoneNumber)
+                                .monospacedDigit()
                                 .focused($focused, equals: .phone)
                                 .padding(14)
                                 .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                                .onChange(of: phoneDigits) {
+                                    var digits = phoneDigits.filter(\.isASCIIDigit)
+                                    if digits.count == 12 && digits.hasPrefix("57") {
+                                        digits = String(digits.dropFirst(2))
+                                    }
+                                    let cleaned = String(digits.prefix(10))
+                                    if cleaned != phoneDigits { phoneDigits = cleaned }
+                                }
                         }
 
                         SecureField("Contraseña o PIN", text: $password)
@@ -226,7 +235,7 @@ struct PasswordLoginSheet: View {
                     PrimaryButton(
                         title: "Ingresar",
                         isLoading: app.isAuthenticating,
-                        isEnabled: phoneDigits.filter(\.isASCIIDigit).count >= 10 && password.count >= 4
+                        isEnabled: phoneDigits.filter(\.isASCIIDigit).count == 10 && password.count >= 4
                     ) {
                         Task {
                             errorMessage = nil

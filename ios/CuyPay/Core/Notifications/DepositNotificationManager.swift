@@ -52,20 +52,28 @@ final class DepositNotificationManager: NSObject, UNUserNotificationCenterDelega
         let amountText = txn.amount.formatted()
         let sender = txn.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowerSender = sender.lowercased()
-        let hasNamedSender =
-            !sender.isEmpty &&
-            lowerSender != "depósito bre-b" &&
-            lowerSender != "deposito bre-b"
 
         let content = UNMutableNotificationContent()
-        content.title = "¡Recibiste \(amountText)!"
-        content.body = hasNamedSender
-            ? "Recibiste \(amountText) de \(sender) en tu cuenta CuyPay."
-            : "Recibiste \(amountText) por Bre-B en tu cuenta CuyPay."
+        if txn.type == .loan || lowerSender.contains("crédito") || lowerSender.contains("credito") {
+            content.title = "¡Crédito desembolsado!"
+            content.body = "Ya tienes \(amountText) disponibles en tu cuenta CuyPay."
+        } else if txn.type == .savings || lowerSender.contains("ahorro") {
+            content.title = "¡Bolsillo de Ahorro liquidado!"
+            content.body = "Se reintegraron \(amountText) (capital + intereses) en tu saldo disponible."
+        } else {
+            let hasNamedSender =
+                !sender.isEmpty &&
+                lowerSender != "depósito bre-b" &&
+                lowerSender != "deposito bre-b"
+            content.title = "¡Recibiste \(amountText)!"
+            content.body = hasNamedSender
+                ? "Recibiste \(amountText) de \(sender) en tu cuenta CuyPay."
+                : "Recibiste \(amountText) por Bre-B en tu cuenta CuyPay."
+        }
         content.sound = .default
         content.userInfo = [
             "txnId": txn.id,
-            "type": "deposit"
+            "type": txn.type.rawValue
         ]
 
         let request = UNNotificationRequest(

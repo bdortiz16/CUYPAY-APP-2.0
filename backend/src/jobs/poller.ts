@@ -19,6 +19,10 @@ export function startPoller(container: Container): () => void {
       if (changed) deps.logger.info({ changed }, 'pending transfers updated');
       const cardTxns = await services.cards.syncPurchases();
       if (cardTxns) deps.logger.info({ cardTxns }, 'card purchases synced');
+      const matured = await services.savings.processMaturities();
+      if (matured.completedCount) deps.logger.info({ completedCount: matured.completedCount }, 'savings blocks matured and credited');
+      const overdue = await services.loans.syncOverdueLoans();
+      if (overdue) deps.logger.info({ overdue }, 'overdue loans flagged');
     } catch (err) {
       deps.logger.error({ err: (err as Error).message }, 'poller tick failed');
     } finally {

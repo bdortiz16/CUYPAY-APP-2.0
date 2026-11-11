@@ -163,7 +163,7 @@ export interface Beneficiary {
   deletedAt: Date | null;
 }
 
-export type TxnType = 'deposit' | 'transfer' | 'conversion' | 'card_pocket' | 'card_purchase';
+export type TxnType = 'deposit' | 'transfer' | 'conversion' | 'card_pocket' | 'card_purchase' | 'savings' | 'loan';
 export type TxnStatus = 'pending' | 'completed' | 'failed' | 'reversed';
 export interface ConversionInfo {
   fromCurrency: Currency;
@@ -236,7 +236,10 @@ export type LedgerAccountKind =
   | 'user_available'
   | 'user_held'
   | 'card_pocket' // bolsillo dedicado de la tarjeta virtual (pasivo de usuario)
-  | 'savings_vault' // fondos en custodia de bloques de ahorro a plazo fijo
+  | 'savings_vault' // bolsillo recaudo de ahorros / intereses (fondos captados de bloques a plazo)
+  | 'savings_escrow' // reserva bloqueada 72h antes del vencimiento (capital + intereses listos para reintegro)
+  | 'loan_pool' // bolsillo disponible de préstamos (recursos propios para desembolsar créditos)
+  | 'treasury_capital' // contrapartida patrimonial interna para fondeo/retiro de bolsillos admin
   | 'breb_settlement' // contrapartida: cuenta COP en Coinsenda
   | 'fx_clearing' // contrapartida con el proveedor de liquidez BRL
   | 'fee_revenue'
@@ -266,9 +269,10 @@ export interface ProcessedDeposit {
   note: string | null;
 }
 
-// ───────────── Bloques de Ahorro (Pólizas / Bóveda a Plazo) ─────────────
+// ───────────── Bloques de Ahorro (Bolsillo de Ahorros a Plazo) ─────────────
 
 export type SavingsBlockStatus = 'active' | 'maturing_soon' | 'completed' | 'canceled';
+export type SavingsEscrowStatus = 'unfunded' | 'funded_locked' | 'settled';
 
 export interface SavingsRateTier {
   termDays: number;
@@ -295,6 +299,9 @@ export interface SavingsBlock {
   totalPayoutMinor: bigint;
   currency: Currency;
   status: SavingsBlockStatus;
+  escrowStatus?: SavingsEscrowStatus;
+  escrowFundedAt?: Date | null;
+  escrowFundedBy?: string | null;
   startedAt: Date;
   maturesAt: Date;
   completedAt: Date | null;
@@ -302,4 +309,135 @@ export interface SavingsBlock {
   contractAcceptedAt: Date;
   createdAt: Date;
 }
+
+// ───────────── Créditos con Recursos Propios + Pagaré Electrónico (Colombia) ─────────────
+
+export const ALLOWED_LOAN_TERMS = [30, 60, 90, 180, 360] as const;
+export type LoanTermDays = (typeof ALLOWED_LOAN_TERMS)[number];
+
+export type LoanStatus =
+  | 'pending_review'
+  | 'approved_active'
+  | 'overdue'
+  | 'paid'
+  | 'rejected'
+  | 'canceled';
+
+export type PromissoryNoteStatus =
+  | 'signed_custody'
+  | 'active_enforceable'
+  | 'cancelled_paid'
+  | 'voided_rejected';
+
+export interface LoanRateTier {
+  termDays: number;
+  rateEaPercent: number;
+  enabled: boolean;
+}
+
+export interface LoanConfig {
+  enabled: boolean;
+  rates: LoanRateTier[];
+  /** Tope máximo legal de usura E.A. certificado por la Superintendencia Financiera de Colombia. */
+  usuryCeilingEaPercent: number;
+  /** Tasa moratoria E.A. aplicable en caso de mora (siempre <= usuryCeilingEaPercent). */
+  moratoryRateEaPercent: number;
+  minAmountMinor: bigint;
+  maxAmountMinor: bigint;
+  creditorLegalName: string;
+  creditorNit: string;
+  creditorDomicile: string;
+  updatedAt: Date;
+  updatedBy: string;
+}
+
+export interface ElectronicSignatureEvidence {
+  method: 'ECDSA_P256_SHA256_SECURE_ENCLAVE';
+  deviceId: string;
+  deviceName: string;
+  devicePublicKey: string;
+  ecdsaSignatureBase64: string;
+  canonicalSha256: string;
+  nonce: string;
+  timestampSec: number;
+  signedAt: string;
+  signerIp: string;
+  signerUserAgent: string;
+  acceptedPagare: boolean;
+  acceptedInstructionLetter: boolean;
+  acceptedCreditBureauAuth: boolean;
+}
+
+export interface PromissoryNote {
+  id: string;
+  number: string; // Ej: PAG-2026-000101
+  loanId: string;
+  userId: string;
+  status: PromissoryNoteStatus;
+  principalMinor: bigint;
+  interestMinor: bigint;
+  totalDueMinor: bigint;
+  termDays: number;
+  interestRateEa: number;
+  nominalMonthlyPercent: number;
+  moratoryRateEa: number;
+  currency: Currency;
+  creditorLegalName: string;
+  creditorNit: string;
+  creditorDomicile: string;
+  debtorFullName: string;
+  debtorDocumentType: string;
+  debtorDocumentNumber: string;
+  debtorEmail: string;
+  debtorPhone: string;
+  debtorCity: string;
+  sumsubApplicantId: string | null;
+  documentMarkdown: string;
+  documentSha256: string;
+  signature: ElectronicSignatureEvidence;
+  disbursedAt: Date | null;
+  dueAt: Date | null;
+  cancelledAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Loan {
+  id: string;
+  userId: string;
+  promissoryNoteId: string;
+  promissoryNoteNumber: string;
+  principalMinor: bigint;
+  termDays: number;
+  interestRateEa: number;
+  nominalMonthlyPercent: number;
+  moratoryRateEa: number;
+  interestMinor: bigint;
+  totalDueMinor: bigint;
+  paidMinor: bigint;
+  principalPaidMinor: bigint;
+  interestPaidMinor: bigint;
+  remainingMinor: bigint;
+  currency: Currency;
+  status: LoanStatus;
+  purpose: string | null;
+  debtorFullName: string;
+  debtorDocumentType: string;
+  debtorDocumentNumber: string;
+  debtorEmail: string;
+  debtorPhone: string;
+  debtorCity: string;
+  requestedAt: Date;
+  approvedAt: Date | null;
+  approvedBy: string | null;
+  disbursedAt: Date | null;
+  dueAt: Date | null;
+  paidAt: Date | null;
+  rejectedAt: Date | null;
+  rejectedBy: string | null;
+  rejectedReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 

@@ -13,7 +13,7 @@ struct PocketSwitcher: View {
     var body: some View {
         if availableCurrencies.count <= 1 {
             pill(selection, showsChevron: false)
-                .glassEffect(.regular.interactive(), in: .capsule)
+                .glassEffect(.regular, in: .capsule)
         } else {
             GlassEffectContainer(spacing: 10) {
                 HStack(spacing: 10) {
@@ -142,6 +142,8 @@ struct BalanceHeader: View {
 
 struct RateChartCard: View {
     let rate: FxRate?
+    var isLoading: Bool = false
+    var onTap: (() -> Void)? = nil
 
     private struct Bar: Identifiable {
         let id: Date
@@ -159,9 +161,35 @@ struct RateChartCard: View {
     }
 
     var body: some View {
+        Group {
+            if let onTap, rate != nil {
+                Button(action: onTap) {
+                    cardContent
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: Theme.cardRadius))
+            } else {
+                cardContent
+                    .glassEffect(.regular, in: .rect(cornerRadius: Theme.cardRadius))
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("Tasa de cambio"))
+        .accessibilityValue(Text(verbatim: rate.map { RateFormatter.headline(rate: $0.rate) } ?? ""))
+    }
+
+    private var cardContent: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Tasa COP→BRL")
-                .font(.system(.subheadline, design: .serif).weight(.semibold))
+            HStack {
+                Text("Tasa COP→BRL")
+                    .font(.system(.subheadline, design: .serif).weight(.semibold))
+                Spacer()
+                if onTap != nil && rate != nil {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             if let rate {
                 VStack(alignment: .center, spacing: 2) {
@@ -187,17 +215,27 @@ struct RateChartCard: View {
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            } else {
+            } else if isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity, minHeight: 110)
+            } else {
+                VStack(spacing: 6) {
+                    Image(systemName: "globe.americas.fill")
+                        .font(.title2)
+                        .foregroundStyle(Theme.spruce.opacity(0.75))
+                    Text("Corredor COP")
+                        .font(.caption.weight(.semibold))
+                    Text("Conversión BRL no activa")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, minHeight: 110)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 190, alignment: .top)
-        .glassEffect(.regular, in: .rect(cornerRadius: Theme.cardRadius))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text("Tasa de cambio"))
-        .accessibilityValue(Text(verbatim: rate.map { RateFormatter.headline(rate: $0.rate) } ?? ""))
+        .contentShape(.rect(cornerRadius: Theme.cardRadius))
     }
 
     private var chart: some View {
@@ -431,6 +469,8 @@ struct TransactionRow: View {
         case .conversion: ("arrow.left.arrow.right", Theme.spruce)
         case .cardPocket: (isIncoming ? "arrow.uturn.backward" : "creditcard.fill", Theme.spruce)
         case .cardPurchase: ("bag.fill", Theme.ink)
+        case .savings: (isIncoming ? "arrow.down.left" : "lock.rotation", isIncoming ? Theme.positive : Theme.spruce)
+        case .loan: (isIncoming ? "banknote.fill" : "checkmark.seal.fill", isIncoming ? Theme.positive : Theme.spruce)
         case .unknown: ("circle.dashed", Color.secondary)
         }
     }
@@ -504,6 +544,8 @@ struct TransactionRow: View {
         case .conversion: "Conversión"
         case .cardPocket: isIncoming ? "Desde tarjeta" : "Recarga tarjeta"
         case .cardPurchase: "Compra tarjeta"
+        case .savings: isIncoming ? "Reintegro ahorro" : "Bolsillo de ahorro"
+        case .loan: isIncoming ? "Desembolso crédito" : "Pago crédito"
         case .unknown: "Movimiento"
         }
     }

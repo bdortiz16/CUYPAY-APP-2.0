@@ -314,7 +314,17 @@ struct SecuritySettingsResponse: Codable, Hashable, Sendable {
     var idleTimeoutMinutes: Int
     var autoLockSeconds: Int
     var biometryRequired: Bool
+    var hasPassword: Bool? = nil
     var allowedIdleOptions: [Int]
+}
+
+struct ChangePasswordRequest: Codable, Hashable, Sendable {
+    var currentPassword: String? = nil
+    var newPassword: String
+}
+
+struct ChangePasswordResponse: Codable, Hashable, Sendable {
+    var updated: Bool
 }
 
 // MARK: - Beneficiarios
@@ -495,6 +505,8 @@ enum TransactionType: String, Codable, Hashable, Sendable {
     case conversion
     case cardPocket = "card_pocket"
     case cardPurchase = "card_purchase"
+    case savings
+    case loan
     case unknown
 
     init(from decoder: any Decoder) throws {
@@ -599,14 +611,18 @@ enum SavingsBlockStatus: String, Codable, Hashable, Sendable {
 
     init(from decoder: any Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
-        self = SavingsBlockStatus(rawValue: raw) ?? .unknown
+        if raw == "canceled" || raw == "cancelled" {
+            self = .cancelled
+        } else {
+            self = SavingsBlockStatus(rawValue: raw) ?? .unknown
+        }
     }
 
     var title: String {
         switch self {
         case .active: return "Activo"
         case .maturingSoon: return "Por vencer (<72h)"
-        case .completed: return "Finalizado"
+        case .completed: return "Reintegrado"
         case .cancelled: return "Cancelado"
         case .unknown: return "Desconocido"
         }
@@ -622,6 +638,7 @@ struct SavingsBlock: Codable, Hashable, Sendable, Identifiable {
     var totalPayoutMinor: String
     var currency: Currency
     var status: SavingsBlockStatus
+    var escrowStatus: String? = nil
     var startedAt: Date
     var maturesAt: Date
     var completedAt: Date?
@@ -634,6 +651,10 @@ struct SavingsBlock: Codable, Hashable, Sendable, Identifiable {
     }
     var totalPayout: Money {
         Money(minorUnits: Int64(totalPayoutMinor) ?? 0, currency: currency)
+    }
+
+    var isEscrowReserved: Bool {
+        escrowStatus == "funded_locked" || escrowStatus == "settled"
     }
 
     var daysRemaining: Int {
@@ -651,11 +672,15 @@ struct SavingsBlock: Codable, Hashable, Sendable, Identifiable {
 
 struct SavingsSummary: Codable, Hashable, Sendable {
     var totalPrincipalMinor: String
+    var totalExpectedYieldMinor: String? = nil
     var totalYieldEarnedMinor: String
     var activeCount: Int
 
     var totalPrincipal: Money {
         Money(minorUnits: Int64(totalPrincipalMinor) ?? 0, currency: .cop)
+    }
+    var totalExpectedYield: Money {
+        Money(minorUnits: Int64(totalExpectedYieldMinor ?? "0") ?? 0, currency: .cop)
     }
     var totalYieldEarned: Money {
         Money(minorUnits: Int64(totalYieldEarnedMinor) ?? 0, currency: .cop)
@@ -670,4 +695,305 @@ struct UserSavingsResponse: Codable, Hashable, Sendable {
 struct CreateSavingsBlockRequest: Codable, Hashable, Sendable {
     var termDays: Int
     var amountMinor: String
+}
+
+struct SavingsCertificate: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var holderName: String
+    var holderEmail: String
+    var holderPhone: String
+    var termDays: Int
+    var principalMinor: String
+    var lockedRate: Double
+    var expectedYieldMinor: String
+    var totalPayoutMinor: String
+    var currency: Currency
+    var status: SavingsBlockStatus
+    var escrowStatus: String? = nil
+    var startedAt: Date
+    var maturesAt: Date
+    var completedAt: Date?
+    var contractAcceptedAt: Date
+    var contractTerms: String
+
+    var principal: Money { Money(minorUnits: Int64(principalMinor) ?? 0, currency: currency) }
+    var expectedYield: Money { Money(minorUnits: Int64(expectedYieldMinor) ?? 0, currency: currency) }
+    var totalPayout: Money { Money(minorUnits: Int64(totalPayoutMinor) ?? 0, currency: currency) }
+}
+
+// MARK: - Créditos y Pagarés Electrónicos
+
+struct LoanRateTier: Codable, Hashable, Sendable, Identifiable {
+    var id: Int { termDays }
+    var termDays: Int
+    var rateEaPercent: Double
+    var enabled: Bool
+}
+
+struct LoanConfig: Codable, Hashable, Sendable {
+    var enabled: Bool
+    var rates: [LoanRateTier]
+    var usuryCeilingEaPercent: Double
+    var moratoryRateEaPercent: Double
+    var minAmountMinor: String
+    var maxAmountMinor: String
+    var creditorLegalName: String
+    var creditorNit: String
+    var creditorDomicile: String
+    var updatedAt: Date
+
+    var minAmount: Money {
+        Money(minorUnits: Int64(minAmountMinor) ?? 100_000_00, currency: .cop)
+    }
+    var maxAmount: Money {
+        Money(minorUnits: Int64(maxAmountMinor) ?? 10_000_000_00, currency: .cop)
+    }
+}
+
+enum LoanStatus: String, Codable, Hashable, Sendable {
+    case pendingReview = "pending_review"
+    case approvedActive = "approved_active"
+    case paid
+    case overdue
+    case rejected
+    case cancelled
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        if raw == "canceled" || raw == "cancelled" {
+            self = .cancelled
+        } else {
+            self = LoanStatus(rawValue: raw) ?? .unknown
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .pendingReview: return "En estudio"
+        case .approvedActive: return "Activo"
+        case .paid: return "Pagado · Paz y Salvo"
+        case .overdue: return "En mora"
+        case .rejected: return "No aprobado"
+        case .cancelled: return "Cancelado"
+        case .unknown: return "En proceso"
+        }
+    }
+}
+
+enum PromissoryNoteStatus: String, Codable, Hashable, Sendable {
+    case signedCustody = "signed_custody"
+    case activeEnforceable = "active_enforceable"
+    case cancelledPaid = "cancelled_paid"
+    case voidedRejected = "voided_rejected"
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = PromissoryNoteStatus(rawValue: raw) ?? .unknown
+    }
+
+    var title: String {
+        switch self {
+        case .signedCustody: return "Firmado en custodia"
+        case .activeEnforceable: return "Vigente con mérito ejecutivo"
+        case .cancelledPaid: return "Cancelado · Paz y Salvo"
+        case .voidedRejected: return "Anulado sin desembolso"
+        case .unknown: return "Registrado"
+        }
+    }
+}
+
+struct LoanDebtorInfo: Codable, Hashable, Sendable {
+    var fullName: String
+    var documentType: String
+    var documentNumber: String
+    var email: String
+    var phone: String
+    var city: String
+}
+
+struct LoanCreditorInfo: Codable, Hashable, Sendable {
+    var legalName: String
+    var nit: String
+    var domicile: String
+}
+
+struct LoanPreviewRequest: Codable, Hashable, Sendable {
+    var principalMinor: String
+    var termDays: Int
+    var purpose: String? = nil
+    var documentType: String? = nil
+    var documentNumber: String? = nil
+    var city: String? = nil
+}
+
+struct LoanPreviewResponse: Codable, Hashable, Sendable {
+    var principalMinor: String
+    var interestMinor: String
+    var totalDueMinor: String
+    var termDays: Int
+    var interestRateEa: Double
+    var nominalMonthlyPercent: Double
+    var moratoryRateEa: Double
+    var usuryCeilingEaPercent: Double
+    var currency: Currency
+    var estimatedDueAt: Date
+    var debtor: LoanDebtorInfo
+    var creditor: LoanCreditorInfo
+    var documentMarkdown: String
+    var documentSha256: String
+
+    var principal: Money { Money(minorUnits: Int64(principalMinor) ?? 0, currency: currency) }
+    var interest: Money { Money(minorUnits: Int64(interestMinor) ?? 0, currency: currency) }
+    var totalDue: Money { Money(minorUnits: Int64(totalDueMinor) ?? 0, currency: currency) }
+}
+
+struct LoanApplyRequest: Codable, Hashable, Sendable {
+    var principalMinor: String
+    var termDays: Int
+    var purpose: String? = nil
+    var documentType: String? = nil
+    var documentNumber: String? = nil
+    var city: String? = nil
+    var documentSha256: String
+    var acceptedPagare: Bool
+    var acceptedInstructionLetter: Bool
+    var acceptedCreditBureauAuth: Bool
+}
+
+struct LoanItem: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var userId: String
+    var promissoryNoteId: String
+    var promissoryNoteNumber: String
+    var principalMinor: String
+    var termDays: Int
+    var interestRateEa: Double
+    var nominalMonthlyPercent: Double
+    var moratoryRateEa: Double
+    var interestMinor: String
+    var totalDueMinor: String
+    var paidMinor: String
+    var principalPaidMinor: String
+    var interestPaidMinor: String
+    var remainingMinor: String
+    var currency: Currency
+    var status: LoanStatus
+    var purpose: String?
+    var debtorFullName: String
+    var debtorDocumentType: String
+    var debtorDocumentNumber: String
+    var debtorEmail: String
+    var debtorPhone: String
+    var debtorCity: String
+    var requestedAt: Date
+    var approvedAt: Date?
+    var approvedBy: String?
+    var disbursedAt: Date?
+    var dueAt: Date?
+    var paidAt: Date?
+    var rejectedAt: Date?
+    var rejectedReason: String?
+    var daysRemaining: Int?
+
+    var principal: Money { Money(minorUnits: Int64(principalMinor) ?? 0, currency: currency) }
+    var interest: Money { Money(minorUnits: Int64(interestMinor) ?? 0, currency: currency) }
+    var totalDue: Money { Money(minorUnits: Int64(totalDueMinor) ?? 0, currency: currency) }
+    var paid: Money { Money(minorUnits: Int64(paidMinor) ?? 0, currency: currency) }
+    var remaining: Money { Money(minorUnits: Int64(remainingMinor) ?? 0, currency: currency) }
+
+    var paymentProgress: Double {
+        let total = Double(Int64(totalDueMinor) ?? 0)
+        guard total > 0 else { return 0 }
+        let paidVal = Double(Int64(paidMinor) ?? 0)
+        return min(1.0, max(0.0, paidVal / total))
+    }
+}
+
+struct UserLoansSummary: Codable, Hashable, Sendable {
+    var activeRemainingMinor: String
+    var activeCount: Int
+    var pendingCount: Int
+
+    var activeRemaining: Money {
+        Money(minorUnits: Int64(activeRemainingMinor) ?? 0, currency: .cop)
+    }
+}
+
+struct UserLoansResponse: Codable, Hashable, Sendable {
+    var loans: [LoanItem]
+    var summary: UserLoansSummary
+}
+
+struct ElectronicSignatureEvidence: Codable, Hashable, Sendable {
+    var method: String
+    var deviceId: String
+    var deviceName: String
+    var devicePublicKey: String
+    var ecdsaSignatureBase64: String
+    var canonicalSha256: String
+    var nonce: String
+    var timestampSec: Int64
+    var signedAt: Date
+    var signerIp: String
+    var signerUserAgent: String
+    var acceptedPagare: Bool
+    var acceptedInstructionLetter: Bool
+    var acceptedCreditBureauAuth: Bool
+}
+
+struct PromissoryNoteDetail: Codable, Hashable, Sendable, Identifiable {
+    var id: String
+    var number: String
+    var loanId: String
+    var userId: String
+    var status: PromissoryNoteStatus
+    var integrityVerified: Bool
+    var principalMinor: String
+    var interestMinor: String
+    var totalDueMinor: String
+    var paidMinor: String
+    var remainingMinor: String
+    var termDays: Int
+    var interestRateEa: Double
+    var nominalMonthlyPercent: Double
+    var moratoryRateEa: Double
+    var currency: Currency
+    var creditorLegalName: String
+    var creditorNit: String
+    var creditorDomicile: String
+    var debtorFullName: String
+    var debtorDocumentType: String
+    var debtorDocumentNumber: String
+    var debtorEmail: String
+    var debtorPhone: String
+    var debtorCity: String
+    var sumsubApplicantId: String?
+    var documentMarkdown: String
+    var documentSha256: String
+    var signature: ElectronicSignatureEvidence
+    var disbursedAt: Date?
+    var dueAt: Date?
+    var cancelledAt: Date?
+    var createdAt: Date
+    var printableHtml: String
+
+    var principal: Money { Money(minorUnits: Int64(principalMinor) ?? 0, currency: currency) }
+    var interest: Money { Money(minorUnits: Int64(interestMinor) ?? 0, currency: currency) }
+    var totalDue: Money { Money(minorUnits: Int64(totalDueMinor) ?? 0, currency: currency) }
+    var paid: Money { Money(minorUnits: Int64(paidMinor) ?? 0, currency: currency) }
+    var remaining: Money { Money(minorUnits: Int64(remainingMinor) ?? 0, currency: currency) }
+}
+
+struct PayLoanRequest: Codable, Hashable, Sendable {
+    var amountMinor: String
+}
+
+struct PayLoanResponse: Codable, Hashable, Sendable {
+    var loan: LoanItem
+    var paidAmountMinor: String
+    var pazYSalvoIssued: Bool
+
+    var paidAmount: Money { Money(minorUnits: Int64(paidAmountMinor) ?? 0, currency: loan.currency) }
 }

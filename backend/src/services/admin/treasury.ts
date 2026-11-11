@@ -212,8 +212,9 @@ export class TreasuryService {
     const oldest = deposits.reduce<Date | null>((m, x) => (!m || x.createdAt < m ? x.createdAt : m), null);
     const windowFull = deposits.length >= 200;
     const all = await this.d.repos.transactions.listAll();
+    const isInternalRef = (ref: string | null) => Boolean(ref && (ref.startsWith('sbk_') || ref.startsWith('loan_')));
     for (const t of all) {
-      if (t.type !== 'deposit' || t.status === 'reversed' || !t.providerRef) continue;
+      if (t.type !== 'deposit' || t.status === 'reversed' || !t.providerRef || isInternalRef(t.providerRef)) continue;
       if (windowFull && oldest && t.createdAt < oldest) continue; // fuera de la ventana del proveedor
       if (!providerIds.has(t.providerRef)) {
         breaks.push({ kind: 'missing_in_provider', reference: t.providerRef, amountMinor: t.amountMinor, currency: t.currency, detail: `Transacción ${t.id}` });
@@ -222,7 +223,7 @@ export class TreasuryService {
 
     // 3) Retiros Coinsenda de los últimos 30 días.
     for (const t of all) {
-      if (t.type !== 'transfer' || now.getTime() - t.createdAt.getTime() > RECON_LOOKBACK_MS) continue;
+      if (t.type !== 'transfer' || isInternalRef(t.providerRef) || now.getTime() - t.createdAt.getTime() > RECON_LOOKBACK_MS) continue;
       if (t.status !== 'completed' && t.status !== 'pending') continue;
       if (!t.providerRef) {
         if (t.status === 'completed') {

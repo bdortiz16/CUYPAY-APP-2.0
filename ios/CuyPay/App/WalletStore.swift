@@ -285,7 +285,11 @@ final class WalletStore {
 
     private func processIncomingDeposits(_ items: [WalletTransaction], allowHaptic: Bool) {
         let defaults = UserDefaults.standard
-        let deposits = items.filter { $0.type == .deposit && $0.direction == .in && $0.status == .completed }
+        let deposits = items.filter {
+            ($0.type == .deposit || $0.type == .loan || $0.type == .savings) &&
+                $0.direction == .in &&
+                $0.status == .completed
+        }
 
         // Primera sincronización en este dispositivo para este usuario: sembramos los IDs actuales
         // sin disparar notificaciones retroactivas del historial pasado.

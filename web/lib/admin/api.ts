@@ -16,12 +16,19 @@ import type {
   FxConfigInput,
   LimitItem,
   LimitsConfig,
+  LoanConfigDto,
+  LoanDto,
+  LoanPoolSummaryDto,
+  LoanRateTierDto,
+  LoanStatus,
   Page,
+  PromissoryNoteDto,
   ProviderStatus,
   ReverseResult,
   Role,
   SavingsBlockDto,
   SavingsConfigDto,
+  SavingsPoolSummaryDto,
   SavingsTreasuryAlertsDto,
   StreamEvent,
   Tier,
@@ -89,9 +96,39 @@ export interface AdminApi {
     contractTerms?: string,
     reason?: string,
   ): Promise<SavingsConfigDto>;
+  savingsPool(): Promise<SavingsPoolSummaryDto>;
+  withdrawSavingsPool(amountMinor: string, reason: string): Promise<SavingsPoolSummaryDto>;
+  depositSavingsPool(amountMinor: string, reason: string): Promise<SavingsPoolSummaryDto>;
   savingsBlocks(): Promise<{ items: SavingsBlockDto[] }>;
+  fundSavingsBlockEscrow(
+    id: string,
+    reason: string,
+  ): Promise<{ blockId: string; escrowStatus: string; totalPayoutMinor: string; pool: SavingsPoolSummaryDto }>;
+  fundAllMaturing72h(
+    reason: string,
+  ): Promise<{ fundedCount: number; totalLockedMinor: string; pool: SavingsPoolSummaryDto }>;
   treasurySavingsAlerts(): Promise<SavingsTreasuryAlertsDto>;
   processSavingsMaturities(): Promise<{ completedCount: number }>;
+
+  loansConfig(): Promise<LoanConfigDto>;
+  updateLoansConfig(
+    patch: {
+      enabled?: boolean;
+      rates?: LoanRateTierDto[];
+      usuryCeilingEaPercent?: number;
+      moratoryRateEaPercent?: number;
+      minAmountMinor?: string;
+      maxAmountMinor?: string;
+    },
+    reason: string,
+  ): Promise<LoanConfigDto>;
+  loansPool(): Promise<LoanPoolSummaryDto>;
+  fundLoansPool(amountMinor: string, reason: string): Promise<LoanPoolSummaryDto>;
+  withdrawLoansPool(amountMinor: string, reason: string): Promise<LoanPoolSummaryDto>;
+  loans(status?: LoanStatus): Promise<{ items: LoanDto[] }>;
+  loanPromissoryNote(id: string): Promise<PromissoryNoteDto>;
+  approveLoan(id: string, reason: string): Promise<{ loan: LoanDto; pool: LoanPoolSummaryDto }>;
+  rejectLoan(id: string, reason: string): Promise<{ loan: LoanDto; pool: LoanPoolSummaryDto }>;
 
   /** Suscripción al stream SSE. Devuelve la función para cancelar. */
   subscribe(onEvent: (e: StreamEvent) => void, onStatus?: (s: StreamStatus) => void): () => void;
@@ -216,9 +253,27 @@ export function createHttpApi(baseUrl: string): AdminApi {
     savingsConfig: () => req("GET", "/admin/savings/config"),
     updateSavingsConfig: (rates, contractTerms, reason = "Ajuste de tasas de ahorro") =>
       req("PUT", "/admin/savings/config", { rates, contractTerms, reason }),
+    savingsPool: () => req("GET", "/admin/savings/pool"),
+    withdrawSavingsPool: (amountMinor, reason) =>
+      req("POST", "/admin/savings/pool/withdraw", { amountMinor, reason }),
+    depositSavingsPool: (amountMinor, reason) =>
+      req("POST", "/admin/savings/pool/deposit", { amountMinor, reason }),
     savingsBlocks: () => req("GET", "/admin/savings/blocks"),
+    fundSavingsBlockEscrow: (id, reason) =>
+      req("POST", `/admin/savings/blocks/${encodeURIComponent(id)}/fund-escrow`, { reason }),
+    fundAllMaturing72h: (reason) => req("POST", "/admin/savings/fund-maturing-72h", { reason }),
     treasurySavingsAlerts: () => req("GET", "/admin/savings/treasury-alerts"),
     processSavingsMaturities: () => req("POST", "/admin/savings/process-maturities"),
+
+    loansConfig: () => req("GET", "/admin/loans/config"),
+    updateLoansConfig: (patch, reason) => req("PUT", "/admin/loans/config", { ...patch, reason }),
+    loansPool: () => req("GET", "/admin/loans/pool"),
+    fundLoansPool: (amountMinor, reason) => req("POST", "/admin/loans/pool/fund", { amountMinor, reason }),
+    withdrawLoansPool: (amountMinor, reason) => req("POST", "/admin/loans/pool/withdraw", { amountMinor, reason }),
+    loans: (status) => req("GET", `/admin/loans${qs({ status })}`),
+    loanPromissoryNote: (id) => req("GET", `/admin/loans/${encodeURIComponent(id)}/promissory-note`),
+    approveLoan: (id, reason) => req("POST", `/admin/loans/${encodeURIComponent(id)}/approve`, { reason }),
+    rejectLoan: (id, reason) => req("POST", `/admin/loans/${encodeURIComponent(id)}/reject`, { reason }),
 
     subscribe(onEvent, onStatus) {
       let es: EventSource | null = null;

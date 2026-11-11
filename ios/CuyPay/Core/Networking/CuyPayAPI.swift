@@ -62,6 +62,7 @@ protocol CuyPayAPI: Sendable {
 
     // MARK: Seguridad y sesión
     func securitySettings() async throws -> SecuritySettingsResponse
+    func changePassword(currentPassword: String?, newPassword: String) async throws
 
     // MARK: Beneficiarios
     func resolveAlias(_ alias: String) async throws -> AliasResolution
@@ -93,11 +94,22 @@ protocol CuyPayAPI: Sendable {
     /// 🔐
     func deleteDevice(id: String) async throws
 
-    // MARK: Bloque de Ahorro (Savings Vault)
+    // MARK: Bolsillo de Ahorro (Savings Vault)
     func savingsConfig() async throws -> SavingsConfig
     func userSavings() async throws -> UserSavingsResponse
+    func savingsCertificate(id: String) async throws -> SavingsCertificate
     /// 🔐
     func createSavingsBlock(termDays: Int, amountMinor: Int64) async throws -> SavingsBlock
+
+    // MARK: Créditos y Pagarés Electrónicos
+    func loansConfig() async throws -> LoanConfig
+    func previewLoan(_ request: LoanPreviewRequest) async throws -> LoanPreviewResponse
+    /// 🔐
+    func applyLoan(_ request: LoanApplyRequest) async throws -> LoanItem
+    func userLoans() async throws -> UserLoansResponse
+    func loanPromissoryNote(id: String) async throws -> PromissoryNoteDetail
+    /// 🔐
+    func payLoan(id: String, amountMinor: Int64) async throws -> PayLoanResponse
 }
 
 extension CuyPayAPI {
@@ -132,6 +144,8 @@ enum SignReason {
     static var transfer: String { String(localized: "Autoriza el envío") }
     static var conversion: String { String(localized: "Autoriza la conversión") }
     static var deleteDevice: String { String(localized: "Confirma la eliminación del dispositivo") }
-    static var createSavingsBlock: String { String(localized: "Autoriza la constitución de tu Bloque de Ahorro") }
+    static var createSavingsBlock: String { String(localized: "Autoriza el bloqueo en tu Bolsillo de Ahorro") }
+    static var applyLoan: String { String(localized: "Firma electrónicamente tu Pagaré y Carta de Instrucciones") }
+    static var payLoan: String { String(localized: "Autoriza el pago de tu crédito CuyPay") }
 }
 

@@ -14,6 +14,7 @@ struct ReceiveView: View {
     @State private var isDeleting = false
     @State private var showChangeKey = false
     @State private var showDeleteConfirm = false
+    @State private var showKYCSheet = false
     @State private var errorMessage: String?
     @State private var changeKeyError: String?
     @State private var copied = false
@@ -43,6 +44,7 @@ struct ReceiveView: View {
                     .padding(.bottom, 24)
                 }
                 .scrollIndicators(.hidden)
+                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("Recibir")
             .navigationBarTitleDisplayMode(.inline)
@@ -58,6 +60,9 @@ struct ReceiveView: View {
             .sensoryFeedback(.success, trigger: createdCount)
             .sheet(isPresented: $showChangeKey) {
                 changeKeySheet
+            }
+            .sheet(isPresented: $showKYCSheet) {
+                KYCFlowSheet()
             }
             .confirmationDialog(
                 "¿Eliminar tu llave Bre-B?",
@@ -333,6 +338,11 @@ struct ReceiveView: View {
             Label("Verifica tu identidad", systemImage: "person.badge.shield.checkmark")
         } description: {
             Text("Para crear tu llave Bre-B necesitamos verificar tu identidad.")
+        } actions: {
+            PrimaryButton(title: "Verificar identidad", systemImage: "person.badge.shield.checkmark.fill") {
+                showKYCSheet = true
+            }
+            .frame(maxWidth: 260)
         }
         .padding(.top, 40)
     }

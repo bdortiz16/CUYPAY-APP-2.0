@@ -16,8 +16,11 @@ import type {
   LedgerEntry,
   LimitOperation,
   LimitUsage,
+  Loan,
+  LoanConfig,
   Otp,
   ProcessedDeposit,
+  PromissoryNote,
   Quote,
   RefreshToken,
   SavingsBlock,
@@ -38,8 +41,8 @@ import type {
 import type { Repositories } from './types.js';
 
 /**
- * Implementación en memoria (fase 1 / dev / tests). No persiste entre reinicios.
- * Se devuelven copias superficiales para que los servicios no muten el estado
+ * Implementación en memoria (fase 1 / dev / tests). Persiste en STORE_PATH cuando está activo.
+ * Se devuelven copias superficiales/profundas para que los servicios no muten el estado
  * sin pasar por `update`.
  */
 const clone = <T extends object>(v: T): T => ({ ...v });
@@ -84,10 +87,33 @@ export function createMemoryRepositories(): Repositories {
     ],
     minAmountMinor: 50_000_00n, // $50,000 COP
     maxAmountMinor: 50_000_000_00n, // $50,000,000 COP
-    contractTerms: `# Contrato Virtual de Bloque de Ahorro a Plazo Fijo\n\n**Entidad:** XATECH SERVICES S.A.S. (CuyPay) — NIT 901799579\n**Producto:** Bloque de Ahorro Programado con Rendimiento Fijo Garantizado\n\n1. **Constitución y Custodia:** El Cliente autoriza a CuyPay a debitar el monto principal acordado de su cuenta disponible y transferirlo a la bóveda de custodia de CuyPay durante el plazo seleccionado (30, 60, 90, 180 o 360 días).\n2. **Garantía de Tasa Fija:** La tasa de interés acordada al momento de la apertura es fija, inmutable e irrevocable durante toda la vigencia del Bloque, independientemente de modificaciones tarifarias posteriores.\n3. **Plazo e Inmovilización:** El capital permanecerá bloqueado durante la totalidad del término pactado. Al cumplirse el plazo (fecha de maduración), CuyPay acreditará automáticamente a la cuenta del usuario el 100% del capital inicial más los rendimientos generados.\n4. **Liquidez y Disponibilidad:** CuyPay mantiene un mecanismo de reserva y provisión de liquidez en su cuenta concentradora con ventana de anticipación operativa de 72 horas para garantizar el desembolso automático al vencimiento exacto.`,
+    contractTerms: `# Contrato Virtual de Bolsillo de Ahorro a Plazo Fijo\n\n**Entidad:** XATECH SERVICES S.A.S. (CuyPay) — NIT 901.799.579\n**Producto:** Bolsillo de Ahorro Programado con Rendimiento Fijo Garantizado (30, 60, 90, 180 o 360 días)\n\n1. **Constitución e Inmovilización:** El Cliente instruye y autoriza expresamente a CuyPay a debitar el capital seleccionado de su billetera COP disponible y trasladarlo al Bolsillo de Recaudo de Ahorros durante el plazo elegido (30, 60, 90, 180 o 360 días calendario).\n2. **Tasa Fija Garantizada:** La tasa de rendimiento Efectivo Anual (% E.A.) pactada al momento de constituir el bolsillo queda congelada e inalterable durante toda la vigencia del plazo.\n3. **Reserva Previa de 72 Horas y Reintegro en Hora Exacta:** Faltando setenta y dos (72) horas para el cumplimiento del plazo, la tesorería de CuyPay bloquea en reserva dedicada el 100% del capital más los intereses causados, acreditándolos de manera automática e inmediata en la billetera principal del Cliente en el día y la hora exacta de vencimiento.\n4. **Sin cobro de 4x1000 ni cuotas ocultas:** La constitución y la liquidación del Bolsillo de Ahorro dentro de CuyPay no causan comisiones administrativas.`,
     updatedAt: new Date(),
     updatedBy: 'system',
   };
+  const loans = new Map<string, Loan>();
+  const promissoryNotes = new Map<string, PromissoryNote>();
+  let promissorySeq = 100;
+  let loanConfig: LoanConfig = {
+    enabled: true,
+    rates: [
+      { termDays: 30, rateEaPercent: 18.5, enabled: true },
+      { termDays: 60, rateEaPercent: 19.5, enabled: true },
+      { termDays: 90, rateEaPercent: 20.5, enabled: true },
+      { termDays: 180, rateEaPercent: 22.0, enabled: true },
+      { termDays: 360, rateEaPercent: 23.5, enabled: true },
+    ],
+    usuryCeilingEaPercent: 25.5,
+    moratoryRateEaPercent: 25.5,
+    minAmountMinor: 100_000_00n, // $100,000 COP
+    maxAmountMinor: 20_000_000_00n, // $20,000,000 COP
+    creditorLegalName: 'XATECH SERVICES S.A.S.',
+    creditorNit: '901.799.579',
+    creditorDomicile: 'Bogotá D.C., República de Colombia',
+    updatedAt: new Date(),
+    updatedBy: 'system',
+  };
+
   const byCreatedDesc = <T extends { createdAt: Date; id: string }>(a: T, b: T) =>
     b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
   // Copia profunda simple para objetos con arrays / JSON anidado (Date se preserva con structuredClone).
@@ -119,20 +145,13 @@ export function createMemoryRepositories(): Repositories {
         processedDeposits: Array.from(processed.entries()),
         adminUsers: Array.from(adminUsers.entries()),
         refreshTokens: Array.from(refresh.entries()),
-        savingsBlocks: Array.from(savingsBlocks.entries()).map(([k, b]) => [
-          k,
-          {
-            ...b,
-            principalMinor: b.principalMinor.toString() + 'n',
-            expectedYieldMinor: b.expectedYieldMinor.toString() + 'n',
-            totalPayoutMinor: b.totalPayoutMinor.toString() + 'n',
-          },
-        ]),
-        savingsConfig: {
-          ...savingsConfig,
-          minAmountMinor: savingsConfig.minAmountMinor.toString() + 'n',
-          maxAmountMinor: savingsConfig.maxAmountMinor.toString() + 'n',
-        },
+        audit: audit.slice(-1000),
+        savingsBlocks: Array.from(savingsBlocks.entries()),
+        savingsConfig,
+        loans: Array.from(loans.entries()),
+        promissoryNotes: Array.from(promissoryNotes.entries()),
+        promissorySeq,
+        loanConfig,
       };
       writeFileSync(
         STORE_PATH,
@@ -168,8 +187,13 @@ export function createMemoryRepositories(): Repositories {
       if (data.processedDeposits) for (const [k, v] of data.processedDeposits) processed.set(k, v);
       if (data.adminUsers) for (const [k, v] of data.adminUsers) adminUsers.set(k, v);
       if (data.refreshTokens) for (const [k, v] of data.refreshTokens) refresh.set(k, v);
+      if (data.audit) for (const e of data.audit) audit.push(e);
       if (data.savingsBlocks) for (const [k, v] of data.savingsBlocks) savingsBlocks.set(k, v);
       if (data.savingsConfig) savingsConfig = { ...savingsConfig, ...data.savingsConfig };
+      if (data.loans) for (const [k, v] of data.loans) loans.set(k, v);
+      if (data.promissoryNotes) for (const [k, v] of data.promissoryNotes) promissoryNotes.set(k, v);
+      if (typeof data.promissorySeq === 'number') promissorySeq = data.promissorySeq;
+      if (data.loanConfig) loanConfig = { ...loanConfig, ...data.loanConfig };
     } catch {
       // ignore
     }
@@ -645,5 +669,70 @@ export function createMemoryRepositories(): Repositories {
         save();
       },
     },
+    loans: {
+      async create(l) {
+        loans.set(l.id, deep(l));
+        save();
+      },
+      async update(l) {
+        loans.set(l.id, deep(l));
+        save();
+      },
+      async byId(id) {
+        const l = loans.get(id);
+        return l ? deep(l) : null;
+      },
+      async listByUser(userId) {
+        return [...loans.values()]
+          .filter((l) => l.userId === userId)
+          .sort(byCreatedDesc)
+          .map(deep);
+      },
+      async listAll() {
+        return [...loans.values()].sort(byCreatedDesc).map(deep);
+      },
+    },
+    loanConfig: {
+      async get() {
+        return deep(loanConfig);
+      },
+      async set(cfg) {
+        loanConfig = deep(cfg);
+        save();
+      },
+    },
+    promissoryNotes: {
+      async create(p) {
+        promissoryNotes.set(p.id, deep(p));
+        save();
+      },
+      async update(p) {
+        promissoryNotes.set(p.id, deep(p));
+        save();
+      },
+      async byId(id) {
+        const p = promissoryNotes.get(id);
+        return p ? deep(p) : null;
+      },
+      async byLoanId(loanId) {
+        const p = find(promissoryNotes, (n) => n.loanId === loanId);
+        return p ? deep(p) : null;
+      },
+      async listByUser(userId) {
+        return [...promissoryNotes.values()]
+          .filter((p) => p.userId === userId)
+          .sort(byCreatedDesc)
+          .map(deep);
+      },
+      async listAll() {
+        return [...promissoryNotes.values()].sort(byCreatedDesc).map(deep);
+      },
+      async nextSequence() {
+        promissorySeq += 1;
+        save();
+        return promissorySeq;
+      },
+    },
   };
 }
+

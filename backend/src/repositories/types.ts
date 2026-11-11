@@ -14,8 +14,11 @@ import type {
   LedgerEntry,
   LimitOperation,
   LimitUsage,
+  Loan,
+  LoanConfig,
   Otp,
   ProcessedDeposit,
+  PromissoryNote,
   Quote,
   RefreshToken,
   SavingsBlock,
@@ -242,6 +245,29 @@ export interface SavingsConfigRepo {
   set(cfg: SavingsConfig): Promise<void>;
 }
 
+export interface LoanRepo {
+  create(l: Loan): Promise<void>;
+  update(l: Loan): Promise<void>;
+  byId(id: string): Promise<Loan | null>;
+  listByUser(userId: string): Promise<Loan[]>;
+  listAll(): Promise<Loan[]>;
+}
+
+export interface LoanConfigRepo {
+  get(): Promise<LoanConfig>;
+  set(cfg: LoanConfig): Promise<void>;
+}
+
+export interface PromissoryNoteRepo {
+  create(p: PromissoryNote): Promise<void>;
+  update(p: PromissoryNote): Promise<void>;
+  byId(id: string): Promise<PromissoryNote | null>;
+  byLoanId(loanId: string): Promise<PromissoryNote | null>;
+  listByUser(userId: string): Promise<PromissoryNote[]>;
+  listAll(): Promise<PromissoryNote[]>;
+  nextSequence(): Promise<number>;
+}
+
 export interface Repositories {
   users: UserRepo;
   devices: DeviceRepo;
@@ -271,5 +297,9 @@ export interface Repositories {
   settings: SettingsRepo;
   savingsBlocks: SavingsBlockRepo;
   savingsConfig: SavingsConfigRepo;
+  loans: LoanRepo;
+  loanConfig: LoanConfigRepo;
+  promissoryNotes: PromissoryNoteRepo;
 }
+
 

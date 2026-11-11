@@ -343,6 +343,11 @@ actor APIClient: CuyPayAPI {
         try await send(.get("/me/security"))
     }
 
+    func changePassword(currentPassword: String?, newPassword: String) async throws {
+        let body = ChangePasswordRequest(currentPassword: currentPassword, newPassword: newPassword)
+        let _: ChangePasswordResponse = try await send(.post("/me/password", body: body))
+    }
+
     // MARK: - Beneficiarios
 
     func resolveAlias(_ alias: String) async throws -> AliasResolution {
@@ -418,7 +423,7 @@ actor APIClient: CuyPayAPI {
         let _: EmptyResponse = try await send(.delete("/devices/\(id)", signReason: SignReason.deleteDevice))
     }
 
-    // MARK: - Bloque de Ahorro
+    // MARK: - Bolsillo de Ahorro
 
     func savingsConfig() async throws -> SavingsConfig {
         try await send(.get("/savings/config"))
@@ -428,8 +433,39 @@ actor APIClient: CuyPayAPI {
         try await send(.get("/savings"))
     }
 
+    func savingsCertificate(id: String) async throws -> SavingsCertificate {
+        try await send(.get("/savings/\(id)/certificate"))
+    }
+
     func createSavingsBlock(termDays: Int, amountMinor: Int64) async throws -> SavingsBlock {
         let body = CreateSavingsBlockRequest(termDays: termDays, amountMinor: String(amountMinor))
         return try await send(.post("/savings", body: body, signReason: SignReason.createSavingsBlock))
+    }
+
+    // MARK: - Créditos y Pagarés Electrónicos
+
+    func loansConfig() async throws -> LoanConfig {
+        try await send(.get("/loans/config", auth: false))
+    }
+
+    func previewLoan(_ request: LoanPreviewRequest) async throws -> LoanPreviewResponse {
+        try await send(.post("/loans/preview", body: request))
+    }
+
+    func applyLoan(_ request: LoanApplyRequest) async throws -> LoanItem {
+        try await send(.post("/loans/apply", body: request, signReason: SignReason.applyLoan))
+    }
+
+    func userLoans() async throws -> UserLoansResponse {
+        try await send(.get("/loans"))
+    }
+
+    func loanPromissoryNote(id: String) async throws -> PromissoryNoteDetail {
+        try await send(.get("/loans/\(id)/promissory-note"))
+    }
+
+    func payLoan(id: String, amountMinor: Int64) async throws -> PayLoanResponse {
+        let body = PayLoanRequest(amountMinor: String(amountMinor))
+        return try await send(.post("/loans/\(id)/pay", body: body, signReason: SignReason.payLoan))
     }
 }

@@ -123,8 +123,10 @@ export class AdminPresenter {
       counterparty = b ? `${b.holderName} · ${this.alias(b.alias)}` : t.title;
     } else if (t.type === 'deposit') {
       counterparty = t.title;
-    } else {
+    } else if (t.type === 'conversion') {
       counterparty = 'Proveedor de liquidez BRL';
+    } else {
+      counterparty = t.subtitle ? `${t.title} · ${t.subtitle}` : t.title;
     }
     return {
       id: t.id,

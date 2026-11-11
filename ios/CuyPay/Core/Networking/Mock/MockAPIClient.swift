@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Implementación demo de `CuyPayAPI` con datos realistas y latencia simulada.
@@ -21,6 +22,10 @@ actor MockAPIClient: CuyPayAPI {
     private var transactionsState: [WalletTransaction]
     private var limitsState: LimitsSnapshot
     private var devicesState: [Device]
+    private var savingsBlocksState: [SavingsBlock]
+    private var loansState: [LoanItem] = []
+    private var promissoryNotesState: [String: PromissoryNoteDetail] = [:]
+    private var hasPasswordState = true
     private var quotes: [String: Quote] = [:]
     private var resolutions: [String: AliasResolution] = [:]
     private var usedIdempotencyKeys: [String: WalletTransaction] = [:]
@@ -34,7 +39,8 @@ actor MockAPIClient: CuyPayAPI {
         self.latency = latency
         self.signer = signer
         self.tokens = TokenStore(keychain: KeychainStore(service: "com.cuypay.app.mock"))
-        let fixtures = MockFixtures(now: Date())
+        let now = Date()
+        let fixtures = MockFixtures(now: now)
         self.user = startsVerified ? fixtures.user : fixtures.user.with(kycStatus: .notStarted, tier: .basic)
         self.walletsState = fixtures.wallets
         self.brebKeyState = nil
@@ -43,6 +49,22 @@ actor MockAPIClient: CuyPayAPI {
         self.transactionsState = fixtures.transactions
         self.limitsState = fixtures.limits
         self.devicesState = fixtures.devices
+        self.savingsBlocksState = [
+            SavingsBlock(
+                id: "sbk_demo_30d",
+                termDays: 30,
+                principalMinor: "50000000",
+                lockedRate: 3.0,
+                expectedYieldMinor: "123287",
+                totalPayoutMinor: "50123287",
+                currency: .cop,
+                status: .active,
+                escrowStatus: "unfunded",
+                startedAt: now.addingTimeInterval(-10 * 24 * 3600),
+                maturesAt: now.addingTimeInterval(20 * 24 * 3600),
+                completedAt: nil
+            ),
+        ]
     }
 
     // MARK: - Helpers
@@ -539,8 +561,17 @@ actor MockAPIClient: CuyPayAPI {
             idleTimeoutMinutes: 15,
             autoLockSeconds: 60,
             biometryRequired: true,
-            allowedIdleOptions: [60, 300, 900]
+            hasPassword: hasPasswordState,
+            allowedIdleOptions: [0, 60, 300, 900]
         )
+    }
+
+    func changePassword(currentPassword: String?, newPassword: String) async throws {
+        await simulateLatency(0.5)
+        guard newPassword.count >= 4 else {
+            throw APIError.server(status: 422, code: .validationError, message: "La nueva contraseña debe tener al menos 4 caracteres.", limit: nil)
+        }
+        hasPasswordState = true
     }
 
     func resolveAlias(_ alias: String) async throws -> AliasResolution {
@@ -790,7 +821,16 @@ actor MockAPIClient: CuyPayAPI {
         devicesState.removeAll { $0.id == id && !$0.current }
     }
 
-    // MARK: - Bloque de Ahorro
+    // MARK: - Bolsillo de Ahorro
+
+    private static let mockSavingsContract = """
+TÉRMINOS Y CONDICIONES DEL BOLSILLO DE AHORRO A TÉRMINO FIJO CUYPAY
+
+1. OBJETO: El titular autoriza el bloqueo voluntario de fondos en pesos colombianos (COP) desde su billetera principal CuyPay por el plazo seleccionado (30, 60, 90, 180 o 360 días), bajo administración de XATECH SERVICES S.A.S. (NIT 901.799.579).
+2. TASA INMUTABLE GARANTIZADA: La tasa efectiva anual (E.A.) pactada al momento de constituir el bolsillo permanece fija durante todo el plazo.
+3. REINTEGRO AUTOMÁTICO A LA HORA EXACTA: Cumplido el plazo y la hora exacta de vencimiento, el capital más los intereses generados se reintegran de forma automática al saldo disponible de la billetera del titular, con respaldo en reserva bloqueada 72 horas antes del vencimiento.
+4. DISPONIBILIDAD: Durante la vigencia del bloqueo, el saldo no podrá ser retirado anticipadamente salvo liquidación extraordinaria autorizada por soporte.
+"""
 
     func savingsConfig() async throws -> SavingsConfig {
         await simulateLatency(0.3)
@@ -804,40 +844,71 @@ actor MockAPIClient: CuyPayAPI {
             ],
             minAmountMinor: "1000000",
             maxAmountMinor: "5000000000",
-            contractTerms: "TÉRMINOS Y CONDICIONES DEL BLOQUE DE AHORRO A TÉRMINO FIJO CUYPAY.\n\n1. OBJETO: El titular inmoviliza temporalmente fondos en pesos colombianos (COP) en la plataforma administrada por XATECH SERVICES S.A.S. (NIT 901799579).\n2. RENDIMIENTO GARANTIZADO: La tasa acordada al momento de la constitución es inmutable durante todo el periodo.\n3. PLAZO Y LIQUIDACIÓN: El capital y los rendimientos netos se acreditarán automáticamente en el saldo disponible del titular cumplidas las 23:59 horas del día de vencimiento.\n4. CUSTODIA Y FONDOS: Los fondos se mantienen bajo segregación patrimonial y protocolos institucionales en Coinsenda.",
+            contractTerms: Self.mockSavingsContract,
             updatedAt: Date()
         )
     }
 
     func userSavings() async throws -> UserSavingsResponse {
         await simulateLatency(0.4)
-        let now = Date()
-        let sampleBlocks: [SavingsBlock] = [
-            SavingsBlock(
-                id: "sbk_demo_30d",
-                termDays: 30,
-                principalMinor: "50000000",
-                lockedRate: 3.0,
-                expectedYieldMinor: "123287",
-                totalPayoutMinor: "50123287",
-                currency: .cop,
-                status: .active,
-                startedAt: now.addingTimeInterval(-10 * 24 * 3600),
-                maturesAt: now.addingTimeInterval(20 * 24 * 3600),
-                completedAt: nil
-            )
-        ]
+        var activePrincipal: Int64 = 0
+        var activeYield: Int64 = 0
+        var earnedYield: Int64 = 0
+        var activeCount = 0
+        for block in savingsBlocksState {
+            let p = Int64(block.principalMinor) ?? 0
+            let y = Int64(block.expectedYieldMinor) ?? 0
+            if block.status == .active || block.status == .maturingSoon {
+                activePrincipal += p
+                activeYield += y
+                activeCount += 1
+            } else if block.status == .completed {
+                earnedYield += y
+            }
+        }
         return UserSavingsResponse(
-            blocks: sampleBlocks,
+            blocks: savingsBlocksState,
             summary: SavingsSummary(
-                totalPrincipalMinor: "50000000",
-                totalYieldEarnedMinor: "0",
-                activeCount: 1
+                totalPrincipalMinor: String(activePrincipal),
+                totalExpectedYieldMinor: String(activeYield),
+                totalYieldEarnedMinor: String(earnedYield),
+                activeCount: activeCount
             )
         )
     }
 
+    func savingsCertificate(id: String) async throws -> SavingsCertificate {
+        await simulateLatency(0.3)
+        guard let block = savingsBlocksState.first(where: { $0.id == id }) else {
+            throw APIError.server(status: 404, code: .notFound, message: "Bolsillo de ahorro no encontrado", limit: nil)
+        }
+        return SavingsCertificate(
+            id: block.id,
+            holderName: user.fullName,
+            holderEmail: user.email,
+            holderPhone: user.phone,
+            termDays: block.termDays,
+            principalMinor: block.principalMinor,
+            lockedRate: block.lockedRate,
+            expectedYieldMinor: block.expectedYieldMinor,
+            totalPayoutMinor: block.totalPayoutMinor,
+            currency: block.currency,
+            status: block.status,
+            escrowStatus: block.escrowStatus,
+            startedAt: block.startedAt,
+            maturesAt: block.maturesAt,
+            completedAt: block.completedAt,
+            contractAcceptedAt: block.startedAt,
+            contractTerms: Self.mockSavingsContract
+        )
+    }
+
     func createSavingsBlock(termDays: Int, amountMinor: Int64) async throws -> SavingsBlock {
+        try requireKYC()
+        let copIdx = walletIndex(.cop)
+        guard walletsState[copIdx].availableMinor >= amountMinor else {
+            throw APIError.server(status: 422, code: .insufficientFunds, message: "Saldo insuficiente en tu billetera COP", limit: nil)
+        }
         try await requireSignature(SignReason.createSavingsBlock)
         await simulateLatency(0.8)
         let now = Date()
@@ -849,7 +920,10 @@ actor MockAPIClient: CuyPayAPI {
         case 360: 12.0
         default: 3.0
         }
-        let expectedYieldNum = Int64(Double(amountMinor) * (rate / 100.0) * (Double(termDays) / 365.0))
+        let expectedYieldNum = max(1, Int64((Double(amountMinor) * (rate / 100.0) * (Double(termDays) / 365.0)).rounded()))
+        walletsState[copIdx].availableMinor -= amountMinor
+        walletsState[copIdx].balanceMinor -= amountMinor
+
         let block = SavingsBlock(
             id: "sbk_\(UUID().uuidString.prefix(8).lowercased())",
             termDays: termDays,
@@ -859,11 +933,319 @@ actor MockAPIClient: CuyPayAPI {
             totalPayoutMinor: String(amountMinor + expectedYieldNum),
             currency: .cop,
             status: .active,
+            escrowStatus: "unfunded",
             startedAt: now,
             maturesAt: now.addingTimeInterval(Double(termDays) * 24 * 3600),
             completedAt: nil
         )
+        savingsBlocksState.insert(block, at: 0)
+
+        let txn = WalletTransaction(
+            id: Self.newId("txn"),
+            type: .savings,
+            direction: .out,
+            currency: .cop,
+            amountMinor: amountMinor,
+            feeMinor: 0,
+            status: .completed,
+            title: "Bloqueo en Bolsillo de Ahorro (\(termDays) días)",
+            subtitle: "Tasa garantizada \(String(format: "%.2f", rate))% E.A.",
+            conversion: nil,
+            createdAt: now
+        )
+        transactionsState.insert(txn, at: 0)
         return block
+    }
+
+    // MARK: - Créditos y Pagarés Electrónicos
+
+    func loansConfig() async throws -> LoanConfig {
+        await simulateLatency(0.3)
+        return LoanConfig(
+            enabled: true,
+            rates: [
+                LoanRateTier(termDays: 30, rateEaPercent: 21.5, enabled: true),
+                LoanRateTier(termDays: 60, rateEaPercent: 22.0, enabled: true),
+                LoanRateTier(termDays: 90, rateEaPercent: 22.5, enabled: true),
+                LoanRateTier(termDays: 180, rateEaPercent: 23.0, enabled: true),
+                LoanRateTier(termDays: 360, rateEaPercent: 23.5, enabled: true),
+            ],
+            usuryCeilingEaPercent: 24.99,
+            moratoryRateEaPercent: 24.5,
+            minAmountMinor: "10000000",
+            maxAmountMinor: "1000000000",
+            creditorLegalName: "XATECH SERVICES S.A.S.",
+            creditorNit: "901.799.579",
+            creditorDomicile: "Bogotá D.C., República de Colombia",
+            updatedAt: Date()
+        )
+    }
+
+    func previewLoan(_ request: LoanPreviewRequest) async throws -> LoanPreviewResponse {
+        try requireKYC()
+        await simulateLatency(0.4)
+        let config = try await loansConfig()
+        let principalVal = Int64(request.principalMinor) ?? 0
+        guard let tier = config.rates.first(where: { $0.termDays == request.termDays && $0.enabled }) else {
+            throw APIError.server(status: 422, code: .validationError, message: "Plazo no disponible", limit: nil)
+        }
+        let factor = pow(1.0 + tier.rateEaPercent / 100.0, Double(request.termDays) / 365.0) - 1.0
+        let interestVal = max(1, Int64((Double(principalVal) * factor).rounded()))
+        let totalDueVal = principalVal + interestVal
+        let monthly = ((pow(1.0 + tier.rateEaPercent / 100.0, 1.0 / 12.0) - 1.0) * 10000.0).rounded() / 100.0
+        let docNumber = request.documentNumber?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? request.documentNumber!
+            : "1020789456"
+        let docType = request.documentType ?? "CC"
+        let city = request.city ?? "Bogotá D.C."
+        let principalText = Money(minorUnits: principalVal, currency: .cop).formatted()
+        let interestText = Money(minorUnits: interestVal, currency: .cop).formatted()
+        let totalText = Money(minorUnits: totalDueVal, currency: .cop).formatted()
+
+        let markdown = """
+# PAGARÉ ELECTRÓNICO A LA ORDEN Y CARTA DE INSTRUCCIONES
+## TÍTULO VALOR CON MÉRITO EJECUTIVO — ARTS. 621, 622 Y 709 C.CO. · LEY 527 DE 1999
+
+- **ACREEDOR BENEFICIARIO:** \(config.creditorLegalName) — NIT \(config.creditorNit)
+- **DEUDOR OTORGANTE:** \(user.fullName) (\(docType) \(docNumber))
+- **CAPITAL MUTUADO:** \(principalText)
+- **PLAZO PACTADO:** \(request.termDays) días calendario
+- **INTERÉS REMUNERATORIO:** \(String(format: "%.2f", tier.rateEaPercent))% E.A. (\(String(format: "%.2f", monthly))% N.M.V.) = \(interestText)
+- **TOTAL A PAGAR AL VENCIMIENTO:** \(totalText)
+
+---
+
+## I. PROMESA INCONDICIONAL DE PAGO (ART. 709 CÓDIGO DE COMERCIO)
+Yo, **\(user.fullName)**, mayor de edad, identificado(a) con **\(docType) Nº \(docNumber)**, pagaré incondicionalmente, a la orden de **\(config.creditorLegalName)** (NIT \(config.creditorNit)), en Bogotá D.C. o a través de la plataforma CuyPay, la suma de **\(principalText)** por concepto de capital más **\(interestText)** de intereses remuneratorios.
+
+## II. CARTA DE INSTRUCCIONES (ART. 622 CÓDIGO DE COMERCIO)
+Autorizo de manera expresa e irrevocable a **\(config.creditorLegalName)** para llenar los espacios relativos a la fecha de vencimiento y cuantía exigible en caso de incumplimiento, sin previo aviso, conforme a los libros contables de doble partida de la plataforma.
+
+## III. AUTORIZACIÓN DE HABEAS DATA FINANCIERO (LEY 1266 DE 2008 Y LEY 2157 DE 2021)
+Autorizo la consulta y reporte de mi comportamiento crediticio ante operadores de información financiera (DataCrédito Experian y TransUnion CIFIN), con comunicación previa mínima de veinte (20) días calendario antes de cualquier reporte negativo.
+"""
+        let digest = SHA256.hash(data: Data(markdown.utf8)).map { String(format: "%02x", $0) }.joined()
+        return LoanPreviewResponse(
+            principalMinor: String(principalVal),
+            interestMinor: String(interestVal),
+            totalDueMinor: String(totalDueVal),
+            termDays: request.termDays,
+            interestRateEa: tier.rateEaPercent,
+            nominalMonthlyPercent: monthly,
+            moratoryRateEa: config.moratoryRateEaPercent,
+            usuryCeilingEaPercent: config.usuryCeilingEaPercent,
+            currency: .cop,
+            estimatedDueAt: Date().addingTimeInterval(Double(request.termDays) * 24 * 3600),
+            debtor: LoanDebtorInfo(
+                fullName: user.fullName,
+                documentType: docType,
+                documentNumber: docNumber,
+                email: user.email,
+                phone: user.phone,
+                city: city
+            ),
+            creditor: LoanCreditorInfo(
+                legalName: config.creditorLegalName,
+                nit: config.creditorNit,
+                domicile: config.creditorDomicile
+            ),
+            documentMarkdown: markdown,
+            documentSha256: digest
+        )
+    }
+
+    func applyLoan(_ request: LoanApplyRequest) async throws -> LoanItem {
+        try requireKYC()
+        try await requireSignature(SignReason.applyLoan)
+        let preview = try await previewLoan(
+            LoanPreviewRequest(
+                principalMinor: request.principalMinor,
+                termDays: request.termDays,
+                purpose: request.purpose,
+                documentType: request.documentType,
+                documentNumber: request.documentNumber,
+                city: request.city
+            )
+        )
+        let now = Date()
+        let loanId = Self.newId("loan")
+        let noteId = Self.newId("pag")
+        let noteNumber = "PAG-2026-000\(101 + loansState.count)"
+
+        let item = LoanItem(
+            id: loanId,
+            userId: user.id,
+            promissoryNoteId: noteId,
+            promissoryNoteNumber: noteNumber,
+            principalMinor: preview.principalMinor,
+            termDays: preview.termDays,
+            interestRateEa: preview.interestRateEa,
+            nominalMonthlyPercent: preview.nominalMonthlyPercent,
+            moratoryRateEa: preview.moratoryRateEa,
+            interestMinor: preview.interestMinor,
+            totalDueMinor: preview.totalDueMinor,
+            paidMinor: "0",
+            principalPaidMinor: "0",
+            interestPaidMinor: "0",
+            remainingMinor: preview.totalDueMinor,
+            currency: .cop,
+            status: .pendingReview,
+            purpose: request.purpose,
+            debtorFullName: preview.debtor.fullName,
+            debtorDocumentType: preview.debtor.documentType,
+            debtorDocumentNumber: preview.debtor.documentNumber,
+            debtorEmail: preview.debtor.email,
+            debtorPhone: preview.debtor.phone,
+            debtorCity: preview.debtor.city,
+            requestedAt: now,
+            approvedAt: nil,
+            approvedBy: nil,
+            disbursedAt: nil,
+            dueAt: nil,
+            paidAt: nil,
+            rejectedAt: nil,
+            rejectedReason: nil,
+            daysRemaining: nil
+        )
+        loansState.insert(item, at: 0)
+
+        let sig = ElectronicSignatureEvidence(
+            method: "ECDSA_P256_SHA256_SECURE_ENCLAVE",
+            deviceId: "dev_mock",
+            deviceName: "iPhone Demo",
+            devicePublicKey: "BElockMockKey==",
+            ecdsaSignatureBase64: "MEYCIQDMockSignatureBase64==",
+            canonicalSha256: preview.documentSha256,
+            nonce: UUID().uuidString.lowercased(),
+            timestampSec: Int64(now.timeIntervalSince1970),
+            signedAt: now,
+            signerIp: "127.0.0.1",
+            signerUserAgent: "CuyPay-iOS/2.0",
+            acceptedPagare: true,
+            acceptedInstructionLetter: true,
+            acceptedCreditBureauAuth: true
+        )
+        promissoryNotesState[loanId] = PromissoryNoteDetail(
+            id: noteId,
+            number: noteNumber,
+            loanId: loanId,
+            userId: user.id,
+            status: .signedCustody,
+            integrityVerified: true,
+            principalMinor: preview.principalMinor,
+            interestMinor: preview.interestMinor,
+            totalDueMinor: preview.totalDueMinor,
+            paidMinor: "0",
+            remainingMinor: preview.totalDueMinor,
+            termDays: preview.termDays,
+            interestRateEa: preview.interestRateEa,
+            nominalMonthlyPercent: preview.nominalMonthlyPercent,
+            moratoryRateEa: preview.moratoryRateEa,
+            currency: .cop,
+            creditorLegalName: preview.creditor.legalName,
+            creditorNit: preview.creditor.nit,
+            creditorDomicile: preview.creditor.domicile,
+            debtorFullName: preview.debtor.fullName,
+            debtorDocumentType: preview.debtor.documentType,
+            debtorDocumentNumber: preview.debtor.documentNumber,
+            debtorEmail: preview.debtor.email,
+            debtorPhone: preview.debtor.phone,
+            debtorCity: preview.debtor.city,
+            sumsubApplicantId: "sbx_verified_demo",
+            documentMarkdown: preview.documentMarkdown,
+            documentSha256: preview.documentSha256,
+            signature: sig,
+            disbursedAt: nil,
+            dueAt: nil,
+            cancelledAt: nil,
+            createdAt: now,
+            printableHtml: "<html><body><h1>Pagaré \(noteNumber)</h1></body></html>"
+        )
+        return item
+    }
+
+    func userLoans() async throws -> UserLoansResponse {
+        await simulateLatency(0.4)
+        var activeRemaining: Int64 = 0
+        var activeCount = 0
+        var pendingCount = 0
+        for l in loansState {
+            if l.status == .approvedActive || l.status == .overdue {
+                activeRemaining += Int64(l.remainingMinor) ?? 0
+                activeCount += 1
+            } else if l.status == .pendingReview {
+                pendingCount += 1
+            }
+        }
+        return UserLoansResponse(
+            loans: loansState,
+            summary: UserLoansSummary(
+                activeRemainingMinor: String(activeRemaining),
+                activeCount: activeCount,
+                pendingCount: pendingCount
+            )
+        )
+    }
+
+    func loanPromissoryNote(id: String) async throws -> PromissoryNoteDetail {
+        await simulateLatency(0.3)
+        guard let note = promissoryNotesState[id] else {
+            throw APIError.server(status: 404, code: .notFound, message: "Pagaré no encontrado", limit: nil)
+        }
+        return note
+    }
+
+    func payLoan(id: String, amountMinor: Int64) async throws -> PayLoanResponse {
+        try await requireSignature(SignReason.payLoan)
+        await simulateLatency(0.7)
+        guard let idx = loansState.firstIndex(where: { $0.id == id }) else {
+            throw APIError.server(status: 404, code: .notFound, message: "Crédito no encontrado", limit: nil)
+        }
+        let rem = Int64(loansState[idx].remainingMinor) ?? 0
+        let payVal = min(rem, amountMinor)
+        let copIdx = walletIndex(.cop)
+        guard walletsState[copIdx].availableMinor >= payVal else {
+            throw APIError.server(status: 422, code: .insufficientFunds, message: "Saldo insuficiente en tu billetera COP", limit: nil)
+        }
+        walletsState[copIdx].availableMinor -= payVal
+        walletsState[copIdx].balanceMinor -= payVal
+
+        let prevPaid = Int64(loansState[idx].paidMinor) ?? 0
+        let newPaid = prevPaid + payVal
+        let newRem = rem - payVal
+        loansState[idx].paidMinor = String(newPaid)
+        loansState[idx].remainingMinor = String(newRem)
+        let isPaid = newRem == 0
+        if isPaid {
+            loansState[idx].status = .paid
+            loansState[idx].paidAt = Date()
+            if var note = promissoryNotesState[id] {
+                note.status = .cancelledPaid
+                note.paidMinor = String(newPaid)
+                note.remainingMinor = "0"
+                note.cancelledAt = Date()
+                promissoryNotesState[id] = note
+            }
+        }
+        let txn = WalletTransaction(
+            id: Self.newId("txn"),
+            type: .loan,
+            direction: .out,
+            currency: .cop,
+            amountMinor: payVal,
+            feeMinor: 0,
+            status: .completed,
+            title: isPaid ? "Pago Total de Crédito CuyPay" : "Abono a Crédito CuyPay",
+            subtitle: "Pagaré \(loansState[idx].promissoryNoteNumber)",
+            conversion: nil,
+            createdAt: Date()
+        )
+        transactionsState.insert(txn, at: 0)
+        return PayLoanResponse(
+            loan: loansState[idx],
+            paidAmountMinor: String(payVal),
+            pazYSalvoIssued: isPaid
+        )
     }
 }
 

@@ -35,6 +35,7 @@ import { AdminTransactionService } from './services/admin/transactions.js';
 import { ComplianceService } from './services/admin/compliance.js';
 import { ProviderHealthService } from './services/admin/providers.js';
 import { SavingsService } from './services/savings.js';
+import { LoansService } from './services/loans.js';
 import { LimitsConfigService, TreasuryService } from './services/admin/treasury.js';
 import { DashboardService } from './services/admin/dashboard.js';
 import { StreamService } from './services/admin/stream.js';
@@ -169,7 +170,8 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
   push.start();
   const providers = new ProviderHealthService(deps);
   const treasury = new TreasuryService(deps, audit);
-  const savings = new SavingsService(deps, ledger);
+  const savings = new SavingsService(deps, ledger, audit);
+  const loans = new LoansService(deps, ledger, mutex, audit);
   const admin = {
     audit,
     auth: new AdminAuthService(deps, audit),
@@ -179,6 +181,7 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
     providers,
     treasury,
     savings,
+    loans,
     limitsConfig: new LimitsConfigService(deps, audit),
     dashboard: new DashboardService(deps, treasury, providers),
     stream: new StreamService(deps),
@@ -195,6 +198,7 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
     breb: new BrebService(deps),
     cards: new CardService(deps, ledger, idempotency, mutex),
     savings,
+    loans,
     beneficiaries,
     transfers: new TransferService(deps, ledger, limits, beneficiaries, idempotency, mutex),
     fx: new FxService(deps, ledger, limits, idempotency, mutex),

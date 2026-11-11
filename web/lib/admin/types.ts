@@ -39,9 +39,14 @@ export interface SavingsConfigDto {
   updatedBy?: string;
 }
 
+export type SavingsEscrowStatus = "unfunded" | "funded_locked" | "settled";
+
 export interface SavingsBlockDto {
   id: string;
   userId: string;
+  customerName?: string;
+  customerEmail?: string;
+  customerPhone?: string;
   termDays: number;
   principalMinor: string;
   lockedRate: number;
@@ -49,16 +54,166 @@ export interface SavingsBlockDto {
   totalPayoutMinor: string;
   currency: string;
   status: "active" | "maturing_soon" | "completed" | "canceled";
+  escrowStatus?: SavingsEscrowStatus;
+  escrowFundedAt?: string | null;
+  escrowFundedBy?: string | null;
   startedAt: string;
   maturesAt: string;
   completedAt: string | null;
+  hoursRemaining?: number;
+}
+
+export interface SavingsPoolSummaryDto {
+  currency: "COP";
+  collectionPoolBalanceMinor: string;
+  escrowLockedBalanceMinor: string;
+  totalActivePrincipalMinor: string;
+  totalPendingYieldMinor: string;
+  totalActivePayoutMinor: string;
+  deployedExternallyMinor: string;
+  maturing72hUnfundedMinor: string;
+  maturing72hFundedMinor: string;
+  maturing72hUnfundedCount: number;
+  maturing72hTotalCount: number;
+  activeBlocksCount: number;
+  completedBlocksCount: number;
 }
 
 export interface SavingsTreasuryAlertsDto {
   windowHours: number;
   totalMaturing72hMinor: string;
+  unfundedMaturing72hMinor?: string;
   totalMaturingCount: number;
+  unfundedMaturingCount?: number;
   maturingBlocks: Array<SavingsBlockDto & { hoursRemaining: number }>;
+}
+
+export interface LoanRateTierDto {
+  termDays: number;
+  rateEaPercent: number;
+  enabled: boolean;
+}
+
+export interface LoanConfigDto {
+  enabled: boolean;
+  rates: LoanRateTierDto[];
+  usuryCeilingEaPercent: number;
+  moratoryRateEaPercent: number;
+  minAmountMinor: string;
+  maxAmountMinor: string;
+  creditorLegalName: string;
+  creditorNit: string;
+  creditorDomicile: string;
+  updatedAt: string;
+  updatedBy?: string;
+}
+
+export type LoanStatus = "pending_review" | "approved_active" | "overdue" | "paid" | "rejected" | "canceled";
+export type PromissoryNoteStatus = "signed_custody" | "active_enforceable" | "cancelled_paid" | "voided_rejected";
+
+export interface ElectronicSignatureEvidenceDto {
+  method: string;
+  deviceId: string;
+  deviceName: string;
+  devicePublicKey: string;
+  ecdsaSignatureBase64: string;
+  canonicalSha256: string;
+  nonce: string;
+  timestampSec: number;
+  signedAt: string;
+  signerIp: string;
+  signerUserAgent: string;
+  acceptedPagare: boolean;
+  acceptedInstructionLetter: boolean;
+  acceptedCreditBureauAuth: boolean;
+}
+
+export interface PromissoryNoteDto {
+  id: string;
+  number: string;
+  loanId: string;
+  userId: string;
+  status: PromissoryNoteStatus;
+  integrityVerified: boolean;
+  principalMinor: string;
+  interestMinor: string;
+  totalDueMinor: string;
+  paidMinor: string;
+  remainingMinor: string;
+  termDays: number;
+  interestRateEa: number;
+  nominalMonthlyPercent: number;
+  moratoryRateEa: number;
+  currency: "COP";
+  creditorLegalName: string;
+  creditorNit: string;
+  creditorDomicile: string;
+  debtorFullName: string;
+  debtorDocumentType: string;
+  debtorDocumentNumber: string;
+  debtorEmail: string;
+  debtorPhone: string;
+  debtorCity: string;
+  sumsubApplicantId: string | null;
+  documentMarkdown: string;
+  documentSha256: string;
+  signature: ElectronicSignatureEvidenceDto;
+  disbursedAt: string | null;
+  dueAt: string | null;
+  cancelledAt: string | null;
+  createdAt: string;
+  printableHtml: string;
+}
+
+export interface LoanDto {
+  id: string;
+  userId: string;
+  promissoryNoteId: string;
+  promissoryNoteNumber: string;
+  principalMinor: string;
+  termDays: number;
+  interestRateEa: number;
+  nominalMonthlyPercent: number;
+  moratoryRateEa: number;
+  interestMinor: string;
+  totalDueMinor: string;
+  paidMinor: string;
+  principalPaidMinor: string;
+  interestPaidMinor: string;
+  remainingMinor: string;
+  currency: "COP";
+  status: LoanStatus;
+  purpose: string | null;
+  debtorFullName: string;
+  debtorDocumentType: string;
+  debtorDocumentNumber: string;
+  debtorEmail: string;
+  debtorPhone: string;
+  debtorCity: string;
+  requestedAt: string;
+  approvedAt: string | null;
+  approvedBy: string | null;
+  disbursedAt: string | null;
+  dueAt: string | null;
+  paidAt: string | null;
+  rejectedAt: string | null;
+  rejectedReason: string | null;
+  daysRemaining: number | null;
+}
+
+export interface LoanPoolSummaryDto {
+  currency: "COP";
+  availablePoolMinor: string;
+  activePortfolioPrincipalMinor: string;
+  activePortfolioRemainingMinor: string;
+  pendingExpectedInterestMinor: string;
+  collectedInterestMinor: string;
+  pendingApplicationsPrincipalMinor: string;
+  overdueRemainingMinor: string;
+  pendingApplicationsCount: number;
+  activeLoansCount: number;
+  overdueLoansCount: number;
+  paidLoansCount: number;
 }
 
 export interface AdminCustomerSummary {
@@ -139,7 +294,7 @@ export interface AdminBeneficiary {
   createdAt: string;
 }
 
-export type TxType = "deposit" | "transfer" | "conversion";
+export type TxType = "deposit" | "transfer" | "conversion" | "savings" | "loan" | "card_pocket" | "card_purchase";
 export type TxStatus = "pending" | "completed" | "failed" | "reversed";
 
 export interface ConversionInfo {

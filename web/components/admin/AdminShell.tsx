@@ -10,7 +10,7 @@ import { AdminSessionProvider, useSession, useStreamEvent } from "@/lib/admin/se
 import { setMockMode } from "@/lib/admin/api";
 import { cx, css as s, errorMessage, ToastProvider, useToast } from "./ui";
 
-const NAV: { group: string; items: { href: string; label: string; perm: Permission; countKey?: "compliance" }[] }[] = [
+const NAV: { group: string; items: { href: string; label: string; perm: Permission; countKey?: "compliance" | "savings" | "loans" }[] }[] = [
   {
     group: "Operación",
     items: [
@@ -24,7 +24,8 @@ const NAV: { group: string; items: { href: string; label: string; perm: Permissi
     group: "Finanzas",
     items: [
       { href: "/admin-portal/treasury/", label: "Tesorería", perm: "treasury:read" },
-      { href: "/admin-portal/savings/", label: "Bloques de Ahorro", perm: "treasury:read" },
+      { href: "/admin-portal/savings/", label: "Bolsillo de Ahorros", perm: "treasury:read", countKey: "savings" },
+      { href: "/admin-portal/loans/", label: "Préstamos y Pagarés", perm: "treasury:read", countKey: "loans" },
       { href: "/admin-portal/limits/", label: "Límites", perm: "dashboard:read" },
     ],
   },
@@ -78,8 +79,11 @@ function Shell({ children, pathname }: { children: React.ReactNode; pathname: st
   const { admin, can, logout, streamStatus, expiresAt, mock, api } = useSession();
   const [open, setOpen] = useState(false);
   const [complianceCount, setComplianceCount] = useState(0);
+  const [savings72hCount, setSavings72hCount] = useState(0);
+  const [pendingLoansCount, setPendingLoansCount] = useState(0);
   const [pwOpen, setPwOpen] = useState(false);
   const canCompliance = can("compliance:read");
+  const canTreasury = can("treasury:read");
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -88,20 +92,31 @@ function Shell({ children, pathname }: { children: React.ReactNode; pathname: st
   }, []);
 
   const refreshCounts = useCallback(async () => {
-    if (!api || !canCompliance) return;
-    try {
-      const [b, a] = await Promise.all([api.beneficiaries("pending_review"), api.alerts({ status: "open" })]);
-      setComplianceCount(b.items.length + a.items.length);
-    } catch {
-      /* sin conteo */
+    if (!api) return;
+    if (canCompliance) {
+      try {
+        const [b, a] = await Promise.all([api.beneficiaries("pending_review"), api.alerts({ status: "open" })]);
+        setComplianceCount(b.items.length + a.items.length);
+      } catch {
+        /* sin conteo */
+      }
     }
-  }, [api, canCompliance]);
+    if (canTreasury) {
+      try {
+        const [savPool, loanPool] = await Promise.all([api.savingsPool(), api.loansPool()]);
+        setSavings72hCount(savPool.maturing72hUnfundedCount);
+        setPendingLoansCount(loanPool.pendingApplicationsCount);
+      } catch {
+        /* sin conteo */
+      }
+    }
+  }, [api, canCompliance, canTreasury]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshCounts();
   }, [refreshCounts, pathname]);
-  useStreamEvent(["compliance.alert", "beneficiary.review_required"], () => void refreshCounts());
+  useStreamEvent(["compliance.alert", "beneficiary.review_required", "transaction.created"], () => void refreshCounts());
 
   const current = NAV.flatMap((g) => g.items)
     .filter((i) => (i.href === "/admin-portal/" ? pathname === i.href : pathname.startsWith(i.href)))
@@ -140,6 +155,8 @@ function Shell({ children, pathname }: { children: React.ReactNode; pathname: st
                 >
                   <span>{i.label}</span>
                   {i.countKey === "compliance" && complianceCount > 0 ? <span className={s.navCount}>{complianceCount}</span> : null}
+                  {i.countKey === "savings" && savings72hCount > 0 ? <span className={s.navCount}>{savings72hCount}</span> : null}
+                  {i.countKey === "loans" && pendingLoansCount > 0 ? <span className={s.navCount}>{pendingLoansCount}</span> : null}
                 </Link>
               ))}
             </nav>

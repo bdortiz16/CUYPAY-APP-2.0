@@ -73,6 +73,13 @@ export class LedgerService {
     return this.d.repos.ledger.balance(pocket.id);
   }
 
+  /** Saldo neto de un bolsillo concentrador del sistema (savings_vault, savings_escrow, loan_pool, etc.). */
+  async systemPoolBalance(kind: LedgerAccountKind, currency: Currency = 'COP'): Promise<bigint> {
+    const now = this.d.clock.now();
+    const acc = await this.d.repos.ledger.getOrCreateAccount(kind, null, currency, now);
+    return this.d.repos.ledger.balance(acc.id);
+  }
+
   async wallets(userId: string): Promise<WalletBalance[]> {
     return Promise.all(CURRENCIES.map((c) => this.wallet(userId, c)));
   }

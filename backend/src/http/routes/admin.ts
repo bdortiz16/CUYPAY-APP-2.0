@@ -48,7 +48,7 @@ const CustomersQuery = z.object({
   cursor: Cursor,
 });
 const TxnQuery = z.object({
-  type: z.enum(['deposit', 'transfer', 'conversion', 'card_pocket', 'card_purchase']).optional(),
+  type: z.enum(['deposit', 'transfer', 'conversion', 'card_pocket', 'card_purchase', 'savings', 'loan']).optional(),
   status: z.enum(['pending', 'completed', 'failed', 'reversed']).optional(),
   currency: z.enum(['COP', 'BRL']).optional(),
   customerId: Id.optional(),
@@ -62,7 +62,7 @@ const TxnQuery = z.object({
 const ExportQuery = z.object({
   from: DateQ,
   to: DateQ,
-  type: z.enum(['deposit', 'transfer', 'conversion', 'card_pocket', 'card_purchase']).optional(),
+  type: z.enum(['deposit', 'transfer', 'conversion', 'card_pocket', 'card_purchase', 'savings', 'loan']).optional(),
 });
 const AuditQuery = z.object({
   actorId: Id.optional(),
@@ -374,7 +374,12 @@ export function registerAdminRoutes(app: FastifyInstance, container: Container, 
     return admin.auth.resetCredentials(ctx(req), id, reason);
   });
 
-  // ───────────── Bloques de Ahorro ─────────────
+  // ───────────── Bolsillo de Ahorros (Recaudo + Reserva 72h + Reintegro Hora Exacta) ─────────────
+  const BigIntAmount = z
+    .union([z.number(), z.string()])
+    .transform((v) => BigInt(v))
+    .refine((v) => v > 0n, 'El monto debe ser mayor a cero');
+
   app.get('/admin/savings/config', guard('treasury:read'), async () => {
     const cfg = await admin.savings.getConfig();
     return {
@@ -405,6 +410,13 @@ export function registerAdminRoutes(app: FastifyInstance, container: Container, 
       req.body,
     );
     const updated = await admin.savings.updateConfig(b.rates, b.contractTerms, b.minAmountMinor, b.maxAmountMinor, req.admin?.email);
+    await admin.audit.record(ctx(req), {
+      action: 'savings.config_update',
+      targetType: 'savings_config',
+      targetId: 'COP',
+      reason: b.reason,
+      after: { rates: updated.rates },
+    });
     return {
       rates: updated.rates,
       minAmountMinor: updated.minAmountMinor.toString(),
@@ -415,24 +427,34 @@ export function registerAdminRoutes(app: FastifyInstance, container: Container, 
     };
   });
 
+  app.get('/admin/savings/pool', guard('treasury:read'), async () => {
+    return admin.savings.getPoolSummary();
+  });
+
+  app.post('/admin/savings/pool/withdraw', guard('treasury:write'), async (req) => {
+    const b = parse(z.object({ amountMinor: BigIntAmount, reason: Reason }), req.body);
+    return admin.savings.withdrawFromPool(ctx(req), b.amountMinor, b.reason);
+  });
+
+  app.post('/admin/savings/pool/deposit', guard('treasury:write'), async (req) => {
+    const b = parse(z.object({ amountMinor: BigIntAmount, reason: Reason }), req.body);
+    return admin.savings.depositToPool(ctx(req), b.amountMinor, b.reason);
+  });
+
   app.get('/admin/savings/blocks', guard('treasury:read'), async () => {
-    const all = await admin.savings.listAllBlocks();
-    return {
-      items: all.map((b) => ({
-        id: b.id,
-        userId: b.userId,
-        termDays: b.termDays,
-        principalMinor: b.principalMinor.toString(),
-        lockedRate: b.lockedRate,
-        expectedYieldMinor: b.expectedYieldMinor.toString(),
-        totalPayoutMinor: b.totalPayoutMinor.toString(),
-        currency: b.currency,
-        status: b.status,
-        startedAt: b.startedAt.toISOString(),
-        maturesAt: b.maturesAt.toISOString(),
-        completedAt: b.completedAt?.toISOString() ?? null,
-      })),
-    };
+    const items = await admin.savings.listAllBlocksEnriched();
+    return { items };
+  });
+
+  app.post('/admin/savings/blocks/:id/fund-escrow', guard('treasury:write'), async (req) => {
+    const { id } = parse(IdParam, req.params);
+    const { reason } = parse(z.object({ reason: Reason }), req.body);
+    return admin.savings.fundBlockEscrow(ctx(req), id, reason);
+  });
+
+  app.post('/admin/savings/fund-maturing-72h', guard('treasury:write'), async (req) => {
+    const { reason } = parse(z.object({ reason: Reason }), req.body);
+    return admin.savings.fundAllMaturing72h(ctx(req), reason);
   });
 
   app.get('/admin/savings/treasury-alerts', guard('treasury:read'), async () => {
@@ -442,5 +464,103 @@ export function registerAdminRoutes(app: FastifyInstance, container: Container, 
   app.post('/admin/savings/process-maturities', guard('treasury:write'), async () => {
     return admin.savings.processMaturities();
   });
+
+  // ───────────── Préstamos y Pagarés (Bolsillo de Préstamos + Cartera + Mérito Ejecutivo) ─────────────
+  app.get('/admin/loans/config', guard('treasury:read'), async () => {
+    const cfg = await admin.loans.getConfig();
+    return {
+      enabled: cfg.enabled,
+      rates: cfg.rates,
+      usuryCeilingEaPercent: cfg.usuryCeilingEaPercent,
+      moratoryRateEaPercent: cfg.moratoryRateEaPercent,
+      minAmountMinor: cfg.minAmountMinor.toString(),
+      maxAmountMinor: cfg.maxAmountMinor.toString(),
+      creditorLegalName: cfg.creditorLegalName,
+      creditorNit: cfg.creditorNit,
+      creditorDomicile: cfg.creditorDomicile,
+      updatedAt: cfg.updatedAt.toISOString(),
+      updatedBy: cfg.updatedBy,
+    };
+  });
+
+  app.put('/admin/loans/config', guard('treasury:write'), async (req) => {
+    const b = parse(
+      z.object({
+        enabled: z.boolean().optional(),
+        rates: z
+          .array(
+            z.object({
+              termDays: z.number().int().positive(),
+              rateEaPercent: z.number().positive(),
+              enabled: z.boolean(),
+            }),
+          )
+          .optional(),
+        usuryCeilingEaPercent: z.number().positive().optional(),
+        moratoryRateEaPercent: z.number().positive().optional(),
+        minAmountMinor: z.union([z.number(), z.string()]).transform((v) => BigInt(v)).optional(),
+        maxAmountMinor: z.union([z.number(), z.string()]).transform((v) => BigInt(v)).optional(),
+        reason: Reason,
+      }),
+      req.body,
+    );
+    const { reason, ...patch } = b;
+    const updated = await admin.loans.updateConfig(ctx(req), patch, reason);
+    return {
+      enabled: updated.enabled,
+      rates: updated.rates,
+      usuryCeilingEaPercent: updated.usuryCeilingEaPercent,
+      moratoryRateEaPercent: updated.moratoryRateEaPercent,
+      minAmountMinor: updated.minAmountMinor.toString(),
+      maxAmountMinor: updated.maxAmountMinor.toString(),
+      creditorLegalName: updated.creditorLegalName,
+      creditorNit: updated.creditorNit,
+      creditorDomicile: updated.creditorDomicile,
+      updatedAt: updated.updatedAt.toISOString(),
+      updatedBy: updated.updatedBy,
+    };
+  });
+
+  app.get('/admin/loans/pool', guard('treasury:read'), async () => {
+    return admin.loans.getPoolSummary();
+  });
+
+  app.post('/admin/loans/pool/fund', guard('treasury:write'), async (req) => {
+    const b = parse(z.object({ amountMinor: BigIntAmount, reason: Reason }), req.body);
+    return admin.loans.fundPool(ctx(req), b.amountMinor, b.reason);
+  });
+
+  app.post('/admin/loans/pool/withdraw', guard('treasury:write'), async (req) => {
+    const b = parse(z.object({ amountMinor: BigIntAmount, reason: Reason }), req.body);
+    return admin.loans.withdrawPool(ctx(req), b.amountMinor, b.reason);
+  });
+
+  app.get('/admin/loans', guard('treasury:read'), async (req) => {
+    const q = parse(
+      z.object({
+        status: z.enum(['pending_review', 'approved_active', 'overdue', 'paid', 'rejected', 'canceled']).optional(),
+      }),
+      req.query,
+    );
+    return admin.loans.listAdminLoans(q.status);
+  });
+
+  app.get('/admin/loans/:id/promissory-note', guard('treasury:read'), async (req) => {
+    const { id } = parse(IdParam, req.params);
+    return admin.loans.getAdminPromissoryNote(id);
+  });
+
+  app.post('/admin/loans/:id/approve', guard('treasury:write'), async (req) => {
+    const { id } = parse(IdParam, req.params);
+    const { reason } = parse(z.object({ reason: Reason }), req.body);
+    return admin.loans.approveLoan(ctx(req), id, reason);
+  });
+
+  app.post('/admin/loans/:id/reject', guard('treasury:write'), async (req) => {
+    const { id } = parse(IdParam, req.params);
+    const { reason } = parse(z.object({ reason: Reason }), req.body);
+    return admin.loans.rejectLoan(ctx(req), id, reason);
+  });
 }
+
 

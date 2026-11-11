@@ -28,13 +28,15 @@ struct TransactionDetailSheet: View {
         case .conversion: "arrow.left.arrow.right"
         case .cardPocket: isIncoming ? "arrow.uturn.backward.circle" : "creditcard.and.123"
         case .cardPurchase: "bag.fill"
+        case .savings: "lock.shield.fill"
+        case .loan: "banknote.fill"
         case .unknown: "circle.dashed"
         }
     }
 
     private var accentColor: Color {
         switch transaction.type {
-        case .cardPocket: return Theme.spruce
+        case .cardPocket, .savings, .loan: return isIncoming ? Theme.positive : Theme.spruce
         case .cardPurchase: return Theme.ink
         default: return isIncoming ? Theme.positive : Theme.ink
         }
@@ -44,6 +46,9 @@ struct TransactionDetailSheet: View {
         switch transaction.type {
         case .cardPocket: return "CuyPay · Bolsillo Tarjeta"
         case .cardPurchase: return "Red Visa · Tarjeta CuyPay"
+        case .conversion: return "CuyPay · Conversión FX"
+        case .savings: return "CuyPay · Bolsillo de Ahorro"
+        case .loan: return "CuyPay · Créditos"
         default: return "ACH Colombia · Bre-B"
         }
     }
@@ -54,6 +59,9 @@ struct TransactionDetailSheet: View {
             switch transaction.type {
             case .cardPocket: return isIncoming ? "Retiro exitoso" : "Recarga exitosa"
             case .cardPurchase: return "Compra aprobada"
+            case .conversion: return "Conversión completada"
+            case .savings: return isIncoming ? "Reintegro acreditado" : "Bloqueo constituido"
+            case .loan: return isIncoming ? "Crédito desembolsado" : "Pago aplicado"
             default: return isIncoming ? "Recibido exitosamente" : "Transferencia exitosa"
             }
         case .pending: return "En proceso"
@@ -63,12 +71,35 @@ struct TransactionDetailSheet: View {
         }
     }
 
+    private var statusBadgeColor: Color {
+        switch transaction.status {
+        case .completed: return Theme.spruce
+        case .pending, .unknown: return Theme.warning
+        case .failed, .reversed: return Theme.negative
+        }
+    }
+
+    private var statusBadgeIcon: String {
+        switch transaction.status {
+        case .completed: return "checkmark.seal.fill"
+        case .pending, .unknown: return "clock.fill"
+        case .failed, .reversed: return "xmark.octagon.fill"
+        }
+    }
+
+    private var formattedHeadlineAmount: String {
+        if isIncoming {
+            return displayedAmount.formatted(sign: .always)
+        }
+        return "-" + displayedAmount.formatted(sign: .never)
+    }
+
     private var receiptText: String {
         """
         Comprobante de transacción CuyPay
         Estado: \(statusTitle)
         Tipo: \(transaction.title)
-        Monto: \(displayedAmount.formatted(sign: isIncoming ? .always : .never))
+        Monto: \(formattedHeadlineAmount)
         Fecha: \(transaction.createdAt.formatted(date: .long, time: .shortened))
         Referencia: \(transaction.id)
         Red: \(networkTitle)
@@ -91,15 +122,15 @@ struct TransactionDetailSheet: View {
                                 .background(accentColor.opacity(0.12), in: .circle)
                                 .padding(.top, 16)
 
-                            Text(verbatim: displayedAmount.formatted(sign: isIncoming ? .always : .automatic))
+                            Text(verbatim: formattedHeadlineAmount)
                                 .font(.system(.largeTitle, design: .serif).weight(.bold))
                                 .monospacedDigit()
                                 .foregroundStyle(isIncoming ? Theme.positive : .primary)
 
                             StatusBadge(
                                 text: LocalizedStringKey(statusTitle),
-                                color: transaction.status == .completed ? Theme.spruce : Theme.warning,
-                                systemImage: transaction.status == .completed ? "checkmark.seal.fill" : "clock.fill"
+                                color: statusBadgeColor,
+                                systemImage: statusBadgeIcon
                             )
                         }
 
@@ -115,7 +146,7 @@ struct TransactionDetailSheet: View {
                             if transaction.feeMinor > 0 {
                                 DetailRow(title: "Comisión", value: transaction.fee.formatted())
                             } else {
-                                DetailRow(title: "Comisión", value: "$ 0 COP (Sin costo)")
+                                DetailRow(title: "Comisión", value: "\(Money.zero(transaction.currency).formatted()) (Sin costo)")
                             }
 
                             if let conv = transaction.conversion {
