@@ -136,7 +136,7 @@ enum CardSecureDataExtractor {
     // MARK: - Helpers privados
 
     private static func extractExpiry(from text: String) -> String? {
-        guard let raw = firstCapture(in: text, pattern: #"\b(0[1-9]|1[0-2])\s*/\s*(\d{2}|\d{4})\b"#) else {
+        guard let raw = firstCapture(in: text, pattern: #"\b((?:0[1-9]|1[0-2])\s*/\s*(?:\d{4}|\d{2}))\b"#) else {
             return nil
         }
         let parts = raw.split(separator: "/").map { $0.trimmingCharacters(in: .whitespaces) }
