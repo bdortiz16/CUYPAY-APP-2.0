@@ -288,12 +288,10 @@ struct CardQuickCard: View {
                 } else if let card {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text("CuyPay")
-                                .font(.system(size: 11, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white)
+                            CuyPayLogo(size: 10, color: .white, markColor: Theme.slate)
                             Spacer()
                             Image(systemName: "wave.3.forward")
-                                .font(.system(size: 10))
+                                .font(.system(size: 9.5, weight: .semibold))
                                 .foregroundStyle(.white.opacity(0.8))
                         }
 
@@ -311,35 +309,30 @@ struct CardQuickCard: View {
                                 .minimumScaleFactor(0.75)
                         }
 
-                        HStack {
+                        HStack(alignment: .center) {
                             Text(card.maskedPan)
                                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(.white.opacity(0.85))
                                 .lineLimit(1)
-                            Spacer()
-                            Text(card.status == .active ? "Activa" : "Bloqueada")
-                                .font(.system(size: 8, weight: .semibold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(card.status == .active ? Theme.positive.opacity(0.32) : Theme.coral.opacity(0.32), in: Capsule())
-                                .foregroundStyle(.white)
+                            Spacer(minLength: 4)
+                            VisaLogoView(height: 9.5, color: .white.opacity(0.95))
                         }
                     }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, minHeight: 96)
+                    .padding(11)
+                    .frame(maxWidth: .infinity, minHeight: 98)
                     .background(
                         LinearGradient(
                             colors: card.status == .active
-                                ? [Theme.onyx, Theme.spruceSolid]
-                                : [Theme.onyx.opacity(0.75), Color.gray.opacity(0.6)],
+                                ? [Color(red: 0.035, green: 0.075, blue: 0.090), Theme.onyx, Theme.spruceSolid]
+                                : [Theme.onyx.opacity(0.85), Color.gray.opacity(0.55)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
-                        in: RoundedRectangle(cornerRadius: 12)
+                        in: RoundedRectangle(cornerRadius: 14)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(.white.opacity(0.18), lineWidth: 0.8)
+                        RoundedRectangle(cornerRadius: 14)
+                            .strokeBorder(.white.opacity(0.20), lineWidth: 0.8)
                     )
 
                     HStack(spacing: 4) {

@@ -12,6 +12,7 @@ struct CardView: View {
     @Environment(WalletStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage(AppModel.hideAmountsKey) private var hideAmounts = false
 
     @State private var isIssuing = false
@@ -19,7 +20,9 @@ struct CardView: View {
     @State private var isTogglingState = false
     @State private var isLoadingSecrets = false
     @State private var cardSecrets: CardSensitiveDetails?
-    @State private var showCardDetailsSheet = false
+    @State private var isCardFlipped = false
+    @State private var showCardBackFace = false
+    @State private var flipSwapTask: Task<Void, Never>?
     @State private var showCardSettingsSheet = false
     @State private var copiedField: String?
     @State private var pocketTransferMode: CardPocketTransferMode?
@@ -142,8 +145,13 @@ struct CardView: View {
                 _ = await (u, w, c)
             }
             .onDisappear {
-                showCardDetailsSheet = false
+                resetCardFlipImmediately()
                 cardSecrets = nil
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase != .active && isCardFlipped {
+                    setCardFlipped(false)
+                }
             }
             .sheet(item: $pocketTransferMode) { transferMode in
                 if let card = activeCard {
@@ -158,11 +166,6 @@ struct CardView: View {
             }
             .sheet(item: $selectedTransaction) { txn in
                 TransactionDetailSheet(transaction: txn, pocket: .cop)
-            }
-            .sheet(isPresented: $showCardDetailsSheet) {
-                if let card = activeCard {
-                    cardDetailsSheet(card)
-                }
             }
             .sheet(isPresented: $showCardSettingsSheet) {
                 if let card = activeCard {
@@ -200,15 +203,39 @@ struct CardView: View {
         }
     }
 
-    // MARK: - 1. Tarjeta Virtual CuyPay (Proporción completa sin recortes)
+    // MARK: - 1. Tarjeta Virtual CuyPay con giro 3D interactivo (Frente limpio sin chip + Reverso con datos reales)
 
     private func virtualCardShowcase(_ card: CardItem) -> some View {
+        ZStack {
+            virtualCardFront(card)
+                .opacity(showCardBackFace ? 0 : 1)
+                .allowsHitTesting(!showCardBackFace)
+                .rotation3DEffect(
+                    .degrees(isCardFlipped ? 180 : 0),
+                    axis: (x: 0, y: 1, z: 0),
+                    perspective: 0.42
+                )
+
+            virtualCardBack(card)
+                .opacity(showCardBackFace ? 1 : 0)
+                .allowsHitTesting(showCardBackFace)
+                .rotation3DEffect(
+                    .degrees(isCardFlipped ? 0 : -180),
+                    axis: (x: 0, y: 1, z: 0),
+                    perspective: 0.42
+                )
+        }
+        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.42 : 0.18), radius: 20, x: 0, y: 11)
+    }
+
+    private func virtualCardFront(_ card: CardItem) -> some View {
         let isFrozen = card.status == .frozen
+        let last4 = effectiveLastFour(for: card)
 
         return VStack(alignment: .leading, spacing: 0) {
-            // Fila superior: Logo CuyPay + Estado + Sin contacto
+            // Fila superior: Marca CuyPay + Estado + Sin contacto
             HStack(alignment: .center, spacing: 10) {
-                CuyPayLogo(size: 16, color: .white, markColor: Theme.slate)
+                CuyPayLogo(size: 16.5, color: .white, markColor: Theme.slate)
 
                 Spacer()
 
@@ -218,57 +245,48 @@ struct CardView: View {
                         .frame(width: 6, height: 6)
                     Text(isFrozen ? "Bloqueada" : "Activa")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.95))
+                        .foregroundStyle(.white.opacity(0.96))
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(Color.white.opacity(0.14), in: .capsule)
+                .background(Color.white.opacity(0.12), in: .capsule)
 
                 Image(systemName: "wave.3.forward")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.84))
             }
 
-            Spacer(minLength: 16)
+            Spacer(minLength: 20)
 
-            // Fila central: Chip metálico + PAN enmascarado
-            HStack(spacing: 14) {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.40),
-                                Theme.slate.opacity(0.24)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 38, height: 27)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 6)
-                            .strokeBorder(Color.white.opacity(0.38), lineWidth: 0.8)
-                    }
-
-                Text(verbatim: maskedPan(for: card))
-                    .font(.system(size: 18, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+            // Zona central limpia (sin chip físico): numeración digital con jerarquía sutil
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                ForEach(0..<3, id: \.self) { _ in
+                    Text(verbatim: "••••")
+                        .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                        .tracking(1.6)
+                        .foregroundStyle(.white.opacity(0.46))
+                }
+                Text(verbatim: last4.isEmpty ? "••••" : last4)
+                    .font(.system(size: 19, weight: .semibold, design: .monospaced))
+                    .tracking(1.2)
+                    .foregroundStyle(.white.opacity(0.96))
             }
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
 
-            Spacer(minLength: 16)
+            Spacer(minLength: 20)
 
-            // Fila inferior: Etiqueta + Titular + Red Visa
+            // Fila inferior: Etiqueta + Titular + Logo vectorial oficial Visa
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(verbatim: card.label.uppercased())
                         .font(.system(size: 9.5, weight: .semibold))
-                        .tracking(0.8)
-                        .foregroundStyle(Theme.slate.opacity(0.92))
+                        .tracking(1.0)
+                        .foregroundStyle(Theme.slate.opacity(0.90))
                         .lineLimit(1)
                     Text(verbatim: holderName)
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .font(.system(size: 14.5, weight: .bold, design: .rounded))
+                        .tracking(0.3)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
@@ -276,59 +294,261 @@ struct CardView: View {
 
                 Spacer(minLength: 8)
 
-                VStack(alignment: .trailing, spacing: 2) {
-                    cardBrandHeroMark(for: card.brand)
+                VStack(alignment: .trailing, spacing: 4) {
+                    cardBrandHeroMark(for: card.brand, height: 19)
                     Text("Débito COP")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.78))
+                        .font(.system(size: 9.5, weight: .medium))
+                        .tracking(0.3)
+                        .foregroundStyle(.white.opacity(0.74))
                 }
             }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 22)
         .frame(maxWidth: .infinity)
-        .frame(height: 214)
+        .frame(height: 220)
         .background {
-            ZStack {
-                LinearGradient(
-                    colors: isFrozen
-                        ? [Theme.onyx.opacity(0.94), Theme.jetBlack.opacity(0.86), Color(white: 0.24)]
-                        : [Theme.onyx, Theme.jetBlack, Theme.spruceSolid],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-
-                RadialGradient(
-                    colors: [
-                        (isFrozen ? Color.white : Theme.slate).opacity(0.24),
-                        Color.clear
-                    ],
-                    center: .topTrailing,
-                    startRadius: 12,
-                    endRadius: 210
-                )
-
-                GeometryReader { proxy in
-                    Circle()
-                        .strokeBorder(Color.white.opacity(0.07), lineWidth: 1)
-                        .frame(width: 230, height: 230)
-                        .position(x: proxy.size.width - 25, y: 20)
-                }
-            }
+            cardSurfaceBackground(isFrozen: isFrozen, isBack: false)
         }
         .clipShape(.rect(cornerRadius: 26))
         .overlay {
-            RoundedRectangle(cornerRadius: 26)
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [.white.opacity(0.28), .white.opacity(0.06)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
+            cardRimBorder
         }
-        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.40 : 0.16), radius: 18, x: 0, y: 10)
+        .contentShape(.rect(cornerRadius: 26))
+        .onTapGesture {
+            guard card.status != .canceled, !isLoadingSecrets else { return }
+            Task { await toggleCardDetailsFlip(card) }
+        }
+    }
+
+    private func virtualCardBack(_ card: CardItem) -> some View {
+        let isFrozen = card.status == .frozen
+
+        return VStack(alignment: .leading, spacing: 11) {
+            // Cabecera del reverso: indicador de seguridad / aviso de copiado + botón para volver al frente
+            HStack(spacing: 8) {
+                if let copiedField {
+                    HStack(spacing: 5) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(Theme.positive)
+                        Text(copiedFieldLabel(for: copiedField))
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Theme.positive.opacity(0.24), in: .capsule)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                } else {
+                    HStack(spacing: 5) {
+                        Image(systemName: "lock.shield.fill")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Theme.slate)
+                        Text("Toca un dato para copiar")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.white.opacity(0.78))
+                    }
+                }
+
+                Spacer(minLength: 6)
+
+                Button {
+                    setCardFlipped(false)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.uturn.backward")
+                            .font(.system(size: 10, weight: .bold))
+                        Text("Frente")
+                            .font(.caption2.weight(.semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.white.opacity(0.14), in: .capsule)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let secrets = cardSecrets {
+                // Bloque principal: Número completo de tarjeta (16 dígitos) con copiado a 1 toque
+                Button {
+                    copyToPasteboard(secrets.rawPan, id: "pan")
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("NÚMERO DE TARJETA")
+                                .font(.system(size: 8.5, weight: .semibold))
+                                .tracking(0.9)
+                                .foregroundStyle(Theme.slate.opacity(0.90))
+                            Text(verbatim: secrets.formattedPan)
+                                .font(.system(size: 17.5, weight: .bold, design: .monospaced))
+                                .tracking(0.8)
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.72)
+                        }
+
+                        Spacer(minLength: 4)
+
+                        Image(systemName: copiedField == "pan" ? "checkmark.circle.fill" : "doc.on.doc")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(copiedField == "pan" ? Theme.positive : .white.opacity(0.85))
+                            .frame(width: 30, height: 30)
+                            .background(Color.white.opacity(0.10), in: .circle)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.08), in: .rect(cornerRadius: 14))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14)
+                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                // Fila inferior: Vencimiento + CVC + Titular y marca Visa
+                HStack(alignment: .center, spacing: 10) {
+                    backSecretTile(
+                        label: "VENCE",
+                        value: secrets.expiry,
+                        copyValue: secrets.expiry,
+                        id: "exp"
+                    )
+
+                    backSecretTile(
+                        label: "CVC",
+                        value: secrets.cvv,
+                        copyValue: secrets.cvv,
+                        id: "cvv"
+                    )
+
+                    Spacer(minLength: 4)
+
+                    VStack(alignment: .trailing, spacing: 4) {
+                        cardBrandHeroMark(for: card.brand, height: 16)
+                        Text(verbatim: holderName)
+                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.70))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                }
+            } else {
+                Spacer()
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .tint(.white)
+                    Text("Descifrando datos seguros…")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity)
+        .frame(height: 220)
+        .background {
+            cardSurfaceBackground(isFrozen: isFrozen, isBack: true)
+        }
+        .clipShape(.rect(cornerRadius: 26))
+        .overlay {
+            cardRimBorder
+        }
+    }
+
+    private func backSecretTile(label: String, value: String, copyValue: String, id: String) -> some View {
+        let isCopied = copiedField == id
+        return Button {
+            copyToPasteboard(copyValue, id: id)
+        } label: {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: label)
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .tracking(0.8)
+                        .foregroundStyle(Theme.slate.opacity(0.90))
+                    Text(verbatim: value)
+                        .font(.system(size: 15, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                }
+                Image(systemName: isCopied ? "checkmark.circle.fill" : "doc.on.doc")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(isCopied ? Theme.positive : .white.opacity(0.75))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(Color.white.opacity(0.08), in: .rect(cornerRadius: 13))
+            .overlay {
+                RoundedRectangle(cornerRadius: 13)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func cardSurfaceBackground(isFrozen: Bool, isBack: Bool) -> some View {
+        ZStack {
+            LinearGradient(
+                colors: isFrozen
+                    ? [Color(red: 0.08, green: 0.10, blue: 0.11), Theme.jetBlack.opacity(0.92), Color(white: 0.23)]
+                    : (isBack
+                        ? [Color(red: 0.028, green: 0.058, blue: 0.070), Theme.onyx, Color(red: 0.055, green: 0.165, blue: 0.180)]
+                        : [Color(red: 0.035, green: 0.075, blue: 0.090), Theme.onyx, Theme.spruceSolid]),
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            RadialGradient(
+                colors: [
+                    (isFrozen ? Color.white : Theme.slate).opacity(isBack ? 0.16 : 0.28),
+                    Color.clear
+                ],
+                center: isBack ? .bottomLeading : .topTrailing,
+                startRadius: 10,
+                endRadius: 230
+            )
+
+            if !isBack {
+                GeometryReader { proxy in
+                    ZStack {
+                        CuyPayIsotype()
+                            .fill(Color.white.opacity(0.036))
+                            .frame(width: 180, height: 180)
+                            .position(x: proxy.size.width - 52, y: proxy.size.height * 0.46)
+
+                        Circle()
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.10), Color.clear],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
+                            .frame(width: 250, height: 250)
+                            .position(x: proxy.size.width - 15, y: 12)
+                    }
+                }
+            }
+        }
+    }
+
+    private var cardRimBorder: some View {
+        RoundedRectangle(cornerRadius: 26)
+            .strokeBorder(
+                LinearGradient(
+                    colors: [.white.opacity(0.32), .white.opacity(0.06), .white.opacity(0.16)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 1
+            )
     }
 
     // MARK: - 2. Fila limpia de 4 acciones rápidas
@@ -346,13 +566,14 @@ struct CardView: View {
             }
 
             quickActionButton(
-                title: "Ver datos",
-                systemImage: "creditcard.and.123",
+                title: isCardFlipped ? "Ocultar" : "Ver datos",
+                systemImage: isCardFlipped ? "eye.slash.fill" : "creditcard.and.123",
                 isPrimary: false,
                 isLoading: isLoadingSecrets,
+                tint: isCardFlipped ? Theme.spruce : .primary,
                 disabled: card.status == .canceled || isLoadingSecrets
             ) {
-                Task { await openCardDetails(card) }
+                Task { await toggleCardDetailsFlip(card) }
             }
 
             quickActionButton(
@@ -645,97 +866,7 @@ struct CardView: View {
         }
     }
 
-    // MARK: - Hoja modal dedicada: Datos de la tarjeta (Face ID)
-
-    private func cardDetailsSheet(_ card: CardItem) -> some View {
-        NavigationStack {
-            ZStack {
-                BrandBackground()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Datos seguros de tu tarjeta")
-                                .font(.system(.title3, design: .serif).weight(.semibold))
-                            Text("Toca el ícono de copiar junto a cualquier dato para tus compras en línea.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.top, 8)
-
-                        if isLoadingSecrets {
-                            HStack(spacing: 12) {
-                                ProgressView()
-                                Text("Descifrando datos de tu tarjeta…")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 32)
-                        } else if let secrets = cardSecrets {
-                            VStack(spacing: 0) {
-                                secretDetailRow(
-                                    label: "Número de tarjeta",
-                                    value: secrets.formattedPan,
-                                    copyValue: secrets.rawPan,
-                                    id: "pan"
-                                )
-                                Divider()
-                                HStack(spacing: 0) {
-                                    secretDetailRow(
-                                        label: "Válida hasta",
-                                        value: secrets.expiry,
-                                        copyValue: secrets.expiry,
-                                        id: "exp"
-                                    )
-                                    Divider()
-                                    secretDetailRow(
-                                        label: "CVC",
-                                        value: secrets.cvv,
-                                        copyValue: secrets.cvv,
-                                        id: "cvv"
-                                    )
-                                }
-                                Divider()
-                                secretDetailRow(
-                                    label: "Nombre del titular",
-                                    value: holderName,
-                                    copyValue: holderName,
-                                    id: "holder"
-                                )
-                                Divider()
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text("Red y modalidad")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                        Text(verbatim: "\(card.brand) Débito Internacional · COP")
-                                            .font(.subheadline.weight(.medium))
-                                    }
-                                    Spacer()
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 14)
-                            }
-                            .glassEffect(.regular, in: .rect(cornerRadius: 20))
-                        } else {
-                            PrimaryButton(title: "Autenticar con Face ID", systemImage: "faceid", isLoading: isLoadingSecrets) {
-                                Task { await loadSecretsIfNeeded(card, authenticate: true) }
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 28)
-                }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    CloseToolbarButton { showCardDetailsSheet = false }
-                }
-            }
-        }
-        .presentationDetents([.height(430), .large])
-    }
+    // MARK: - Fila auxiliar de copiado (usada en Apple Wallet guiado)
 
     private func secretDetailRow(label: LocalizedStringKey, value: String, copyValue: String, id: String) -> some View {
         HStack(spacing: 8) {
@@ -992,53 +1123,49 @@ struct CardView: View {
         VStack(spacing: 20) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
-                    CuyPayLogo(size: 16, color: .white, markColor: Theme.slate)
+                    CuyPayLogo(size: 16.5, color: .white, markColor: Theme.slate)
                     Spacer()
-                    Text(verbatim: "VISA")
-                        .font(.system(.subheadline, design: .rounded).weight(.heavy))
-                        .italic()
-                        .foregroundStyle(.white.opacity(0.94))
+                    Image(systemName: "wave.3.forward")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.80))
                 }
                 Spacer()
-                Text(verbatim: "••••  ••••  ••••  ••••")
-                    .font(.system(.title3, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.88))
+                HStack(spacing: 12) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        Text(verbatim: "••••")
+                            .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                            .tracking(1.6)
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                }
                 Spacer()
-                HStack {
-                    Text(verbatim: holderName)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.94))
-                        .lineLimit(1)
+                HStack(alignment: .bottom) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("BOLSILLO COP · $ 0 COMISIÓN")
+                            .font(.system(size: 9, weight: .semibold))
+                            .tracking(0.9)
+                            .foregroundStyle(Theme.slate.opacity(0.90))
+                        Text(verbatim: holderName)
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.96))
+                            .lineLimit(1)
+                    }
                     Spacer()
-                    Text("Bolsillo COP · $ 0 comisión")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.88))
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(Color.white.opacity(0.14), in: .capsule)
+                    VisaLogoView(height: 18, color: .white.opacity(0.96))
                 }
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 22)
             .frame(maxWidth: .infinity)
-            .frame(height: 204)
+            .frame(height: 214)
             .background {
-                ZStack {
-                    LinearGradient(
-                        colors: [Theme.onyx, Theme.jetBlack, Theme.spruceSolid],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    RadialGradient(
-                        colors: [Theme.slate.opacity(0.24), Color.clear],
-                        center: .topTrailing,
-                        startRadius: 10,
-                        endRadius: 200
-                    )
-                }
+                cardSurfaceBackground(isFrozen: false, isBack: false)
             }
             .clipShape(.rect(cornerRadius: 26))
-            .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 8)
+            .overlay {
+                cardRimBorder
+            }
+            .shadow(color: .black.opacity(0.20), radius: 16, x: 0, y: 9)
             .padding(.top, 14)
 
             Text("Tu Tarjeta Virtual CuyPay")
@@ -1239,23 +1366,24 @@ struct CardView: View {
         return ""
     }
 
-    private func maskedPan(for card: CardItem) -> String {
-        let suffix = effectiveLastFour(for: card)
-        return suffix.isEmpty ? "••••  ••••  ••••  ••••" : "••••  ••••  ••••  \(suffix)"
+    private func copiedFieldLabel(for id: String) -> LocalizedStringKey {
+        switch id {
+        case "pan": "Número copiado"
+        case "exp": "Vencimiento copiado"
+        case "cvv": "CVC copiado"
+        default: "Copiado"
+        }
     }
 
     @ViewBuilder
-    private func cardBrandHeroMark(for brand: String) -> some View {
+    private func cardBrandHeroMark(for brand: String, height: CGFloat = 19) -> some View {
         if brand.lowercased().contains("master") {
-            HStack(spacing: -6) {
-                Circle().fill(Color(red: 0.92, green: 0.0, blue: 0.11)).frame(width: 20, height: 20)
-                Circle().fill(Color(red: 0.97, green: 0.62, blue: 0.11).opacity(0.92)).frame(width: 20, height: 20)
+            HStack(spacing: -height * 0.3) {
+                Circle().fill(Color(red: 0.92, green: 0.0, blue: 0.11)).frame(width: height, height: height)
+                Circle().fill(Color(red: 0.97, green: 0.62, blue: 0.11).opacity(0.92)).frame(width: height, height: height)
             }
         } else {
-            Text(verbatim: "VISA")
-                .font(.system(size: 19, weight: .black, design: .rounded))
-                .italic()
-                .foregroundStyle(.white)
+            VisaLogoView(height: height, color: .white)
         }
     }
 
@@ -1264,6 +1392,35 @@ struct CardView: View {
             onOpenProfile()
         } else {
             dismiss()
+        }
+    }
+
+    private func setCardFlipped(_ target: Bool) {
+        guard target != isCardFlipped else { return }
+        flipSwapTask?.cancel()
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        withAnimation(.spring(duration: 0.56, bounce: 0.10)) {
+            isCardFlipped = target
+        }
+        flipSwapTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(240))
+            guard !Task.isCancelled else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                showCardBackFace = target
+            }
+        }
+    }
+
+    private func resetCardFlipImmediately() {
+        flipSwapTask?.cancel()
+        flipSwapTask = nil
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isCardFlipped = false
+            showCardBackFace = false
         }
     }
 
@@ -1285,30 +1442,35 @@ struct CardView: View {
         }
     }
 
-    private func openCardDetails(_ card: CardItem) async {
-        await loadSecretsIfNeeded(card, authenticate: true)
-        if cardSecrets != nil {
-            showCardDetailsSheet = true
+    private func toggleCardDetailsFlip(_ card: CardItem) async {
+        if isCardFlipped {
+            setCardFlipped(false)
+            return
+        }
+        let unlocked = await loadSecretsIfNeeded(card, authenticate: true)
+        if unlocked {
+            setCardFlipped(true)
         }
     }
 
-    private func loadSecretsIfNeeded(_ card: CardItem, authenticate: Bool) async {
+    @discardableResult
+    private func loadSecretsIfNeeded(_ card: CardItem, authenticate: Bool) async -> Bool {
         errorMessage = nil
         if cardSecrets != nil {
             if authenticate {
                 let authorized = await BiometricAuthenticator.authenticate(
                     reason: String(localized: "Autoriza ver los datos de tu tarjeta CuyPay")
                 )
-                guard authorized else { return }
+                return authorized
             }
-            return
+            return true
         }
 
         if authenticate {
             let authorized = await BiometricAuthenticator.authenticate(
                 reason: String(localized: "Autoriza ver los datos de tu tarjeta CuyPay")
             )
-            guard authorized else { return }
+            guard authorized else { return false }
         }
 
         isLoadingSecrets = true
@@ -1332,8 +1494,10 @@ struct CardView: View {
             if card.lastFour == "0000" {
                 await store.refreshCards()
             }
+            return true
         } catch {
             errorMessage = error.userMessage
+            return false
         }
     }
 
@@ -1362,8 +1526,8 @@ struct CardView: View {
                 state: "canceled",
                 preservePocket: preservePocket
             )
+            resetCardFlipImmediately()
             cardSecrets = nil
-            showCardDetailsSheet = false
             async let w: Void = store.refreshWallets()
             async let c: Void = store.refreshCards()
             async let t: Void = store.refreshTransactions()
@@ -1403,7 +1567,7 @@ struct CardView: View {
         } else {
             showAppleWalletSheet = true
             if cardSecrets == nil {
-                await loadSecretsIfNeeded(card, authenticate: true)
+                _ = await loadSecretsIfNeeded(card, authenticate: true)
             }
         }
     }
