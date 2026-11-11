@@ -1,5 +1,6 @@
 import type { KycApplicant, User } from '../domain/types.js';
 import { AppError } from '../lib/errors.js';
+import { assertDeliverableEmail, isPlaceholderEmail } from '../lib/email-validator.js';
 import { mapSumsubEvent, verifySumsubWebhook, type SumsubWebhookPayload } from '../adapters/sumsub/webhook.js';
 import type { ServiceDeps } from './deps.js';
 
@@ -49,9 +50,15 @@ export class KycService {
 
   async sdkToken(user: User) {
     const applicant = await this.getOrCreateApplicant(user);
+    const levelName = this.d.config.SUMSUB_LEVEL_NAME;
+    if (applicant.levelName !== levelName && user.kycStatus !== 'approved') {
+      applicant.levelName = levelName;
+      applicant.updatedAt = this.d.clock.now();
+      await this.d.repos.kyc.upsert(applicant);
+    }
     const ttl = this.d.config.SUMSUB_TOKEN_TTL_SECONDS;
-    const { token } = await this.d.kyc.createSdkAccessToken({ externalUserId: user.id, levelName: applicant.levelName, ttlInSecs: ttl });
-    return { token, levelName: applicant.levelName, expiresAt: new Date(this.d.clock.now().getTime() + ttl * 1000) };
+    const { token } = await this.d.kyc.createSdkAccessToken({ externalUserId: user.id, levelName, ttlInSecs: ttl });
+    return { token, levelName, expiresAt: new Date(this.d.clock.now().getTime() + ttl * 1000) };
   }
 
   async status(user: User) {
@@ -101,18 +108,7 @@ export class KycService {
     if (user.kycStatus === 'approved' && status === 'pending') return;
     const existing = await this.d.repos.kyc.byUser(user.id);
     const resolvedApplicantId = info.applicantId ?? existing?.applicantId ?? null;
-    await this.d.repos.kyc.upsert({
-      userId: user.id,
-      provider: 'sumsub',
-      applicantId: resolvedApplicantId,
-      ...(existing?.providerCardHolderId ? { providerCardHolderId: existing.providerCardHolderId } : {}),
-      levelName: existing?.levelName ?? this.d.config.SUMSUB_LEVEL_NAME,
-      status,
-      reviewAnswer: info.reviewAnswer ?? existing?.reviewAnswer ?? null,
-      rejectLabels: info.rejectLabels,
-      rejectType: info.rejectType,
-      updatedAt: now,
-    });
+    let preservedCardHolderId = existing?.providerCardHolderId;
 
     if (status === 'approved' && this.d.kyc.getApplicantProfile) {
       try {
@@ -129,20 +125,38 @@ export class KycService {
               user.lastName = profile.lastName;
             }
           }
-          const currentEmail = user.email.trim().toLowerCase();
-          if (
-            profile.email &&
-            (currentEmail === 'usuario@cuypay.com' || currentEmail.endsWith('@pendiente.cuypay.com'))
-          ) {
-            const owner = await this.d.repos.users.byEmail(profile.email);
-            if (!owner || owner.id === user.id) {
-              user.email = profile.email.toLowerCase();
+
+          const isLive = this.d.config.PROVIDERS_MODE === 'live';
+          const isSumsubSandbox = Boolean(this.d.config.SUMSUB_APP_TOKEN?.startsWith('sbx:'));
+          const candidateKycEmail =
+            profile.verifiedEmailFromKyc ?? (isPlaceholderEmail(user.email) ? profile.email : null);
+
+          if (candidateKycEmail) {
+            try {
+              const validKycEmail = await assertDeliverableEmail(candidateKycEmail, { isLive });
+              const shouldReplaceEmail =
+                isPlaceholderEmail(user.email) ||
+                (Boolean(profile.verifiedEmailFromKyc) && !isSumsubSandbox && validKycEmail !== user.email.trim().toLowerCase());
+              if (shouldReplaceEmail) {
+                const owner = await this.d.repos.users.byEmail(validKycEmail);
+                if (!owner || owner.id === user.id) {
+                  user.email = validKycEmail;
+                  preservedCardHolderId = null;
+                }
+              }
+            } catch {
+              this.d.logger.warn(
+                { userId: user.id, candidateKycEmail },
+                'ignoring undeliverable or generic email from sumsub profile',
+              );
             }
           }
-          if (profile.verifiedPhoneFromKyc && profile.verifiedPhoneFromKyc !== user.phone) {
+
+          if (profile.verifiedPhoneFromKyc && profile.verifiedPhoneFromKyc !== user.phone && !isSumsubSandbox) {
             const owner = await this.d.repos.users.byPhone(profile.verifiedPhoneFromKyc);
             if (!owner || owner.id === user.id) {
               user.phone = profile.verifiedPhoneFromKyc;
+              preservedCardHolderId = null;
             }
           }
         }
@@ -150,6 +164,19 @@ export class KycService {
         this.d.logger.warn({ userId: user.id, err: (err as Error).message }, 'sumsub profile sync skipped on approval');
       }
     }
+
+    await this.d.repos.kyc.upsert({
+      userId: user.id,
+      provider: 'sumsub',
+      applicantId: resolvedApplicantId,
+      ...(preservedCardHolderId ? { providerCardHolderId: preservedCardHolderId } : {}),
+      levelName: this.d.config.SUMSUB_LEVEL_NAME,
+      status,
+      reviewAnswer: info.reviewAnswer ?? existing?.reviewAnswer ?? null,
+      rejectLabels: info.rejectLabels,
+      rejectType: info.rejectType,
+      updatedAt: now,
+    });
 
     user.kycStatus = status;
     user.tier = status === 'approved' ? 'full' : 'basic';

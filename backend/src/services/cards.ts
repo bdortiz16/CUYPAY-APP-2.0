@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Card, CardStatus, User } from '../domain/types.js';
 import { newId } from '../lib/clock.js';
+import { assertDeliverableEmail, isPlaceholderEmail } from '../lib/email-validator.js';
 import { AppError, isAppError } from '../lib/errors.js';
 import type { CardHolderInput } from '../ports/index.js';
 import type { ServiceDeps } from './deps.js';
@@ -111,10 +112,7 @@ export class CardService {
       this.d.config.PROVIDERS_MODE !== 'live' ||
       Boolean(this.d.config.SUMSUB_APP_TOKEN?.startsWith('sbx:'));
 
-    const isPlaceholderEmail = (raw?: string | null) => {
-      const e = String(raw ?? '').trim().toLowerCase();
-      return !e || e === 'usuario@cuypay.com' || e.endsWith('@pendiente.cuypay.com');
-    };
+    const isLive = this.d.config.PROVIDERS_MODE === 'live';
 
     const userFirst = user.firstName.trim();
     const userLast = user.lastName.trim();
@@ -133,28 +131,35 @@ export class CardService {
       userLast
     ).trim();
 
-    const email = (
-      (!isPlaceholderEmail(user.email) ? user.email : '') ||
-      (!isPlaceholderEmail(kycProfile?.verifiedEmailFromKyc) ? kycProfile?.verifiedEmailFromKyc : '') ||
-      (!isPlaceholderEmail(kycProfile?.email) ? kycProfile?.email : '') ||
-      ''
-    )
-      .trim()
-      .toLowerCase();
+    const emailCandidates = [user.email, kycProfile?.verifiedEmailFromKyc, kycProfile?.email].filter(
+      (c): c is string => Boolean(c && !isPlaceholderEmail(c)),
+    );
 
-    if (!email) {
-      if (this.d.config.PROVIDERS_MODE === 'live') {
+    let deliverableEmail: string | null = null;
+    let lastEmailErrorMessage: string | null = null;
+    for (const candidate of emailCandidates) {
+      try {
+        deliverableEmail = await assertDeliverableEmail(candidate, { isLive });
+        break;
+      } catch (err) {
+        if (isAppError(err)) lastEmailErrorMessage = err.message;
+      }
+    }
+
+    if (!deliverableEmail) {
+      if (isLive || emailCandidates.length > 0) {
         throw new AppError(
           'VALIDATION_ERROR',
-          'Actualiza tu correo electrónico real en tu perfil antes de crear tu tarjeta para recibir los códigos de Apple Wallet y compras.',
+          lastEmailErrorMessage ??
+            'Actualiza tu correo electrónico real en tu perfil antes de crear tu tarjeta para recibir los códigos de Apple Wallet y compras.',
           { field: 'email' },
         );
       }
     }
 
-    const effectiveEmail = email || user.email.trim().toLowerCase();
+    const effectiveEmail = deliverableEmail || user.email.trim().toLowerCase();
     const phone = (user.phone || kycProfile?.verifiedPhoneFromKyc || kycProfile?.phone || '').trim();
-    if (!phone && this.d.config.PROVIDERS_MODE === 'live') {
+    if (!phone && isLive) {
       throw new AppError(
         'VALIDATION_ERROR',
         'Actualiza tu número de celular en tu perfil antes de crear tu tarjeta para recibir los códigos de verificación.',

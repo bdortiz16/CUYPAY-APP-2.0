@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pino } from 'pino';
 import { computeSumsubDigest, mapSumsubEvent, verifySumsubWebhook } from '../src/adapters/sumsub/webhook.js';
 import { LiveSumsubProvider, signSumsubRequest } from '../src/adapters/sumsub/provider.js';
-import { makeEnv, registerUser, sumsubWebhook, type TestEnv } from './helpers.js';
+import { assertDeliverableEmail } from '../src/lib/email-validator.js';
+import { makeEnv, registerUser, sumsubWebhook, TestDevice, type TestEnv } from './helpers.js';
 
 describe('Sumsub: webhook X-Payload-Digest', () => {
   const secret = 'whsec';
@@ -216,4 +217,159 @@ describe('Sumsub live: firma de peticiones', () => {
       isSandboxMockDocument: true,
     });
   });
+
+  it('detecta EMAIL_VERIFICATION y PHONE_VERIFICATION en GREEN desde requiredIdDocsStatus y descarta correos genéricos', async () => {
+    const fetchVerified = vi.fn(async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.includes('/requiredIdDocsStatus')) {
+        return new Response(
+          JSON.stringify({
+            IDENTITY: { reviewResult: { reviewAnswer: 'GREEN' } },
+            SELFIE: { reviewResult: { reviewAnswer: 'GREEN' } },
+            EMAIL_VERIFICATION: { reviewResult: { reviewAnswer: 'GREEN' } },
+            PHONE_VERIFICATION: { reviewResult: { reviewAnswer: 'GREEN' } },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          id: 'app_verified_1',
+          email: 'camila.real@gmail.com',
+          phone: '+573109998877',
+          info: {
+            firstName: 'CAMILA',
+            lastName: 'RODRIGUEZ',
+            dob: '1995-08-14',
+            country: 'COL',
+            idDocs: [{ idDocType: 'ID_CARD', country: 'COL', number: '1030555666' }],
+          },
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    const provider = new LiveSumsubProvider({
+      baseUrl: 'https://api.sumsub.com',
+      appToken: 'prd:token',
+      secretKey: 'sek',
+      logger: pino({ level: 'silent' }),
+      fetchImpl: fetchVerified,
+    });
+
+    const profile = await provider.getApplicantProfile({ applicantId: 'app_verified_1', externalUserId: 'usr_camila' });
+    expect(profile?.verifiedEmailFromKyc).toBe('camila.real@gmail.com');
+    expect(profile?.verifiedPhoneFromKyc).toBe('+573109998877');
+
+    // Si en Sumsub pusieron un correo genérico/falso (ej. cliente@correo.com o typo @gmial.com), se descarta
+    const fetchFakeEmail = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes('/requiredIdDocsStatus')) {
+        return new Response(JSON.stringify({ EMAIL_VERIFICATION: { reviewResult: { reviewAnswer: 'GREEN' } } }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({
+          id: 'app_fake_email',
+          email: 'cliente@correo.com',
+          phone: '+573109998877',
+          info: { firstName: 'JUAN', lastName: 'PEREZ' },
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    const pFake = new LiveSumsubProvider({
+      baseUrl: 'https://api.sumsub.com',
+      appToken: 'sbx:token',
+      secretKey: 'sek',
+      logger: pino({ level: 'silent' }),
+      fetchImpl: fetchFakeEmail,
+    });
+    const fakeProfile = await pFake.getApplicantProfile({ applicantId: 'app_fake_email', externalUserId: 'usr_juan' });
+    expect(fakeProfile?.verifiedEmailFromKyc).toBeNull();
+    expect(fakeProfile?.email).toBeNull();
+  });
 });
+
+describe('Validación de existencia de correo (typos, temporales y DNS MX)', () => {
+  let env: TestEnv;
+  beforeEach(async () => {
+    env = await makeEnv();
+  });
+  afterEach(() => env.close());
+
+  it('assertDeliverableEmail bloquea typos comunes, dominios desechables y dominios sin registros MX en modo live', async () => {
+    await expect(assertDeliverableEmail('juan@gmial.com', { isLive: true })).rejects.toThrow(/gmail\.com/i);
+    await expect(assertDeliverableEmail('pepe@yopmail.com', { isLive: true })).rejects.toThrow(/temporales ni genéricos/i);
+    await expect(assertDeliverableEmail('cliente@cuypay.com', { isLive: true })).rejects.toThrow(/genérico/i);
+
+    const notFoundMx = async () => {
+      const err = new Error('queryMx ENOTFOUND dominio-falso-inexistente.com') as NodeJS.ErrnoException;
+      err.code = 'ENOTFOUND';
+      throw err;
+    };
+    await expect(
+      assertDeliverableEmail('alguien@dominio-falso-inexistente.com', { isLive: true, resolveMxImpl: notFoundMx }),
+    ).rejects.toThrow(/no existe/i);
+
+    const nullMx = async () => [{ exchange: '.', priority: 0 }];
+    await expect(
+      assertDeliverableEmail('alguien@sin-buzon.co', { isLive: true, resolveMxImpl: nullMx }),
+    ).rejects.toThrow(/no puede recibir mensajes/i);
+
+    const validMx = async () => [{ exchange: 'gmail-smtp-in.l.google.com', priority: 5 }];
+    await expect(
+      assertDeliverableEmail('Camila.Real@Gmail.com', { isLive: true, resolveMxImpl: validMx }),
+    ).resolves.toBe('camila.real@gmail.com');
+  });
+
+  it('rechaza correo con typo en registro SIN quemar el código OTP para que el usuario corrija y continúe', async () => {
+    const phone = '+573158887766';
+    const otp = await env.app.inject({ method: 'POST', url: '/v1/auth/otp/request', payload: { phone } });
+    const otpId = otp.json().otpId as string;
+    const device = new TestDevice();
+
+    // 1) Intento con typo @gmial.com → 400 VALIDATION_ERROR
+    const badReg = await env.app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        otpId,
+        otpCode: '123456',
+        phone,
+        email: 'camila@gmial.com',
+        firstName: 'Camila',
+        lastName: 'Soto',
+        country: 'CO',
+        deviceName: 'iPhone',
+        devicePublicKey: device.publicKeyX963,
+      },
+    });
+    expect(badReg.statusCode).toBe(400);
+    expect(badReg.json().error.message).toMatch(/gmail\.com/i);
+
+    // 2) Corrige a camila@gmail.com reutilizando el mismo OTP → 200 OK
+    const goodReg = await env.app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        otpId,
+        otpCode: '123456',
+        phone,
+        email: 'camila@gmail.com',
+        firstName: 'Camila',
+        lastName: 'Soto',
+        country: 'CO',
+        deviceName: 'iPhone',
+        devicePublicKey: device.publicKeyX963,
+      },
+    });
+    expect(goodReg.statusCode).toBe(200);
+    expect(goodReg.json().user.email).toBe('camila@gmail.com');
+
+    // 3) PUT /v1/me también bloquea correos temporales/genéricos
+    const c = await registerUser(env);
+    const badUpdate = await c.signed('PUT', '/v1/me', { email: 'falso@yopmail.com' });
+    expect(badUpdate.status).toBe(400);
+  });
+});
+

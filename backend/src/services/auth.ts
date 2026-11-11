@@ -3,6 +3,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import type { Device, User } from '../domain/types.js';
 import { newId } from '../lib/clock.js';
 import { p256PublicKeyFromX963, sha256Hex, verifyP256Der } from '../lib/crypto.js';
+import { assertDeliverableEmail, isPlaceholderEmail } from '../lib/email-validator.js';
 import { AppError } from '../lib/errors.js';
 import type { ServiceDeps } from './deps.js';
 import { assertNotFrozen } from './runtime-config.js';
@@ -51,7 +52,7 @@ export class AuthService {
     return { otpId: id, expiresAt };
   }
 
-  private async consumeOtp(otpId: string, phone: string, code: string): Promise<void> {
+  private async verifyOtp(otpId: string, phone: string, code: string) {
     const now = this.d.clock.now();
     const otp = await this.d.repos.otps.byId(otpId);
     if (!otp || otp.phone !== phone || otp.consumedAt || otp.expiresAt <= now || otp.attempts >= this.d.config.OTP_MAX_ATTEMPTS) {
@@ -64,15 +65,13 @@ export class AuthService {
       await this.d.repos.otps.update(otp);
       throw new AppError('OTP_INVALID', 'Código OTP inválido o vencido', { attemptsLeft: Math.max(0, this.d.config.OTP_MAX_ATTEMPTS - otp.attempts) });
     }
-    otp.consumedAt = now;
-    await this.d.repos.otps.update(otp);
+    return otp;
   }
 
   // ───────────── Registro y perfil ─────────────
 
   static isPlaceholderEmail(raw?: string | null): boolean {
-    const e = String(raw ?? '').trim().toLowerCase();
-    return !e || e === 'usuario@cuypay.com' || e.endsWith('@pendiente.cuypay.com');
+    return isPlaceholderEmail(raw);
   }
 
   async register(input: {
@@ -87,14 +86,21 @@ export class AuthService {
     devicePublicKey: string;
     password?: string;
   }): Promise<AuthSessionResult> {
-    // Validar la clave antes de consumir el OTP para no quemarlo por un error del cliente.
+    // 1) Validar la clave y verificar el OTP primero (sin marcarlo consumido aún).
     p256PublicKeyFromX963(input.devicePublicKey);
-    await this.consumeOtp(input.otpId, input.phone, input.otpCode);
-    const now = this.d.clock.now();
+    const otp = await this.verifyOtp(input.otpId, input.phone, input.otpCode);
+
+    // 2) Validar que el correo exista antes de consumir el OTP (así un typo en el correo permite corregir y reintentar).
     const rawEmail = input.email.trim().toLowerCase();
+    const isLive = this.d.config.PROVIDERS_MODE === 'live';
     const normalizedEmail = AuthService.isPlaceholderEmail(rawEmail)
       ? `pendiente+${input.phone.replace(/\D/g, '')}@pendiente.cuypay.com`
-      : rawEmail;
+      : await assertDeliverableEmail(rawEmail, { isLive });
+
+    // 3) Marcar el OTP como consumido una vez validados los datos de entrada.
+    const now = this.d.clock.now();
+    otp.consumedAt = now;
+    await this.d.repos.otps.update(otp);
     const cleanFirst = input.firstName.trim();
     const cleanLast = input.lastName.trim();
 
@@ -107,10 +113,10 @@ export class AuthService {
         user.passwordHash = this.hashPassword(user.id, input.password);
         userChanged = true;
       }
-      if (!AuthService.isPlaceholderEmail(rawEmail) && rawEmail !== user.email) {
-        const other = await this.d.repos.users.byEmail(rawEmail);
+      if (!AuthService.isPlaceholderEmail(rawEmail) && normalizedEmail !== user.email) {
+        const other = await this.d.repos.users.byEmail(normalizedEmail);
         if (!other || other.id === user.id) {
-          user.email = rawEmail;
+          user.email = normalizedEmail;
           userChanged = true;
         }
       }
@@ -171,13 +177,11 @@ export class AuthService {
     await assertNotFrozen(this.d, user.id);
 
     const now = this.d.clock.now();
+    const isLive = this.d.config.PROVIDERS_MODE === 'live';
     let contactChanged = false;
 
     if (input.email !== undefined) {
-      const cleanEmail = input.email.trim().toLowerCase();
-      if (AuthService.isPlaceholderEmail(cleanEmail)) {
-        throw new AppError('VALIDATION_ERROR', 'Ingresa tu correo electrónico personal real', { field: 'email' });
-      }
+      const cleanEmail = await assertDeliverableEmail(input.email, { isLive });
       if (cleanEmail !== user.email) {
         const existingByEmail = await this.d.repos.users.byEmail(cleanEmail);
         if (existingByEmail && existingByEmail.id !== user.id) {

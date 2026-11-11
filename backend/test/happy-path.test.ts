@@ -40,7 +40,7 @@ describe('flujo completo (happy path)', () => {
     // 3) KYC Sumsub: token SDK + webhook aprobado
     const tok = await c.call('POST', '/v1/kyc/sumsub/token');
     expect(tok.status).toBe(200);
-    expect(tok.body).toMatchObject({ levelName: 'basic-kyc-level' });
+    expect(tok.body).toMatchObject({ levelName: 'idv-and-phone-verification' });
     expect(typeof tok.body.token).toBe('string');
     const pend = await sumsubWebhook(env, { type: 'applicantPending', externalUserId: c.session.userId, applicantId: 'a1' });
     expect(pend.statusCode).toBe(200);

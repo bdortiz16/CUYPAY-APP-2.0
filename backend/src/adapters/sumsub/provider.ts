@@ -1,6 +1,7 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import type { Logger } from 'pino';
 import { AppError } from '../../lib/errors.js';
+import { isPlaceholderEmail, validateEmailSyntaxAndDomainRules } from '../../lib/email-validator.js';
 import type { CardHolderDocumentType, KycProvider, KycVerifiedAddress, KycVerifiedProfile } from '../../ports/index.js';
 
 /** Firma de peticiones Sumsub: HMAC-SHA256(secret, ts + METHOD + pathWithQuery + body) en hex. */
@@ -158,11 +159,20 @@ export class LiveSumsubProvider implements KycProvider {
     country: string;
   }) {
     const path = `/resources/applicants?levelName=${encodeURIComponent(input.levelName)}`;
+    const emailCheck = validateEmailSyntaxAndDomainRules(input.email);
+    const cleanFirst = input.firstName.trim();
+    const cleanLast = input.lastName.trim();
+    const fixedInfo: Record<string, string> = {
+      country: input.country === 'CO' ? 'COL' : input.country,
+    };
+    if (cleanFirst && cleanFirst.toLowerCase() !== 'usuario') fixedInfo.firstName = cleanFirst;
+    if (cleanLast && cleanLast.toLowerCase() !== 'cuypay') fixedInfo.lastName = cleanLast;
+
     const { status, json } = await this.request<{ id?: string; description?: string; code?: number }>('POST', path, {
       externalUserId: input.externalUserId,
-      email: input.email,
-      phone: input.phone,
-      fixedInfo: { firstName: input.firstName, lastName: input.lastName, country: input.country === 'CO' ? 'COL' : input.country },
+      ...(emailCheck.valid ? { email: emailCheck.email } : {}),
+      ...(input.phone.trim() ? { phone: input.phone.trim() } : {}),
+      fixedInfo,
     });
     if (status === 409) {
       // Ya existe un applicant con ese externalUserId: lo leemos.
@@ -282,13 +292,35 @@ export class LiveSumsubProvider implements KycProvider {
         : primaryDoc?.country || info?.country || fixed?.country || 'COL'
     );
 
+    let emailStepVerified = false;
+    let phoneStepVerified = false;
+    try {
+      const stepsRes = await this.request<Record<string, { reviewResult?: { reviewAnswer?: string } }>>(
+        'GET',
+        `/resources/applicants/${encodeURIComponent(applicant.id!)}/requiredIdDocsStatus`,
+      );
+      if (stepsRes.status < 300 && stepsRes.json && typeof stepsRes.json === 'object') {
+        emailStepVerified = stepsRes.json.EMAIL_VERIFICATION?.reviewResult?.reviewAnswer === 'GREEN';
+        phoneStepVerified = stepsRes.json.PHONE_VERIFICATION?.reviewResult?.reviewAnswer === 'GREEN';
+      }
+    } catch {
+      // Si falla la consulta auxiliar de pasos, continuamos con los datos base del applicant.
+    }
+
     const cleanEmailCandidate = (raw?: string | null): string | null => {
-      const e = String(raw ?? '').trim().toLowerCase();
-      if (!e || e === 'usuario@cuypay.com' || e.endsWith('@pendiente.cuypay.com')) return null;
-      return e;
+      if (!raw || isPlaceholderEmail(raw)) return null;
+      const check = validateEmailSyntaxAndDomainRules(raw);
+      return check.valid ? check.email : null;
     };
-    const verifiedEmailFromKyc = cleanEmailCandidate(info?.email) ?? cleanEmailCandidate(fixed?.email);
-    const verifiedPhoneFromKyc = info?.phone?.trim() || fixed?.phone?.trim() || null;
+    const verifiedEmailFromKyc =
+      cleanEmailCandidate(info?.email) ??
+      (emailStepVerified ? cleanEmailCandidate(applicant.email) : null) ??
+      cleanEmailCandidate(fixed?.email);
+    const verifiedPhoneFromKyc =
+      info?.phone?.trim() ||
+      (phoneStepVerified ? applicant.phone?.trim() : null) ||
+      fixed?.phone?.trim() ||
+      null;
 
     return {
       applicantId: applicant.id!,

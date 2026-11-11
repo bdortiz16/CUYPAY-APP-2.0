@@ -86,7 +86,7 @@ const EnvSchema = z
     SUMSUB_APP_TOKEN: z.string().optional(),
     SUMSUB_SECRET_KEY: z.string().optional(),
     SUMSUB_WEBHOOK_SECRET: z.string().optional(),
-    SUMSUB_LEVEL_NAME: z.string().default('basic-kyc-level'),
+    SUMSUB_LEVEL_NAME: z.string().default('idv-and-phone-verification'),
     SUMSUB_BASE_URL: z.string().url().default('https://api.sumsub.com'),
     SUMSUB_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(1200),
 
