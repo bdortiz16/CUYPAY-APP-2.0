@@ -74,7 +74,7 @@ final class AppleWalletProvisioningCoordinator: NSObject, PKAddPaymentPassViewCo
         generateRequestWithCertificateChain certificates: [Data],
         nonce: Data,
         nonceSignature: Data,
-        handler: @escaping (PKAddPaymentPassRequest) -> Void
+        completionHandler handler: @escaping (PKAddPaymentPassRequest) -> Void
     ) {
         let box = PassRequestHandlerBox(handler: handler)
         let api = self.api
