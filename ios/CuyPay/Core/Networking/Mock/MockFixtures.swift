@@ -41,7 +41,7 @@ struct MockFixtures: Sendable {
                 status: .active,
                 label: "CuyPay Virtual",
                 lastFour: "4242",
-                brand: "Mastercard",
+                brand: "Visa",
                 currency: .cop,
                 createdAt: ago(days: 15),
                 updatedAt: ago(days: 15)

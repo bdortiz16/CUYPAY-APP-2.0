@@ -77,6 +77,16 @@ export interface CoinsendaGateway {
   }>;
   /** Obtiene la URL segura (iframe del emisor) donde el usuario ve PAN, fecha y CVV. */
   getCardLookUrl(providerCardId: string): Promise<{ url: string }>;
+  /** Lista metadatos actuales de las tarjetas en el proveedor para sincronizar últimos 4 dígitos y estado. */
+  getProviderCards?(): Promise<
+    Array<{
+      providerCardId: string;
+      lastFour: string;
+      brand: string;
+      status: 'active' | 'frozen' | 'canceled';
+      label?: string;
+    }>
+  >;
   /** Actualiza el estado operativo: congelada (freeze), activa (reactivate) o cancelada. */
   updateCardWorkingState(providerCardId: string, state: 'active' | 'frozen' | 'canceled'): Promise<void>;
   /** Renombra la tarjeta. */

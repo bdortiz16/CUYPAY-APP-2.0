@@ -75,4 +75,33 @@ describe('Card & Bre-B lifecycle endpoints', () => {
     const delKeyRes = await c.signed('DELETE', '/v1/breb/key', {});
     expect(delKeyRes.status).toBe(204);
   });
+
+  it('syncs card lastFour and brand automatically when initially stored as 0000', async () => {
+    const c = await registerUser(env, { firstName: 'Bryan', lastName: 'Ortiz' });
+    const user = (await env.container.deps.repos.users.byId(c.session.userId))!;
+    user.kycStatus = 'approved';
+    await env.container.deps.repos.users.update(user);
+
+    const issueRes = await c.signed('POST', '/v1/cards/virtual', { label: 'CuyPay Virtual' });
+    expect(issueRes.status).toBe(201);
+    const created = (await env.container.deps.repos.cards.byId(issueRes.body.id))!;
+    created.lastFour = '0000';
+    created.brand = 'Mastercard';
+    await env.container.deps.repos.cards.update(created);
+
+    env.container.deps.coinsenda.getProviderCards = async () => [
+      {
+        providerCardId: created.providerCardId,
+        lastFour: '6187',
+        brand: 'Visa',
+        status: 'active',
+        label: 'CuyPay Virtual',
+      },
+    ];
+
+    const listRes = await c.call('GET', '/v1/cards');
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.items[0].lastFour).toBe('6187');
+    expect(listRes.body.items[0].brand).toBe('Visa');
+  });
 });

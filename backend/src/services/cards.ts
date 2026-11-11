@@ -21,13 +21,55 @@ export class CardService {
   constructor(private readonly d: ServiceDeps) {}
 
   async list(userId: string): Promise<Card[]> {
-    return this.d.repos.cards.listByUser(userId);
+    const cards = await this.d.repos.cards.listByUser(userId);
+    return this.syncCardsIfNeeded(cards);
   }
 
   async get(userId: string, cardId: string): Promise<Card> {
     const card = await this.d.repos.cards.byId(cardId);
     if (!card || card.userId !== userId) throw new AppError('NOT_FOUND', 'Tarjeta no encontrada');
-    return card;
+    const [synced] = await this.syncCardsIfNeeded([card]);
+    return synced ?? card;
+  }
+
+  private async syncCardsIfNeeded(cards: Card[]): Promise<Card[]> {
+    if (!this.d.coinsenda.getProviderCards) return cards;
+    const needsSync = cards.some((c) => c.status !== 'canceled' && (!c.lastFour || c.lastFour === '0000'));
+    if (!needsSync) return cards;
+
+    try {
+      const remoteCards = await this.d.coinsenda.getProviderCards();
+      const remoteById = new Map(remoteCards.map((r) => [r.providerCardId, r]));
+      const now = this.d.clock.now();
+      const out: Card[] = [];
+
+      for (const c of cards) {
+        const remote = remoteById.get(c.providerCardId);
+        if (remote && c.status !== 'canceled') {
+          let changed = false;
+          if (remote.lastFour && remote.lastFour !== '0000' && remote.lastFour !== c.lastFour) {
+            c.lastFour = remote.lastFour;
+            changed = true;
+          }
+          if (remote.brand && remote.brand !== c.brand) {
+            c.brand = remote.brand;
+            changed = true;
+          }
+          if (remote.status && remote.status !== c.status) {
+            c.status = remote.status;
+            changed = true;
+          }
+          if (changed) {
+            c.updatedAt = now;
+            await this.d.repos.cards.update(c);
+          }
+        }
+        out.push(c);
+      }
+      return out;
+    } catch {
+      return cards;
+    }
   }
 
   async issueVirtual(user: User, input?: IssueCardInput): Promise<Card> {

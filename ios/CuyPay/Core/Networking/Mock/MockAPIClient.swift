@@ -265,7 +265,7 @@ actor MockAPIClient: CuyPayAPI {
             status: .active,
             label: label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "CuyPay Virtual",
             lastFour: "4242",
-            brand: "Mastercard",
+            brand: "Visa",
             currency: .cop,
             createdAt: Date(),
             updatedAt: Date()

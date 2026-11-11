@@ -738,10 +738,13 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
           { rawPayload: true },
         ),
       ).catch(() => null);
+    }
 
-      if (!matchedCard.last_four && this.opts.domain === 'coinsenda.com') {
-        await sleep(800);
-      }
+    const lastFourPollMs = this.opts.domain === 'coinsenda.com' ? [800, 1200, 1500] : [20];
+    for (const waitMs of lastFourPollMs) {
+      const currentDigits = String(matchedCard.last_four ?? matchedCard.last4 ?? '');
+      if (/^\d{4}$/.test(currentDigits) && currentDigits !== '0000') break;
+      if (waitMs > 0) await sleep(waitMs);
       const refreshedCards = await this.listProviderCards();
       const refreshed = refreshedCards.find((c) => String(c.id) === providerCardId);
       if (refreshed) matchedCard = refreshed;
@@ -755,6 +758,21 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
       status: (matchedCard.working_state === 'frozen' ? 'frozen' : 'active') as 'active' | 'frozen',
       raw: matchedCard,
     };
+  }
+
+  async getProviderCards() {
+    const cards = await this.listProviderCards();
+    return cards
+      .filter((c) => c?.id != null)
+      .map((c) => ({
+        providerCardId: String(c.id),
+        lastFour: String(c.last_four ?? c.last4 ?? '0000'),
+        brand: detectCardBrand(c),
+        status: (
+          c.working_state === 'frozen' ? 'frozen' : c.working_state === 'canceled' ? 'canceled' : 'active'
+        ) as 'active' | 'frozen' | 'canceled',
+        label: typeof c.label === 'string' ? c.label : undefined,
+      }));
   }
 
   async getCardLookUrl(providerCardId: string) {
