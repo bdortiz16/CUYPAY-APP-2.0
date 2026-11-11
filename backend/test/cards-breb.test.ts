@@ -206,5 +206,136 @@ describe('Card & Bre-B lifecycle endpoints', () => {
     expect(newStoredCard.providerCardHolderId).toBeTruthy();
     expect(newStoredCard.providerCardHolderId).not.toBe(oldStoredCard.providerCardHolderId);
   });
+
+  it('gestiona el bolsillo de tarjeta (recarga desde Bre-B, retiro a principal, compras, reemplazo y devolución)', async () => {
+    const { fundedUser } = await import('./helpers.js');
+    // Usuario con $100.000 COP ($100.000 * 100 = 10_000_000 minor) en su cuenta principal Bre-B
+    const c = await fundedUser(env, 10_000_000n, {
+      firstName: 'Bryan',
+      lastName: 'Ortiz',
+      email: 'bryan.pocket@gmail.com',
+      phone: '+573154103795',
+    });
+
+    // 1. Emitir tarjeta virtual -> bolsillo inicia en $0 COP
+    const issueRes = await c.signed('POST', '/v1/cards/virtual', { label: 'CuyPay Virtual' });
+    expect(issueRes.status).toBe(201);
+    const card1 = issueRes.body;
+    expect(card1.balanceMinor).toBe(0);
+    expect(card1.availableMinor).toBe(0);
+
+    const pocketInit = await c.call('GET', '/v1/cards/pocket');
+    expect(pocketInit.status).toBe(200);
+    expect(pocketInit.body).toEqual({
+      currency: 'COP',
+      balanceMinor: 0,
+      availableMinor: 0,
+      mainAvailableMinor: 10_000_000,
+    });
+
+    // 2. Rechaza recarga superior al saldo principal Bre-B
+    const overFund = await c.signed('POST', `/v1/cards/${card1.id}/fund`, {
+      amountMinor: 15_000_000,
+      idempotencyKey: 'idem_over_fund_1234',
+    });
+    expect(overFund.status).toBe(422);
+    expect(overFund.body.error.code).toBe('INSUFFICIENT_FUNDS');
+
+    // 3. Recarga $45.000 COP (4_500_000 minor) sin costo y verifica idempotencia
+    const fundRes = await c.signed('POST', `/v1/cards/${card1.id}/fund`, {
+      amountMinor: 4_500_000,
+      idempotencyKey: 'idem_fund_45k_0001',
+    });
+    expect(fundRes.status).toBe(200);
+    expect(fundRes.body.pocketBalanceMinor).toBe(4_500_000);
+    expect(fundRes.body.mainAvailableMinor).toBe(5_500_000);
+    expect(fundRes.body.card.availableMinor).toBe(4_500_000);
+    expect(fundRes.body.transaction).toMatchObject({
+      type: 'card_pocket',
+      direction: 'out',
+      amountMinor: 4_500_000,
+      feeMinor: 0,
+      status: 'completed',
+    });
+
+    // Replay idempotente no duplica el cargo
+    const fundReplay = await c.signed('POST', `/v1/cards/${card1.id}/fund`, {
+      amountMinor: 4_500_000,
+      idempotencyKey: 'idem_fund_45k_0001',
+    });
+    expect(fundReplay.status).toBe(200);
+    expect(fundReplay.body.transaction.id).toBe(fundRes.body.transaction.id);
+    expect(fundReplay.body.mainAvailableMinor).toBe(5_500_000);
+
+    // Verifica que el gateway mock registró la transferencia interna y actualizó el tope de gasto
+    const storedCard1 = (await env.container.deps.repos.cards.byId(card1.id))!;
+    expect(env.coinsenda.cardPocketTransfers).toHaveLength(1);
+    expect(env.coinsenda.cardPocketTransfers[0]).toMatchObject({
+      direction: 'to_card',
+      amountMinor: 4_500_000n,
+    });
+    expect(env.coinsenda.cardSpendingLimits.get(storedCard1.providerCardId)).toBe(4_500_000n);
+
+    // 4. Retirar $15.000 COP (1_500_000 minor) de vuelta al saldo principal Bre-B
+    const withdrawRes = await c.signed('POST', `/v1/cards/${card1.id}/withdraw`, {
+      amountMinor: 1_500_000,
+      idempotencyKey: 'idem_withdraw_15k_1',
+    });
+    expect(withdrawRes.status).toBe(200);
+    expect(withdrawRes.body.pocketBalanceMinor).toBe(3_000_000);
+    expect(withdrawRes.body.mainAvailableMinor).toBe(7_000_000);
+    expect(withdrawRes.body.transaction).toMatchObject({
+      type: 'card_pocket',
+      direction: 'in',
+      amountMinor: 1_500_000,
+      feeMinor: 0,
+      status: 'completed',
+    });
+
+    // 5. Simular una compra con tarjeta de $12.000 COP (1_200_000 minor) y sincronizar poller
+    env.coinsenda.simulateCardPurchase({
+      providerCardId: storedCard1.providerCardId,
+      amountMinor: 1_200_000n,
+      merchantName: 'Spotify Colombia',
+    });
+    const synced = await env.container.services.cards.syncPurchases();
+    expect(synced).toBe(1);
+
+    const afterPurchaseCards = await c.call('GET', '/v1/cards');
+    expect(afterPurchaseCards.body.items[0].availableMinor).toBe(1_800_000);
+
+    const txPage = await c.call('GET', '/v1/transactions?limit=10');
+    expect(txPage.body.items.some((t: any) => t.type === 'card_purchase' && t.title === 'Spotify Colombia' && t.amountMinor === 1_200_000)).toBe(true); // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    // La conciliación de tesorería permanece 100% cuadrada sin quiebres
+    const recon = await env.container.services.admin.treasury.reconcile(null, 'card_pocket_test');
+    expect(recon.status).toBe('ok');
+    expect(recon.breaks).toEqual([]);
+
+    // 6. Reemplazar tarjeta preservando el bolsillo (`preservePocket: true`) mantiene los $18.000 COP
+    const cancelKeepRes = await c.signed('PUT', `/v1/cards/${card1.id}/status`, {
+      state: 'canceled',
+      preservePocket: true,
+    });
+    expect(cancelKeepRes.status).toBe(200);
+    expect(cancelKeepRes.body.availableMinor).toBe(0);
+    expect((await c.call('GET', '/v1/cards/pocket')).body.availableMinor).toBe(1_800_000);
+
+    const card2Res = await c.signed('POST', '/v1/cards/virtual', { label: 'CuyPay Nueva' });
+    expect(card2Res.status).toBe(201);
+    expect(card2Res.body.availableMinor).toBe(1_800_000);
+
+    // 7. Eliminar definitivamente la última tarjeta (`preservePocket` omitido/false) devuelve los $18.000 COP al saldo principal Bre-B
+    const cancelRefundRes = await c.signed('PUT', `/v1/cards/${card2Res.body.id}/status`, {
+      state: 'canceled',
+    });
+    expect(cancelRefundRes.status).toBe(200);
+    expect(cancelRefundRes.body.availableMinor).toBe(0);
+
+    const finalWallets = await c.call('GET', '/v1/wallets');
+    const copWallet = finalWallets.body.items.find((w: any) => w.currency === 'COP'); // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(copWallet.availableMinor).toBe(8_800_000); // $70.000 + $18.000 devueltos = $88.000 COP
+  });
 });
+
 

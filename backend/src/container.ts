@@ -175,7 +175,7 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
     signature: new SignatureService(deps),
     kyc: new KycService(deps),
     breb: new BrebService(deps),
-    cards: new CardService(deps),
+    cards: new CardService(deps, ledger, idempotency, mutex),
     savings,
     beneficiaries,
     transfers: new TransferService(deps, ledger, limits, beneficiaries, idempotency, mutex),

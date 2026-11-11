@@ -76,6 +76,7 @@ struct HomeView: View {
                             RateChartCard(rate: store.fxRate)
                             CardQuickCard(
                                 card: store.activeCard,
+                                hideAmounts: hideAmounts,
                                 isLoading: !store.cardsLoaded,
                                 onTap: { openGated(.card) }
                             )
@@ -324,7 +325,7 @@ struct TransactionsSection: View {
 }
 
 enum TransactionFilter: String, CaseIterable, Identifiable, Hashable {
-    case all, incoming, outgoing, conversions
+    case all, incoming, outgoing, cards, conversions
 
     var id: String { rawValue }
 
@@ -333,6 +334,7 @@ enum TransactionFilter: String, CaseIterable, Identifiable, Hashable {
         case .all: "Todos"
         case .incoming: "Recibidos"
         case .outgoing: "Enviados"
+        case .cards: "Tarjeta"
         case .conversions: "Conversiones"
         }
     }
@@ -342,6 +344,7 @@ enum TransactionFilter: String, CaseIterable, Identifiable, Hashable {
         case .all: "list.bullet"
         case .incoming: "arrow.down.left"
         case .outgoing: "arrow.up.right"
+        case .cards: "creditcard.fill"
         case .conversions: "arrow.left.arrow.right"
         }
     }
@@ -351,6 +354,7 @@ enum TransactionFilter: String, CaseIterable, Identifiable, Hashable {
         case .all: true
         case .incoming: transaction.type == .deposit
         case .outgoing: transaction.type == .transfer
+        case .cards: transaction.type == .cardPocket || transaction.type == .cardPurchase
         case .conversions: transaction.type == .conversion
         }
     }

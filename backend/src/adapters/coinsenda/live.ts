@@ -9,6 +9,7 @@ import { majorStringToMinor, minorToMajorString } from '../../lib/money.js';
 import type {
   BrebAliasHolder,
   CardHolderInput,
+  CoinsendaCardTransaction,
   CoinsendaDeposit,
   CoinsendaGateway,
   KycVerifiedAddress,
@@ -106,6 +107,7 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
   private readonly client: SdkClient;
   private session: { jwt: string; refreshToken: string | null; expiresAt: number } | null = null;
   private readonly signingKey: string;
+  private cachedCardMirrorAccountId: string | null = null;
 
   constructor(private readonly opts: LiveCoinsendaOptions) {
     this.client = new sdk.CoinsendaClient({ domain: opts.domain });
@@ -447,17 +449,52 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
     return w ? { state: mapWithdrawState(w.state), raw: w } : null;
   }
 
-  /** Saldo de la cuenta COP ómnibus. TODO(coinsenda): confirmar el campo de saldo disponible en `__get__accounts`. */
+  /** Saldo total de custodia COP en Coinsenda (billetera principal Bre-B + cuenta espejo de tarjetas). */
   async getBalance() {
     const res = await this.call('getBalance', (c) =>
-      (c as any).account.user.__get__accounts({ where: { id: this.opts.copAccountId }, limit: 1 }), // eslint-disable-line @typescript-eslint/no-explicit-any
+      (c as any).account.user.__get__accounts({ where: { currency: 'cop' }, limit: 10 }), // eslint-disable-line @typescript-eslint/no-explicit-any
     );
-    if (!sdk.isHttpSuccess(res.status)) this.fail('getBalance', res);
-    const list: any[] = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.data) ? res.data.data : []; // eslint-disable-line @typescript-eslint/no-explicit-any
-    const acc = list[0];
-    const raw = acc?.available ?? acc?.balance?.available ?? acc?.balance;
-    if (raw === undefined || raw === null) throw new AppError('PROVIDER_ERROR', 'Coinsenda no devolvió el saldo de la cuenta COP', { provider: 'coinsenda' });
-    return { currency: 'COP' as const, balanceMinor: majorStringToMinor(String(raw)), asOf: new Date() };
+    let list: any[] = sdk.isHttpSuccess(res.status) // eslint-disable-line @typescript-eslint/no-explicit-any
+      ? Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res.data?.data)
+          ? res.data.data
+          : []
+      : [];
+
+    if (!list.length) {
+      const fallback = await this.call('getBalanceById', (c) =>
+        (c as any).account.user.__get__accounts({ where: { id: this.opts.copAccountId }, limit: 1 }), // eslint-disable-line @typescript-eslint/no-explicit-any
+      );
+      if (!sdk.isHttpSuccess(fallback.status)) this.fail('getBalance', fallback);
+      list = Array.isArray(fallback.data) ? fallback.data : Array.isArray(fallback.data?.data) ? fallback.data.data : [];
+    }
+
+    const relevant =
+      list.length === 1
+        ? list
+        : list.filter(
+            (acc) =>
+              String(acc?.id ?? '') === this.opts.copAccountId ||
+              (String(acc?.currency ?? '').toLowerCase() === 'cop' && acc?.type === 'card_mirror'),
+          );
+    if (!relevant.length) {
+      throw new AppError('PROVIDER_ERROR', 'Coinsenda no devolvió el saldo de la cuenta COP', { provider: 'coinsenda' });
+    }
+
+    let balanceMinor = 0n;
+    for (const acc of relevant) {
+      const raw = acc?.available ?? acc?.balance?.available ?? acc?.balance;
+      if (raw === undefined || raw === null) {
+        throw new AppError('PROVIDER_ERROR', 'Coinsenda no devolvió el saldo de la cuenta COP', { provider: 'coinsenda' });
+      }
+      if (acc?.type === 'card_mirror' && acc?.id) {
+        this.cachedCardMirrorAccountId = String(acc.id);
+      }
+      balanceMinor += majorStringToMinor(String(raw));
+    }
+
+    return { currency: 'COP' as const, balanceMinor, asOf: new Date() };
   }
 
   async updateBrebKeyStatus(providerKeyId: string, status: 'active' | 'blocked') {
@@ -1088,6 +1125,248 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
     };
   }
 
+  private async resolveCardMirrorAccountId(): Promise<string> {
+    if (this.cachedCardMirrorAccountId) return this.cachedCardMirrorAccountId;
+
+    const laccRes = await this.call('listLedgerAccounts', (c) =>
+      c.request('farming', 'GET', '/users/{id}/ledgerAccounts', {}, { rawPayload: true }),
+    );
+    if (sdk.isHttpSuccess(laccRes.status)) {
+      const laccs = this.extractList(laccRes);
+      const copLedger = laccs.find(
+        (l) =>
+          l?.account_id &&
+          (String(l?.provider ?? '').toLowerCase() === 'mono_cop' || String(l?.currency ?? '').toLowerCase() === 'cop'),
+      );
+      if (copLedger?.account_id) {
+        this.cachedCardMirrorAccountId = String(copLedger.account_id);
+        return this.cachedCardMirrorAccountId;
+      }
+    }
+
+    const setupRes = await this.call('setupCardAccount', (c) =>
+      c.request('farming', 'POST', '/cards/setup-account-public', { data: { currency: 'cop', country: 'international' } }, { rawPayload: true }),
+    ).catch(() => null);
+    if (setupRes && sdk.isHttpSuccess(setupRes.status)) {
+      const d = this.payload(setupRes);
+      const accId = d?.account_id ?? d?.ledger_account?.account_id;
+      if (accId) {
+        this.cachedCardMirrorAccountId = String(accId);
+        return this.cachedCardMirrorAccountId;
+      }
+    }
+
+    const accRes = await this.call('listUserAccountsForCardMirror', (c) =>
+      c.request('account', 'GET', '/users/{id}/accounts', {}, { rawPayload: true }),
+    );
+    if (sdk.isHttpSuccess(accRes.status)) {
+      const accounts = this.extractList(accRes);
+      const mirror = accounts.find(
+        (a) => a?.type === 'card_mirror' && String(a?.currency ?? '').toLowerCase() === 'cop' && a?.id,
+      );
+      if (mirror?.id) {
+        this.cachedCardMirrorAccountId = String(mirror.id);
+        return this.cachedCardMirrorAccountId;
+      }
+    }
+
+    throw new AppError('PROVIDER_ERROR', 'No se encontró la cuenta espejo de tarjetas COP en Coinsenda', {
+      provider: 'coinsenda',
+    });
+  }
+
+  async transferCardPocketFunds(input: { direction: 'to_card' | 'from_card'; amountMinor: bigint }) {
+    await this.ensureSession();
+    const cardMirrorAccountId = await this.resolveCardMirrorAccountId();
+    const accountFrom = input.direction === 'to_card' ? this.opts.copAccountId : cardMirrorAccountId;
+    const accountTo = input.direction === 'to_card' ? cardMirrorAccountId : this.opts.copAccountId;
+    const amount = formatCoinsendaAmount(input.amountMinor);
+
+    const createRes = await this.call('addNewSelfTransferPublic', (c) =>
+      c.request(
+        'withdraw',
+        'POST',
+        '/withdraws/add-new-self-transfer-public',
+        {
+          data: {
+            country: 'international',
+            account_id: accountFrom,
+            account_to: accountTo,
+            amount,
+          },
+        },
+        { rawPayload: true },
+      ),
+    );
+    if (!sdk.isHttpSuccess(createRes.status)) {
+      const err = createRes.data?.error ?? createRes.data?.data?.error;
+      this.opts.logger?.warn?.(
+        { direction: input.direction, amount, status: createRes.status, code: err?.code, data: createRes.data },
+        'Fallo en transferencia interna entre billetera COP y bolsillo de tarjeta en Coinsenda',
+      );
+      throw new AppError(
+        'PROVIDER_ERROR',
+        err?.message
+          ? `No se pudo transferir el saldo hacia/desde tu tarjeta: ${err.message}`
+          : 'No se pudo procesar el movimiento del bolsillo de tu tarjeta en este momento.',
+        { provider: 'coinsenda', providerCode: err?.code ?? null },
+      );
+    }
+
+    const created = this.payload(createRes);
+    const transferId = String(created?.id ?? created?.withdraw_id ?? '');
+    if (transferId && (!created?.state || created?.state === 'pending')) {
+      const confirmed = await this.confirmWithdraw(transferId);
+      return { transferId, raw: confirmed.raw };
+    }
+    return { transferId, raw: created };
+  }
+
+  async syncCardSpendingLimit(input: { providerCardId: string; allowedAmountMinor: bigint; cardLabel?: string }): Promise<void> {
+    try {
+      await this.ensureSession();
+      // Si el bolsillo está en $0, fijamos un tope simbólico de $1 COP para impedir consumos
+      // contra el pool ómnibus sin congelar el estado operativo (necesario para Apple Wallet).
+      const effectiveMinor = input.allowedAmountMinor >= 100n ? input.allowedAmountMinor : 100n;
+      const limitStr = formatCoinsendaAmount(effectiveMinor);
+      const purchaseLimitsRule = {
+        daily: limitStr,
+        weekly: limitStr,
+        monthly: limitStr,
+      };
+      const controlLabel = `CuyPay Pocket ${input.providerCardId.slice(-6)}`;
+
+      const [cards, controlsRes] = await Promise.all([
+        this.listProviderCards(),
+        this.call('listCardSpendingControls', (c) =>
+          c.request('farming', 'GET', '/users/{id}/cardSpendingControls', {}, { rawPayload: true }),
+        ),
+      ]);
+      const card = cards.find((c) => String(c?.id ?? '') === input.providerCardId);
+      const controls = sdk.isHttpSuccess(controlsRes.status) ? this.extractList(controlsRes) : [];
+
+      const assignedId = card?.card_spending_control_id ? String(card.card_spending_control_id) : null;
+      const matchingByLabel = controls.find((sc) => String(sc?.label ?? '') === controlLabel);
+      const existingControlId = assignedId ?? (matchingByLabel?.id ? String(matchingByLabel.id) : null);
+
+      if (existingControlId) {
+        await this.call('updateCardSpendingRule', (c) =>
+          c.request(
+            'farming',
+            'POST',
+            '/cardSpendingControls/update-rule-public',
+            {
+              data: {
+                card_spending_control_id: existingControlId,
+                rule_name: 'purchase_limits',
+                rule: purchaseLimitsRule,
+                country: 'international',
+              },
+            },
+            { rawPayload: true },
+          ),
+        );
+        if (!assignedId) {
+          await this.call('assignCardSpendingControl', (c) =>
+            c.request(
+              'farming',
+              'POST',
+              '/cards/assign-card-spending-control-public',
+              {
+                data: {
+                  card_id: input.providerCardId,
+                  card_spending_control_id: existingControlId,
+                  country: 'international',
+                },
+              },
+              { rawPayload: true },
+            ),
+          );
+        }
+        return;
+      }
+
+      const createRes = await this.call('addNewCardSpendingControl', (c) =>
+        c.request(
+          'farming',
+          'POST',
+          '/cardSpendingControls/add-new-card-spending-control-public',
+          {
+            data: {
+              currency: 'cop',
+              label: controlLabel,
+              rules: { purchase_limits: purchaseLimitsRule },
+              country: 'international',
+            },
+          },
+          { rawPayload: true },
+        ),
+      );
+      if (!sdk.isHttpSuccess(createRes.status)) return;
+      const created = this.payload(createRes);
+      const createdId = created?.id ?? created?.card_spending_control_id;
+      if (!createdId) return;
+
+      await this.call('assignCardSpendingControl', (c) =>
+        c.request(
+          'farming',
+          'POST',
+          '/cards/assign-card-spending-control-public',
+          {
+            data: {
+              card_id: input.providerCardId,
+              card_spending_control_id: String(createdId),
+              country: 'international',
+            },
+          },
+          { rawPayload: true },
+        ),
+      );
+    } catch (err) {
+      this.opts.logger?.warn?.(
+        { providerCardId: input.providerCardId, err: (err as Error).message },
+        'No se pudo sincronizar el control de gasto por tarjeta en Coinsenda (no bloqueante)',
+      );
+    }
+  }
+
+  async listCardTransactions(): Promise<CoinsendaCardTransaction[]> {
+    const res = await this.call('listCardTransactions', (c) =>
+      c.request('farming', 'GET', '/users/{id}/cardTransactions', {}, { rawPayload: true }),
+    );
+    if (!sdk.isHttpSuccess(res.status)) return [];
+    const list = this.extractList(res);
+    return list
+      .filter((tx) => tx?.id != null && (tx?.card_id != null || tx?.cardId != null))
+      .map((tx) => {
+        const rawState = String(tx?.status ?? tx?.state ?? '').toLowerCase();
+        const state: CoinsendaCardTransaction['state'] = ['approved', 'accepted', 'settled', 'completed', 'authorized'].includes(rawState)
+          ? 'accepted'
+          : ['declined', 'rejected', 'canceled', 'reversed', 'failed'].includes(rawState)
+            ? 'rejected'
+            : ['pending', 'processing'].includes(rawState)
+              ? 'pending'
+              : 'unknown';
+        const rawAmount = tx?.local_amount ?? tx?.billing_amount ?? tx?.amount_cop ?? tx?.amount ?? '0';
+        const merchant =
+          tx?.merchant_name ??
+          tx?.merchant?.name ??
+          tx?.establishment_name ??
+          tx?.description ??
+          null;
+        return {
+          id: String(tx.id),
+          providerCardId: String(tx.card_id ?? tx.cardId),
+          amountMinor: majorStringToMinor(String(rawAmount)),
+          currency: 'COP' as const,
+          merchantName: merchant ? String(merchant).trim() : null,
+          state,
+          createdAt: new Date(tx?.created_at ?? tx?.transaction_date ?? Date.now()),
+          raw: tx,
+        };
+      });
+  }
+
   async healthCheck(): Promise<void> {
     await this.ensureSession();
   }
@@ -1098,7 +1377,12 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
     if (!sdk.isHttpSuccess(res.status)) this.fail('listDeposits', res);
     const list: any[] = Array.isArray(res.data) ? res.data : Array.isArray(res.data?.data) ? res.data.data : []; // eslint-disable-line @typescript-eslint/no-explicit-any
     return list
-      .filter((d) => String(d?.currency ?? '').toLowerCase() === 'cop')
+      .filter(
+        (d) =>
+          String(d?.currency ?? '').toLowerCase() === 'cop' &&
+          d?.provider_type !== 'internal_network' &&
+          d?.origin !== 'internal',
+      )
       .map((d) => ({
         id: String(d.id),
         providerKeyId: d.deposit_provider_id != null ? String(d.deposit_provider_id) : null,

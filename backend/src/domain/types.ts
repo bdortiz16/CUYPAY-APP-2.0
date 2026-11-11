@@ -149,7 +149,7 @@ export interface Beneficiary {
   deletedAt: Date | null;
 }
 
-export type TxnType = 'deposit' | 'transfer' | 'conversion';
+export type TxnType = 'deposit' | 'transfer' | 'conversion' | 'card_pocket' | 'card_purchase';
 export type TxnStatus = 'pending' | 'completed' | 'failed' | 'reversed';
 export interface ConversionInfo {
   fromCurrency: Currency;
@@ -221,6 +221,7 @@ export interface IdempotencyRecord {
 export type LedgerAccountKind =
   | 'user_available'
   | 'user_held'
+  | 'card_pocket' // bolsillo dedicado de la tarjeta virtual (pasivo de usuario)
   | 'savings_vault' // fondos en custodia de bloques de ahorro a plazo fijo
   | 'breb_settlement' // contrapartida: cuenta COP en Coinsenda
   | 'fx_clearing' // contrapartida con el proveedor de liquidez BRL

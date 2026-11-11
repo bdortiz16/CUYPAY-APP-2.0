@@ -225,6 +225,7 @@ struct RateChartCard: View {
 
 struct CardQuickCard: View {
     let card: CardItem?
+    var hideAmounts: Bool = false
     let isLoading: Bool
     let onTap: () -> Void
 
@@ -260,31 +261,39 @@ struct CardQuickCard: View {
 
                         Spacer(minLength: 0)
 
-                        Text(card.maskedPan)
-                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.white)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Bolsillo disponible")
+                                .font(.system(size: 8.5, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.72))
+                            Text(verbatim: hideAmounts ? card.pocketBalance.maskedString : card.pocketBalance.formatted())
+                                .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                        }
 
                         HStack {
-                            Text(card.label)
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.8))
+                            Text(card.maskedPan)
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.85))
                                 .lineLimit(1)
                             Spacer()
-                            Text(card.status == .active ? "Activa" : "Congelada")
+                            Text(card.status == .active ? "Activa" : "Bloqueada")
                                 .font(.system(size: 8, weight: .semibold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(card.status == .active ? Theme.positive.opacity(0.3) : Theme.coral.opacity(0.3), in: Capsule())
+                                .background(card.status == .active ? Theme.positive.opacity(0.32) : Theme.coral.opacity(0.32), in: Capsule())
                                 .foregroundStyle(.white)
                         }
                     }
                     .padding(10)
-                    .frame(maxWidth: .infinity, minHeight: 90)
+                    .frame(maxWidth: .infinity, minHeight: 96)
                     .background(
                         LinearGradient(
                             colors: card.status == .active
-                                ? [Theme.onyx, Theme.spruce.opacity(0.85)]
-                                : [Theme.onyx.opacity(0.7), Color.gray.opacity(0.6)],
+                                ? [Theme.onyx, Theme.spruceSolid]
+                                : [Theme.onyx.opacity(0.75), Color.gray.opacity(0.6)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
@@ -296,9 +305,9 @@ struct CardQuickCard: View {
                     )
 
                     HStack(spacing: 4) {
-                        Text("Administrar")
+                        Text(card.pocketBalance.minorUnits > 0 ? "Administrar bolsillo" : "Recargar bolsillo")
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(card.pocketBalance.minorUnits > 0 ? .primary : Theme.spruce)
                         Spacer()
                         Image(systemName: "chevron.right")
                             .font(.system(size: 10, weight: .bold))
@@ -420,6 +429,8 @@ struct TransactionRow: View {
         case .deposit: ("arrow.down.left", Theme.positive)
         case .transfer: ("arrow.up.right", Theme.ink)
         case .conversion: ("arrow.left.arrow.right", Theme.spruce)
+        case .cardPocket: (isIncoming ? "arrow.uturn.backward" : "creditcard.fill", Theme.spruce)
+        case .cardPurchase: ("bag.fill", Theme.ink)
         case .unknown: ("circle.dashed", Color.secondary)
         }
     }
@@ -491,6 +502,8 @@ struct TransactionRow: View {
         case .deposit: "Recibido"
         case .transfer: "Envío Bre-B"
         case .conversion: "Conversión"
+        case .cardPocket: isIncoming ? "Desde tarjeta" : "Recarga tarjeta"
+        case .cardPurchase: "Compra tarjeta"
         case .unknown: "Movimiento"
         }
     }

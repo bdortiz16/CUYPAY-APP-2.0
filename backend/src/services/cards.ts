@@ -1,14 +1,31 @@
 import { createHash } from 'node:crypto';
-import type { Card, CardStatus, User } from '../domain/types.js';
+import { presentCard, presentTransaction, type TransactionJson } from '../domain/presenters.js';
+import type { Card, CardStatus, Transaction, User } from '../domain/types.js';
 import { newId } from '../lib/clock.js';
 import { assertDeliverableEmail, isPlaceholderEmail } from '../lib/email-validator.js';
 import { AppError, isAppError } from '../lib/errors.js';
+import { toSafeNumber } from '../lib/money.js';
 import type { CardHolderInput } from '../ports/index.js';
-import type { ServiceDeps } from './deps.js';
+import type { KeyedMutex, ServiceDeps } from './deps.js';
+import type { IdempotencyService } from './idempotency.js';
 import { requireKycApproved } from './kyc.js';
+import type { LedgerService } from './ledger.js';
+import { assertNotFrozen } from './runtime-config.js';
 
 export interface IssueCardInput {
   label?: string;
+}
+
+export interface CardPocketTransferInput {
+  amountMinor: number;
+  idempotencyKey?: string;
+}
+
+export interface CardPocketTransferResult {
+  card: ReturnType<typeof presentCard>;
+  pocketBalanceMinor: number;
+  mainAvailableMinor: number;
+  transaction: TransactionJson;
 }
 
 export interface ApplePayTokenizeInput {
@@ -16,6 +33,8 @@ export interface ApplePayTokenizeInput {
   nonce: string;
   nonceSignature: string;
 }
+
+const MIN_CARD_POCKET_TRANSFER_MINOR = 10_000n; // $100 COP mínimo
 
 function deterministicSandboxDocumentNumber(seed: string): string {
   const hex = createHash('sha256').update(`cuypay-cardholder:${seed}`).digest('hex');
@@ -42,7 +61,29 @@ function isAdultBirthdate(ymd: string, now: Date): boolean {
  * Servicio de tarjetas virtuales y físicas (respaldado por Coinsenda Farming & Marketplace).
  */
 export class CardService {
-  constructor(private readonly d: ServiceDeps) {}
+  constructor(
+    private readonly d: ServiceDeps,
+    private readonly ledger: LedgerService,
+    private readonly idem: IdempotencyService,
+    private readonly mutex: KeyedMutex,
+  ) {}
+
+  async pocketBalance(userId: string): Promise<bigint> {
+    return this.ledger.cardPocket(userId, 'COP');
+  }
+
+  async pocketSummary(userId: string) {
+    const [pocketMinor, mainWallet] = await Promise.all([
+      this.ledger.cardPocket(userId, 'COP'),
+      this.ledger.wallet(userId, 'COP'),
+    ]);
+    return {
+      currency: 'COP' as const,
+      balanceMinor: toSafeNumber(pocketMinor),
+      availableMinor: toSafeNumber(pocketMinor),
+      mainAvailableMinor: toSafeNumber(mainWallet.availableMinor),
+    };
+  }
 
   async list(userId: string): Promise<Card[]> {
     const cards = await this.d.repos.cards.listByUser(userId);
@@ -270,6 +311,14 @@ export class CardService {
       updatedAt: now,
     };
     await this.d.repos.cards.create(card);
+    const currentPocket = await this.ledger.cardPocket(user.id, 'COP');
+    if (this.d.coinsenda.syncCardSpendingLimit) {
+      await this.d.coinsenda.syncCardSpendingLimit({
+        providerCardId: card.providerCardId,
+        allowedAmountMinor: currentPocket,
+        cardLabel: card.label,
+      });
+    }
     return card;
   }
 
@@ -284,7 +333,12 @@ export class CardService {
     }
   }
 
-  async updateWorkingState(userId: string, cardId: string, newState: CardStatus): Promise<Card> {
+  async updateWorkingState(
+    userId: string,
+    cardId: string,
+    newState: CardStatus,
+    opts?: { preservePocket?: boolean },
+  ): Promise<Card> {
     const card = await this.get(userId, cardId);
     if (card.status === 'canceled') {
       throw new AppError('VALIDATION_ERROR', 'Una tarjeta cancelada no puede ser modificada');
@@ -300,7 +354,326 @@ export class CardService {
     card.status = newState;
     card.updatedAt = this.d.clock.now();
     await this.d.repos.cards.update(card);
+
+    // Si el usuario elimina definitivamente su última tarjeta activa y no va a emitir reemplazo inmediato,
+    // devolvemos automáticamente el saldo del bolsillo de tarjeta a su saldo principal Bre-B.
+    if (newState === 'canceled' && !opts?.preservePocket) {
+      await this.mutex.run(userId, async () => {
+        const remainingActive = (await this.d.repos.cards.listByUser(userId)).filter((c) => c.status !== 'canceled');
+        if (remainingActive.length > 0) return;
+        const pocketMinor = await this.ledger.cardPocket(userId, 'COP');
+        if (pocketMinor <= 0n) return;
+        try {
+          let transferRef: string | null = null;
+          if (this.d.coinsenda.transferCardPocketFunds) {
+            const tr = await this.d.coinsenda.transferCardPocketFunds({
+              direction: 'from_card',
+              amountMinor: pocketMinor,
+            });
+            transferRef = tr.transferId;
+          }
+          const now = this.d.clock.now();
+          const txnId = newId('txn', now);
+          await this.ledger.withdrawCardPocket(userId, 'COP', pocketMinor, txnId);
+          const txn: Transaction = {
+            id: txnId,
+            userId,
+            type: 'card_pocket',
+            direction: 'in',
+            currency: 'COP',
+            amountMinor: pocketMinor,
+            feeMinor: 0n,
+            status: 'completed',
+            title: 'Devolución de Tarjeta CuyPay',
+            subtitle: 'Saldo devuelto a tu cuenta principal Bre-B',
+            description: 'Reintegro automático al eliminar tarjeta virtual',
+            conversion: null,
+            beneficiaryId: null,
+            quoteId: null,
+            providerRef: transferRef ?? card.id,
+            flagged: false,
+            failureReason: null,
+            createdAt: now,
+            updatedAt: now,
+          };
+          await this.d.repos.transactions.create(txn);
+          await this.d.events.publish({ type: 'transaction.created', txn });
+        } catch (err) {
+          this.d.logger.warn(
+            { userId, cardId: card.id, err: (err as Error).message },
+            'No se pudo devolver automáticamente el bolsillo al cancelar tarjeta; el saldo permanece en card_pocket',
+          );
+        }
+      });
+    }
+
     return card;
+  }
+
+  async fundPocket(user: User, cardId: string, input: CardPocketTransferInput): Promise<{ status: number; body: CardPocketTransferResult }> {
+    requireKycApproved(user);
+    await assertNotFrozen(this.d, user.id);
+    const amountMinor = BigInt(input.amountMinor);
+    if (amountMinor < MIN_CARD_POCKET_TRANSFER_MINOR) {
+      throw new AppError('VALIDATION_ERROR', 'El monto mínimo para recargar tu tarjeta es de $100 COP', {
+        minAmountMinor: Number(MIN_CARD_POCKET_TRANSFER_MINOR),
+      });
+    }
+
+    const execute = async (): Promise<{ status: number; body: CardPocketTransferResult }> => {
+      const card = await this.get(user.id, cardId);
+      if (card.status === 'canceled') {
+        throw new AppError('VALIDATION_ERROR', 'No puedes recargar una tarjeta cancelada');
+      }
+
+      const mainWallet = await this.ledger.wallet(user.id, 'COP');
+      if (mainWallet.availableMinor < amountMinor) {
+        throw new AppError('INSUFFICIENT_FUNDS', 'Saldo insuficiente en tu cuenta principal Bre-B para recargar la tarjeta', {
+          availableMinor: Number(mainWallet.availableMinor),
+          requiredMinor: Number(amountMinor),
+        });
+      }
+
+      let providerRef: string | null = null;
+      if (this.d.coinsenda.transferCardPocketFunds) {
+        const res = await this.d.coinsenda.transferCardPocketFunds({
+          direction: 'to_card',
+          amountMinor,
+        });
+        providerRef = res.transferId || null;
+      }
+
+      const now = this.d.clock.now();
+      const txnId = newId('txn', now);
+      await this.ledger.fundCardPocket(user.id, 'COP', amountMinor, txnId);
+
+      const suffix = card.lastFour && card.lastFour !== '0000' ? ` •••• ${card.lastFour}` : '';
+      const txn: Transaction = {
+        id: txnId,
+        userId: user.id,
+        type: 'card_pocket',
+        direction: 'out',
+        currency: 'COP',
+        amountMinor,
+        feeMinor: 0n,
+        status: 'completed',
+        title: 'Recarga a Tarjeta CuyPay',
+        subtitle: `Bolsillo ${card.label}${suffix}`,
+        description: 'Transferencia sin costo desde tu saldo principal Bre-B',
+        conversion: null,
+        beneficiaryId: null,
+        quoteId: null,
+        providerRef: providerRef ?? card.id,
+        flagged: false,
+        failureReason: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await this.d.repos.transactions.create(txn);
+      await this.d.events.publish({ type: 'transaction.created', txn });
+
+      const [updatedPocket, updatedMain] = await Promise.all([
+        this.ledger.cardPocket(user.id, 'COP'),
+        this.ledger.wallet(user.id, 'COP'),
+      ]);
+
+      await this.syncActiveCardsLimit(user.id, updatedPocket);
+
+      return {
+        status: 200,
+        body: {
+          card: presentCard(card, updatedPocket),
+          pocketBalanceMinor: toSafeNumber(updatedPocket),
+          mainAvailableMinor: toSafeNumber(updatedMain.availableMinor),
+          transaction: presentTransaction(txn),
+        },
+      };
+    };
+
+    return this.mutex.run(user.id, () =>
+      input.idempotencyKey
+        ? this.idem.run(user.id, `card_fund:${cardId}`, input.idempotencyKey, { cardId, amountMinor: input.amountMinor }, execute)
+        : execute(),
+    );
+  }
+
+  async withdrawPocket(user: User, cardId: string, input: CardPocketTransferInput): Promise<{ status: number; body: CardPocketTransferResult }> {
+    requireKycApproved(user);
+    await assertNotFrozen(this.d, user.id);
+    const amountMinor = BigInt(input.amountMinor);
+    if (amountMinor < MIN_CARD_POCKET_TRANSFER_MINOR) {
+      throw new AppError('VALIDATION_ERROR', 'El monto mínimo para retirar del bolsillo de tu tarjeta es de $100 COP', {
+        minAmountMinor: Number(MIN_CARD_POCKET_TRANSFER_MINOR),
+      });
+    }
+
+    const execute = async (): Promise<{ status: number; body: CardPocketTransferResult }> => {
+      const card = await this.get(user.id, cardId);
+      const currentPocket = await this.ledger.cardPocket(user.id, 'COP');
+      if (currentPocket < amountMinor) {
+        throw new AppError('INSUFFICIENT_FUNDS', 'Saldo insuficiente en el bolsillo de tu tarjeta', {
+          availableMinor: Number(currentPocket),
+          requiredMinor: Number(amountMinor),
+        });
+      }
+
+      let providerRef: string | null = null;
+      if (this.d.coinsenda.transferCardPocketFunds) {
+        const res = await this.d.coinsenda.transferCardPocketFunds({
+          direction: 'from_card',
+          amountMinor,
+        });
+        providerRef = res.transferId || null;
+      }
+
+      const now = this.d.clock.now();
+      const txnId = newId('txn', now);
+      await this.ledger.withdrawCardPocket(user.id, 'COP', amountMinor, txnId);
+
+      const suffix = card.lastFour && card.lastFour !== '0000' ? ` •••• ${card.lastFour}` : '';
+      const txn: Transaction = {
+        id: txnId,
+        userId: user.id,
+        type: 'card_pocket',
+        direction: 'in',
+        currency: 'COP',
+        amountMinor,
+        feeMinor: 0n,
+        status: 'completed',
+        title: 'Retiro desde Tarjeta CuyPay',
+        subtitle: `Hacia tu saldo principal Bre-B${suffix}`,
+        description: 'Transferencia sin costo hacia tu saldo principal Bre-B',
+        conversion: null,
+        beneficiaryId: null,
+        quoteId: null,
+        providerRef: providerRef ?? card.id,
+        flagged: false,
+        failureReason: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await this.d.repos.transactions.create(txn);
+      await this.d.events.publish({ type: 'transaction.created', txn });
+
+      const [updatedPocket, updatedMain] = await Promise.all([
+        this.ledger.cardPocket(user.id, 'COP'),
+        this.ledger.wallet(user.id, 'COP'),
+      ]);
+
+      await this.syncActiveCardsLimit(user.id, updatedPocket);
+
+      return {
+        status: 200,
+        body: {
+          card: presentCard(card, updatedPocket),
+          pocketBalanceMinor: toSafeNumber(updatedPocket),
+          mainAvailableMinor: toSafeNumber(updatedMain.availableMinor),
+          transaction: presentTransaction(txn),
+        },
+      };
+    };
+
+    return this.mutex.run(user.id, () =>
+      input.idempotencyKey
+        ? this.idem.run(user.id, `card_withdraw:${cardId}`, input.idempotencyKey, { cardId, amountMinor: input.amountMinor }, execute)
+        : execute(),
+    );
+  }
+
+  private async syncActiveCardsLimit(userId: string, allowedAmountMinor: bigint): Promise<void> {
+    if (!this.d.coinsenda.syncCardSpendingLimit) return;
+    const activeCards = (await this.d.repos.cards.listByUser(userId)).filter((c) => c.status !== 'canceled');
+    await Promise.all(
+      activeCards.map((c) =>
+        this.d.coinsenda.syncCardSpendingLimit!({
+          providerCardId: c.providerCardId,
+          allowedAmountMinor,
+          cardLabel: c.label,
+        }),
+      ),
+    );
+  }
+
+  /** Sincroniza compras realizadas con tarjeta en Coinsenda Farming hacia el bolsillo del titular. */
+  async syncPurchases(): Promise<number> {
+    if (!this.d.coinsenda.listCardTransactions) return 0;
+    const remoteTxns = await this.d.coinsenda.listCardTransactions();
+    let processed = 0;
+
+    for (const rtx of [...remoteTxns].reverse()) {
+      if (rtx.state !== 'accepted' || rtx.amountMinor <= 0n) continue;
+      const dedupeKey = `card_tx:${rtx.id}`;
+      const prev = await this.d.repos.processedDeposits.get(dedupeKey);
+      if (prev) continue;
+
+      const card = await this.d.repos.cards.byProviderCardId(rtx.providerCardId);
+      if (!card) continue;
+
+      await this.mutex.run(card.userId, async () => {
+        const now = this.d.clock.now();
+        const txnId = newId('txn', now);
+        const inserted = await this.d.repos.processedDeposits.tryInsert({
+          providerDepositId: dedupeKey,
+          userId: card.userId,
+          transactionId: txnId,
+          processedAt: now,
+          note: 'card_purchase',
+        });
+        if (!inserted) return;
+
+        const currentPocket = await this.ledger.cardPocket(card.userId, 'COP');
+        const pocketDebit = currentPocket >= rtx.amountMinor ? rtx.amountMinor : currentPocket;
+        const overflowFromMain = rtx.amountMinor - pocketDebit;
+
+        if (pocketDebit > 0n) {
+          await this.ledger.debitCardPurchase(card.userId, 'COP', pocketDebit, txnId);
+        }
+        if (overflowFromMain > 0n) {
+          const mainWallet = await this.ledger.wallet(card.userId, 'COP');
+          const mainDebit = mainWallet.availableMinor >= overflowFromMain ? overflowFromMain : mainWallet.availableMinor;
+          if (mainDebit > 0n) {
+            await this.ledger.post(
+              [
+                { kind: 'user_available', userId: card.userId, currency: 'COP', amountMinor: -mainDebit },
+                { kind: 'breb_settlement', currency: 'COP', amountMinor: mainDebit },
+              ],
+              txnId,
+            );
+          }
+        }
+
+        const suffix = card.lastFour && card.lastFour !== '0000' ? ` •••• ${card.lastFour}` : '';
+        const txn: Transaction = {
+          id: txnId,
+          userId: card.userId,
+          type: 'card_purchase',
+          direction: 'out',
+          currency: 'COP',
+          amountMinor: rtx.amountMinor,
+          feeMinor: 0n,
+          status: 'completed',
+          title: rtx.merchantName || 'Compra con tarjeta',
+          subtitle: `Tarjeta CuyPay${suffix}`,
+          description: null,
+          conversion: null,
+          beneficiaryId: null,
+          quoteId: null,
+          providerRef: rtx.id,
+          flagged: false,
+          failureReason: null,
+          createdAt: rtx.createdAt,
+          updatedAt: now,
+        };
+        await this.d.repos.transactions.create(txn);
+        await this.d.events.publish({ type: 'transaction.created', txn });
+
+        const updatedPocket = await this.ledger.cardPocket(card.userId, 'COP');
+        await this.syncActiveCardsLimit(card.userId, updatedPocket);
+        processed++;
+      });
+    }
+
+    return processed;
   }
 
   async updateLabel(userId: string, cardId: string, label: string): Promise<Card> {

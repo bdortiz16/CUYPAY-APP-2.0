@@ -30,7 +30,7 @@ export class LedgerService {
     if (legs.length < 2) throw new AppError('INTERNAL_ERROR', 'Journal con menos de dos patas');
     const sums = new Map<Currency, bigint>();
     for (const l of legs) {
-      if ((l.kind === 'user_available' || l.kind === 'user_held') && !l.userId) {
+      if ((l.kind === 'user_available' || l.kind === 'user_held' || l.kind === 'card_pocket') && !l.userId) {
         throw new AppError('INTERNAL_ERROR', 'Pata de usuario sin userId');
       }
       sums.set(l.currency, (sums.get(l.currency) ?? 0n) + l.amountMinor);
@@ -65,6 +65,12 @@ export class LedgerService {
     const availableMinor = await this.d.repos.ledger.balance(avail.id);
     const heldMinor = await this.d.repos.ledger.balance(held.id);
     return { currency, availableMinor, heldMinor, balanceMinor: availableMinor + heldMinor };
+  }
+
+  async cardPocket(userId: string, currency: Currency = 'COP'): Promise<bigint> {
+    const now = this.d.clock.now();
+    const pocket = await this.d.repos.ledger.getOrCreateAccount('card_pocket', userId, currency, now);
+    return this.d.repos.ledger.balance(pocket.id);
   }
 
   async wallets(userId: string): Promise<WalletBalance[]> {
@@ -117,6 +123,39 @@ export class LedgerService {
       [
         { kind: contra, currency, amountMinor: -amount },
         { kind: 'user_available', userId, currency, amountMinor: amount },
+      ],
+      txnId,
+    );
+  }
+
+  /** Recarga el bolsillo de la tarjeta desde el saldo disponible principal (Bre-B). */
+  fundCardPocket(userId: string, currency: Currency, amount: bigint, txnId: string) {
+    return this.post(
+      [
+        { kind: 'user_available', userId, currency, amountMinor: -amount },
+        { kind: 'card_pocket', userId, currency, amountMinor: amount },
+      ],
+      txnId,
+    );
+  }
+
+  /** Retira fondos del bolsillo de la tarjeta hacia el saldo disponible principal (Bre-B). */
+  withdrawCardPocket(userId: string, currency: Currency, amount: bigint, txnId: string) {
+    return this.post(
+      [
+        { kind: 'card_pocket', userId, currency, amountMinor: -amount },
+        { kind: 'user_available', userId, currency, amountMinor: amount },
+      ],
+      txnId,
+    );
+  }
+
+  /** Liquida una compra con tarjeta debitando el bolsillo de la tarjeta contra la custodia COP. */
+  debitCardPurchase(userId: string, currency: Currency, amount: bigint, txnId: string) {
+    return this.post(
+      [
+        { kind: 'card_pocket', userId, currency, amountMinor: -amount },
+        { kind: 'breb_settlement', currency, amountMinor: amount },
       ],
       txnId,
     );

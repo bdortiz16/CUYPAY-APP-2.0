@@ -154,10 +154,37 @@ export interface CoinsendaGateway {
     encryptedPassData: string;
     ephemeralPublicKey: string;
   }>;
+  /** Mueve fondos COP sin costo entre la billetera principal (Bre-B) y la cuenta espejo de tarjetas. */
+  transferCardPocketFunds?(input: {
+    direction: 'to_card' | 'from_card';
+    amountMinor: bigint;
+  }): Promise<{
+    transferId: string;
+    raw: unknown;
+  }>;
+  /** Sincroniza el tope de gasto por tarjeta en Coinsenda según el saldo del bolsillo del usuario. */
+  syncCardSpendingLimit?(input: {
+    providerCardId: string;
+    allowedAmountMinor: bigint;
+    cardLabel?: string;
+  }): Promise<void>;
+  /** Lista compras/movimientos de tarjetas reportados por el emisor en Coinsenda Farming. */
+  listCardTransactions?(): Promise<CoinsendaCardTransaction[]>;
   /** Consulta el saldo disponible de la cuenta COP ómnibus (tesorería del portal admin). */
   getBalance?(): Promise<{ currency: Currency; balanceMinor: bigint; asOf: Date }>;
   /** Health check liviano (portal admin). Lanza si el proveedor no responde. */
   healthCheck?(): Promise<void>;
+}
+
+export interface CoinsendaCardTransaction {
+  id: string;
+  providerCardId: string;
+  amountMinor: bigint;
+  currency: Currency;
+  merchantName: string | null;
+  state: 'accepted' | 'pending' | 'rejected' | 'unknown';
+  createdAt: Date;
+  raw: unknown;
 }
 
 // ───────────────────────── KYC (Sumsub) ─────────────────────────

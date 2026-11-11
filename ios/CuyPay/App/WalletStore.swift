@@ -40,6 +40,21 @@ final class WalletStore {
         cards.first { $0.status != .canceled }
     }
 
+    /// Saldo disponible en el bolsillo dedicado de la tarjeta virtual COP.
+    var cardPocketBalance: Money {
+        activeCard?.pocketBalance ?? .zero(.cop)
+    }
+
+    /// Saldo disponible en el bolsillo principal COP (Bre-B).
+    var copMainAvailable: Money {
+        wallet(for: .cop)?.available ?? .zero(.cop)
+    }
+
+    /// Movimientos asociados a la tarjeta virtual (recargas/retiros de bolsillo y compras).
+    var cardTransactions: [WalletTransaction] {
+        transactions.filter { $0.type == .cardPocket || $0.type == .cardPurchase }
+    }
+
     /// Movimientos relevantes para un bolsillo.
     /// Una conversión COP→BRL aparece una sola vez (con `currency` = COP) pero también la mostramos en BRL como ingreso.
     func transactions(for currency: Currency) -> [WalletTransaction] {
@@ -139,6 +154,28 @@ final class WalletStore {
         }
     }
 
+    /// Aplica al instante el resultado de recargar o retirar del bolsillo de la tarjeta y sincroniza con el backend.
+    func applyCardPocketTransfer(_ response: CardPocketTransferResponse) async {
+        if let idx = cards.firstIndex(where: { $0.id == response.card.id }) {
+            cards[idx] = response.card
+        }
+        for i in cards.indices where cards[i].status != .canceled {
+            cards[i].balanceMinor = response.pocketBalanceMinor
+            cards[i].availableMinor = response.pocketBalanceMinor
+        }
+        if let wIdx = wallets.firstIndex(where: { $0.currency == .cop }) {
+            wallets[wIdx].availableMinor = response.mainAvailableMinor
+            wallets[wIdx].balanceMinor = response.mainAvailableMinor + wallets[wIdx].heldMinor
+        }
+        if !transactions.contains(where: { $0.id == response.transaction.id }) {
+            transactions.insert(response.transaction, at: 0)
+        }
+        async let w: Void = refreshWallets()
+        async let c: Void = refreshCards()
+        async let t: Void = refreshTransactions()
+        _ = await (w, c, t)
+    }
+
     /// Después de un envío o conversión.
     func refreshAfterMovement() async {
         async let w: Void = refreshWallets()
@@ -162,3 +199,4 @@ final class WalletStore {
         errorMessage = nil
     }
 }
+

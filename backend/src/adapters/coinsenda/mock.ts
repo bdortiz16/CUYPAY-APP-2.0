@@ -182,6 +182,51 @@ export class MockCoinsendaGateway implements CoinsendaGateway {
     };
   }
 
+  readonly cardPocketTransfers: Array<{ transferId: string; direction: 'to_card' | 'from_card'; amountMinor: bigint }> = [];
+  readonly cardSpendingLimits = new Map<string, bigint>();
+  readonly cardTransactions: Array<{
+    id: string;
+    providerCardId: string;
+    amountMinor: bigint;
+    currency: Currency;
+    merchantName: string | null;
+    state: 'accepted' | 'pending' | 'rejected' | 'unknown';
+    createdAt: Date;
+    raw: unknown;
+  }> = [];
+
+  async transferCardPocketFunds(input: { direction: 'to_card' | 'from_card'; amountMinor: bigint }) {
+    if (this.down) throw new AppError('PROVIDER_ERROR', 'Coinsenda (mock) caído', { provider: 'coinsenda' });
+    const transferId = `st_mock_${randomUUID()}`;
+    this.cardPocketTransfers.push({ transferId, direction: input.direction, amountMinor: input.amountMinor });
+    return { transferId, raw: { mock: true, ...input } };
+  }
+
+  async syncCardSpendingLimit(input: { providerCardId: string; allowedAmountMinor: bigint }) {
+    this.cardSpendingLimits.set(input.providerCardId, input.allowedAmountMinor);
+  }
+
+  async listCardTransactions() {
+    return [...this.cardTransactions].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 100);
+  }
+
+  simulateCardPurchase(input: { providerCardId: string; amountMinor: bigint; merchantName?: string; id?: string }) {
+    const tx = {
+      id: input.id ?? `ctx_mock_${randomUUID()}`,
+      providerCardId: input.providerCardId,
+      amountMinor: input.amountMinor,
+      currency: 'COP' as const,
+      merchantName: input.merchantName ?? 'Comercio CuyPay',
+      state: 'accepted' as const,
+      createdAt: this.clock.now(),
+      raw: { mock: true },
+    };
+    this.cardTransactions.push(tx);
+    // La compra liquida contra la custodia COP de Coinsenda
+    this.balanceAdjustmentMinor -= input.amountMinor;
+    return tx;
+  }
+
   /** Simula un depósito Bre-B entrante a una llave. */
   simulateDeposit(input: { providerKeyId: string; amountMinor: bigint; payerName?: string; id?: string }): CoinsendaDeposit {
     const dep: CoinsendaDeposit = {

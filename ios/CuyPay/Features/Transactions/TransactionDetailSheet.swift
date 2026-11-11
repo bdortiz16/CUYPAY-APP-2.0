@@ -26,21 +26,40 @@ struct TransactionDetailSheet: View {
         case .deposit: "arrow.down.left"
         case .transfer: "arrow.up.right"
         case .conversion: "arrow.left.arrow.right"
+        case .cardPocket: isIncoming ? "arrow.uturn.backward.circle" : "creditcard.and.123"
+        case .cardPurchase: "bag.fill"
         case .unknown: "circle.dashed"
         }
     }
 
     private var accentColor: Color {
-        isIncoming ? Theme.positive : Theme.ink
+        switch transaction.type {
+        case .cardPocket: return Theme.spruce
+        case .cardPurchase: return Theme.ink
+        default: return isIncoming ? Theme.positive : Theme.ink
+        }
+    }
+
+    private var networkTitle: String {
+        switch transaction.type {
+        case .cardPocket: return "CuyPay · Bolsillo Tarjeta"
+        case .cardPurchase: return "Red Visa · Tarjeta CuyPay"
+        default: return "ACH Colombia · Bre-B"
+        }
     }
 
     private var statusTitle: String {
         switch transaction.status {
-        case .completed: isIncoming ? "Recibido exitosamente" : "Transferencia exitosa"
-        case .pending: "En proceso"
-        case .failed: "No completado"
-        case .reversed: "Reversado"
-        case .unknown: "Procesando"
+        case .completed:
+            switch transaction.type {
+            case .cardPocket: return isIncoming ? "Retiro exitoso" : "Recarga exitosa"
+            case .cardPurchase: return "Compra aprobada"
+            default: return isIncoming ? "Recibido exitosamente" : "Transferencia exitosa"
+            }
+        case .pending: return "En proceso"
+        case .failed: return "No completado"
+        case .reversed: return "Reversado"
+        case .unknown: return "Procesando"
         }
     }
 
@@ -52,7 +71,7 @@ struct TransactionDetailSheet: View {
         Monto: \(displayedAmount.formatted(sign: isIncoming ? .always : .never))
         Fecha: \(transaction.createdAt.formatted(date: .long, time: .shortened))
         Referencia: \(transaction.id)
-        Red: ACH Colombia · Bre-B
+        Red: \(networkTitle)
         """
     }
 
@@ -88,10 +107,10 @@ struct TransactionDetailSheet: View {
                         VStack(spacing: 14) {
                             DetailRow(title: "Tipo de movimiento", value: transaction.title)
                             if let subtitle = transaction.subtitle, !subtitle.isEmpty {
-                                DetailRow(title: isIncoming ? "Cuenta / Origen" : "Destinatario", value: subtitle)
+                                DetailRow(title: isIncoming ? "Cuenta / Origen" : "Destino / Detalle", value: subtitle)
                             }
                             DetailRow(title: "Fecha y hora", value: transaction.createdAt.formatted(date: .long, time: .shortened))
-                            DetailRow(title: "Red de pago", value: "ACH Colombia · Bre-B")
+                            DetailRow(title: "Red de pago", value: networkTitle)
 
                             if transaction.feeMinor > 0 {
                                 DetailRow(title: "Comisión", value: transaction.fee.formatted())

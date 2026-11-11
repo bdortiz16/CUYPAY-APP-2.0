@@ -262,9 +262,20 @@ actor MockAPIClient: CuyPayAPI {
 
     // MARK: - Tarjetas (Cards & Apple Pay)
 
+    private var cardPocketMinor: Int64 = 0
+    private var usedCardPocketKeys: [String: CardPocketTransferResponse] = [:]
+
+    private func hydratedCard(_ card: CardItem) -> CardItem {
+        var copy = card
+        let amount = card.status == .canceled ? 0 : cardPocketMinor
+        copy.balanceMinor = amount
+        copy.availableMinor = amount
+        return copy
+    }
+
     func cards() async throws -> [CardItem] {
         await simulateLatency(0.5)
-        return cardsState
+        return cardsState.map(hydratedCard)
     }
 
     func card(id: String) async throws -> CardItem {
@@ -272,7 +283,18 @@ actor MockAPIClient: CuyPayAPI {
         guard let card = cardsState.first(where: { $0.id == id }) else {
             throw APIError.server(status: 404, code: .notFound, message: nil, limit: nil)
         }
-        return card
+        return hydratedCard(card)
+    }
+
+    func cardPocket() async throws -> CardPocketSummary {
+        await simulateLatency(0.3)
+        let copAvailable = walletsState[walletIndex(.cop)].availableMinor
+        return CardPocketSummary(
+            currency: .cop,
+            balanceMinor: cardPocketMinor,
+            availableMinor: cardPocketMinor,
+            mainAvailableMinor: copAvailable
+        )
     }
 
     func issueVirtualCard(label: String?) async throws -> CardItem {
@@ -288,10 +310,13 @@ actor MockAPIClient: CuyPayAPI {
             brand: "Visa",
             currency: .cop,
             createdAt: Date(),
-            updatedAt: Date()
+            updatedAt: Date(),
+            holderName: user.fullName,
+            balanceMinor: cardPocketMinor,
+            availableMinor: cardPocketMinor
         )
         cardsState.append(newCard)
-        return newCard
+        return hydratedCard(newCard)
     }
 
     func cardLookUrl(id: String) async throws -> String {
@@ -302,7 +327,7 @@ actor MockAPIClient: CuyPayAPI {
         return "https://cards.coinsenda.com/look/demo?card=\(id)"
     }
 
-    func updateCardStatus(id: String, state: String) async throws -> CardItem {
+    func updateCardStatus(id: String, state: String, preservePocket: Bool?) async throws -> CardItem {
         try await requireSignature(SignReason.updateCardStatus)
         await simulateLatency(1)
         guard let index = cardsState.firstIndex(where: { $0.id == id }) else {
@@ -311,7 +336,33 @@ actor MockAPIClient: CuyPayAPI {
         let status = CardItemStatus(rawValue: state) ?? .unknown
         cardsState[index].status = status
         cardsState[index].updatedAt = Date()
-        return cardsState[index]
+
+        if status == .canceled, preservePocket != true {
+            let remainingActive = cardsState.filter { $0.status != .canceled }
+            if remainingActive.isEmpty, cardPocketMinor > 0 {
+                let refund = cardPocketMinor
+                cardPocketMinor = 0
+                let copIdx = walletIndex(.cop)
+                walletsState[copIdx].availableMinor += refund
+                walletsState[copIdx].balanceMinor += refund
+                let txn = WalletTransaction(
+                    id: Self.newId("txn"),
+                    type: .cardPocket,
+                    direction: .in,
+                    currency: .cop,
+                    amountMinor: refund,
+                    feeMinor: 0,
+                    status: .completed,
+                    title: "Devolución de Tarjeta CuyPay",
+                    subtitle: "Saldo devuelto a tu cuenta principal Bre-B",
+                    conversion: nil,
+                    createdAt: Date()
+                )
+                transactionsState.insert(txn, at: 0)
+            }
+        }
+
+        return hydratedCard(cardsState[index])
     }
 
     func updateCardLabel(id: String, label: String) async throws -> CardItem {
@@ -321,7 +372,97 @@ actor MockAPIClient: CuyPayAPI {
         }
         cardsState[index].label = label
         cardsState[index].updatedAt = Date()
-        return cardsState[index]
+        return hydratedCard(cardsState[index])
+    }
+
+    func fundCard(id: String, amountMinor: Int64, idempotencyKey: String) async throws -> CardPocketTransferResponse {
+        if let prev = usedCardPocketKeys["fund:\(idempotencyKey)"] { return prev }
+        try requireKYC()
+        guard let index = cardsState.firstIndex(where: { $0.id == id }), cardsState[index].status != .canceled else {
+            throw APIError.server(status: 404, code: .notFound, message: nil, limit: nil)
+        }
+        guard amountMinor >= 10_000 else {
+            throw APIError.server(status: 400, code: .validationError, message: "El monto mínimo para recargar tu tarjeta es de $ 100 COP", limit: nil)
+        }
+        let copIdx = walletIndex(.cop)
+        guard walletsState[copIdx].availableMinor >= amountMinor else {
+            throw APIError.server(status: 422, code: .insufficientFunds, message: "Saldo insuficiente en tu cuenta principal Bre-B", limit: nil)
+        }
+        try await requireSignature(SignReason.fundCard)
+        await simulateLatency(1.0)
+
+        walletsState[copIdx].availableMinor -= amountMinor
+        walletsState[copIdx].balanceMinor -= amountMinor
+        cardPocketMinor += amountMinor
+
+        let card = hydratedCard(cardsState[index])
+        let txn = WalletTransaction(
+            id: Self.newId("txn"),
+            type: .cardPocket,
+            direction: .out,
+            currency: .cop,
+            amountMinor: amountMinor,
+            feeMinor: 0,
+            status: .completed,
+            title: "Recarga a Tarjeta CuyPay",
+            subtitle: "Bolsillo \(card.label) \(card.maskedPan)",
+            conversion: nil,
+            createdAt: Date()
+        )
+        transactionsState.insert(txn, at: 0)
+        let response = CardPocketTransferResponse(
+            card: card,
+            pocketBalanceMinor: cardPocketMinor,
+            mainAvailableMinor: walletsState[copIdx].availableMinor,
+            transaction: txn
+        )
+        usedCardPocketKeys["fund:\(idempotencyKey)"] = response
+        return response
+    }
+
+    func withdrawCard(id: String, amountMinor: Int64, idempotencyKey: String) async throws -> CardPocketTransferResponse {
+        if let prev = usedCardPocketKeys["withdraw:\(idempotencyKey)"] { return prev }
+        try requireKYC()
+        guard let index = cardsState.firstIndex(where: { $0.id == id }) else {
+            throw APIError.server(status: 404, code: .notFound, message: nil, limit: nil)
+        }
+        guard amountMinor >= 10_000 else {
+            throw APIError.server(status: 400, code: .validationError, message: "El monto mínimo para retirar de tu tarjeta es de $ 100 COP", limit: nil)
+        }
+        guard cardPocketMinor >= amountMinor else {
+            throw APIError.server(status: 422, code: .insufficientFunds, message: "Saldo insuficiente en el bolsillo de tu tarjeta", limit: nil)
+        }
+        try await requireSignature(SignReason.withdrawCard)
+        await simulateLatency(1.0)
+
+        let copIdx = walletIndex(.cop)
+        cardPocketMinor -= amountMinor
+        walletsState[copIdx].availableMinor += amountMinor
+        walletsState[copIdx].balanceMinor += amountMinor
+
+        let card = hydratedCard(cardsState[index])
+        let txn = WalletTransaction(
+            id: Self.newId("txn"),
+            type: .cardPocket,
+            direction: .in,
+            currency: .cop,
+            amountMinor: amountMinor,
+            feeMinor: 0,
+            status: .completed,
+            title: "Retiro desde Tarjeta CuyPay",
+            subtitle: "Hacia tu saldo principal Bre-B \(card.maskedPan)",
+            conversion: nil,
+            createdAt: Date()
+        )
+        transactionsState.insert(txn, at: 0)
+        let response = CardPocketTransferResponse(
+            card: card,
+            pocketBalanceMinor: cardPocketMinor,
+            mainAvailableMinor: walletsState[copIdx].availableMinor,
+            transaction: txn
+        )
+        usedCardPocketKeys["withdraw:\(idempotencyKey)"] = response
+        return response
     }
 
     func tokenizeApplePay(id: String, certificates: [String], nonce: String, nonceSignature: String) async throws -> ApplePayTokenizeResponse {

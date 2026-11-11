@@ -15,11 +15,11 @@ CREATE TYPE user_tier        AS ENUM ('basic', 'full');
 CREATE TYPE breb_key_status  AS ENUM ('active', 'blocked', 'pending');
 CREATE TYPE aml_result       AS ENUM ('clear', 'hit', 'review');
 CREATE TYPE beneficiary_status AS ENUM ('active', 'pending_review', 'rejected');
-CREATE TYPE txn_type         AS ENUM ('deposit', 'transfer', 'conversion');
+CREATE TYPE txn_type         AS ENUM ('deposit', 'transfer', 'conversion', 'card_pocket', 'card_purchase');
 CREATE TYPE txn_direction    AS ENUM ('in', 'out');
 CREATE TYPE txn_status       AS ENUM ('pending', 'completed', 'failed', 'reversed');
 CREATE TYPE limit_operation  AS ENUM ('transfer_out', 'conversion', 'deposit_in');
-CREATE TYPE ledger_account_kind AS ENUM ('user_available', 'user_held', 'breb_settlement', 'fx_clearing', 'fee_revenue', 'seed_equity');
+CREATE TYPE ledger_account_kind AS ENUM ('user_available', 'user_held', 'card_pocket', 'savings_vault', 'breb_settlement', 'fx_clearing', 'fee_revenue', 'seed_equity');
 
 -- ── Usuarios y dispositivos ────────────────────────────────────────────────
 CREATE TABLE users (
@@ -178,8 +178,8 @@ CREATE TABLE ledger_accounts (
   balance_minor BIGINT NOT NULL DEFAULT 0,          -- caché materializada, actualizada en la misma tx que las entradas
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE NULLS NOT DISTINCT (kind, user_id, currency),
-  CHECK ((kind IN ('user_available','user_held')) = (user_id IS NOT NULL)),
-  CHECK (kind NOT IN ('user_available','user_held') OR balance_minor >= 0)   -- nunca saldo negativo de usuario
+  CHECK ((kind IN ('user_available','user_held','card_pocket')) = (user_id IS NOT NULL)),
+  CHECK (kind NOT IN ('user_available','user_held','card_pocket') OR balance_minor >= 0)   -- nunca saldo negativo de usuario
 );
 
 CREATE TABLE ledger_entries (

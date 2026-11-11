@@ -275,6 +275,10 @@ actor APIClient: CuyPayAPI {
         try await send(.get("/cards/\(id)"))
     }
 
+    func cardPocket() async throws -> CardPocketSummary {
+        try await send(.get("/cards/pocket"))
+    }
+
     func issueVirtualCard(label: String?) async throws -> CardItem {
         try await send(.post("/cards/virtual", body: IssueCardRequest(label: label), signReason: SignReason.issueCard))
     }
@@ -284,12 +288,23 @@ actor APIClient: CuyPayAPI {
         return response.url
     }
 
-    func updateCardStatus(id: String, state: String) async throws -> CardItem {
-        try await send(.put("/cards/\(id)/status", body: UpdateCardStatusRequest(state: state), signReason: SignReason.updateCardStatus))
+    func updateCardStatus(id: String, state: String, preservePocket: Bool?) async throws -> CardItem {
+        let body = UpdateCardStatusRequest(state: state, preservePocket: preservePocket)
+        return try await send(.put("/cards/\(id)/status", body: body, signReason: SignReason.updateCardStatus))
     }
 
     func updateCardLabel(id: String, label: String) async throws -> CardItem {
         try await send(.put("/cards/\(id)/label", body: UpdateCardLabelRequest(label: label)))
+    }
+
+    func fundCard(id: String, amountMinor: Int64, idempotencyKey: String) async throws -> CardPocketTransferResponse {
+        let body = CardPocketTransferRequest(amountMinor: amountMinor, idempotencyKey: idempotencyKey)
+        return try await send(.post("/cards/\(id)/fund", body: body, signReason: SignReason.fundCard))
+    }
+
+    func withdrawCard(id: String, amountMinor: Int64, idempotencyKey: String) async throws -> CardPocketTransferResponse {
+        let body = CardPocketTransferRequest(amountMinor: amountMinor, idempotencyKey: idempotencyKey)
+        return try await send(.post("/cards/\(id)/withdraw", body: body, signReason: SignReason.withdrawCard))
     }
 
     func tokenizeApplePay(id: String, certificates: [String], nonce: String, nonceSignature: String) async throws -> ApplePayTokenizeResponse {

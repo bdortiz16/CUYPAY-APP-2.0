@@ -41,12 +41,17 @@ protocol CuyPayAPI: Sendable {
     // MARK: Tarjetas (Coinsenda Farming & Marketplace)
     func cards() async throws -> [CardItem]
     func card(id: String) async throws -> CardItem
+    func cardPocket() async throws -> CardPocketSummary
     /// 🔐
     func issueVirtualCard(label: String?) async throws -> CardItem
     func cardLookUrl(id: String) async throws -> String
     /// 🔐
-    func updateCardStatus(id: String, state: String) async throws -> CardItem
+    func updateCardStatus(id: String, state: String, preservePocket: Bool?) async throws -> CardItem
     func updateCardLabel(id: String, label: String) async throws -> CardItem
+    /// 🔐
+    func fundCard(id: String, amountMinor: Int64, idempotencyKey: String) async throws -> CardPocketTransferResponse
+    /// 🔐
+    func withdrawCard(id: String, amountMinor: Int64, idempotencyKey: String) async throws -> CardPocketTransferResponse
     /// 🔐
     func tokenizeApplePay(id: String, certificates: [String], nonce: String, nonceSignature: String) async throws -> ApplePayTokenizeResponse
 
@@ -90,6 +95,12 @@ protocol CuyPayAPI: Sendable {
     func createSavingsBlock(termDays: Int, amountMinor: Int64) async throws -> SavingsBlock
 }
 
+extension CuyPayAPI {
+    func updateCardStatus(id: String, state: String) async throws -> CardItem {
+        try await updateCardStatus(id: id, state: state, preservePocket: nil)
+    }
+}
+
 /// Textos del diálogo de Face ID para cada operación firmada.
 enum SignReason {
     static var login: String { String(localized: "Ingresa a CuyPay") }
@@ -98,6 +109,8 @@ enum SignReason {
     static var deleteBrebKey: String { String(localized: "Confirma la eliminación de tu llave Bre-B") }
     static var issueCard: String { String(localized: "Autoriza la emisión de tu tarjeta virtual") }
     static var updateCardStatus: String { String(localized: "Confirma el cambio de estado de tu tarjeta") }
+    static var fundCard: String { String(localized: "Autoriza recargar el bolsillo de tu tarjeta") }
+    static var withdrawCard: String { String(localized: "Autoriza mover saldo de tu tarjeta a tu cuenta principal") }
     static var tokenizeApplePay: String { String(localized: "Autoriza vincular tu tarjeta a Apple Pay") }
     static var createBeneficiary: String { String(localized: "Confirma la inscripción del beneficiario") }
     static var deleteBeneficiary: String { String(localized: "Confirma la eliminación del beneficiario") }
@@ -106,3 +119,4 @@ enum SignReason {
     static var deleteDevice: String { String(localized: "Confirma la eliminación del dispositivo") }
     static var createSavingsBlock: String { String(localized: "Autoriza la constitución de tu Bloque de Ahorro") }
 }
+

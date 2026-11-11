@@ -69,7 +69,7 @@ export class TreasuryService {
       byKind.set(k, (byKind.get(k) ?? 0n) + (await this.d.repos.ledger.balance(a.id)));
     }
     const get = (kind: LedgerAccountKind, c: Currency) => byKind.get(`${kind}:${c}`) ?? 0n;
-    const liabilities = (c: Currency) => get('user_available', c) + get('user_held', c);
+    const liabilities = (c: Currency) => get('user_available', c) + get('user_held', c) + get('card_pocket', c);
     return { get, liabilities, accounts };
   }
 

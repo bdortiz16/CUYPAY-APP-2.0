@@ -183,9 +183,15 @@ struct CardItem: Codable, Hashable, Sendable, Identifiable {
     var createdAt: Date
     var updatedAt: Date
     var holderName: String? = nil
+    var balanceMinor: Int64? = nil
+    var availableMinor: Int64? = nil
 
     var maskedPan: String {
         "•••• " + lastFour
+    }
+
+    var pocketBalance: Money {
+        Money(minorUnits: availableMinor ?? balanceMinor ?? 0, currency: currency)
     }
 }
 
@@ -207,10 +213,33 @@ struct IssueCardRequest: Codable, Hashable, Sendable {
 
 struct UpdateCardStatusRequest: Codable, Hashable, Sendable {
     var state: String
+    var preservePocket: Bool? = nil
 }
 
 struct UpdateCardLabelRequest: Codable, Hashable, Sendable {
     var label: String
+}
+
+struct CardPocketSummary: Codable, Hashable, Sendable {
+    var currency: Currency
+    var balanceMinor: Int64
+    var availableMinor: Int64
+    var mainAvailableMinor: Int64
+
+    var available: Money { Money(minorUnits: availableMinor, currency: currency) }
+    var mainAvailable: Money { Money(minorUnits: mainAvailableMinor, currency: currency) }
+}
+
+struct CardPocketTransferRequest: Codable, Hashable, Sendable {
+    var amountMinor: Int64
+    var idempotencyKey: String
+}
+
+struct CardPocketTransferResponse: Codable, Hashable, Sendable {
+    var card: CardItem
+    var pocketBalanceMinor: Int64
+    var mainAvailableMinor: Int64
+    var transaction: WalletTransaction
 }
 
 struct CardLookUrlResponse: Codable, Hashable, Sendable {
@@ -412,6 +441,8 @@ enum TransactionType: String, Codable, Hashable, Sendable {
     case deposit
     case transfer
     case conversion
+    case cardPocket = "card_pocket"
+    case cardPurchase = "card_purchase"
     case unknown
 
     init(from decoder: any Decoder) throws {

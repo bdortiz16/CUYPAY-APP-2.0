@@ -21,8 +21,15 @@ const Id = z.string().min(1).max(64);
 const CreateKey = z.object({ preferredAlias: z.string().min(1).max(32).optional() });
 const ChangeKey = z.object({ preferredAlias: z.string().min(1).max(32) });
 const IssueCard = z.object({ label: z.string().min(1).max(30).optional() });
-const UpdateCardState = z.object({ state: z.enum(['active', 'frozen', 'canceled']) });
+const UpdateCardState = z.object({
+  state: z.enum(['active', 'frozen', 'canceled']),
+  preservePocket: z.boolean().optional(),
+});
 const UpdateCardLabel = z.object({ label: z.string().min(1).max(30) });
+const CardPocketTransfer = z.object({
+  amountMinor: Amount,
+  idempotencyKey: IdemKey.optional(),
+});
 const ApplePayTokenize = z.object({
   certificates: z.array(z.string()),
   nonce: z.string(),
@@ -60,19 +67,32 @@ export function registerMoneyRoutes(app: FastifyInstance, { deps, services }: Co
 
   // ── Tarjetas (Coinsenda Farming & Marketplace) ──
   app.get('/cards', auth, async (req) => {
-    const cards = await services.cards.list(req.auth!.userId);
-    return { items: cards.map(presentCard) };
+    const [cards, pocketMinor] = await Promise.all([
+      services.cards.list(req.auth!.userId),
+      services.cards.pocketBalance(req.auth!.userId),
+    ]);
+    return { items: cards.map((c) => presentCard(c, pocketMinor)) };
+  });
+
+  app.get('/cards/pocket', auth, async (req) => {
+    return services.cards.pocketSummary(req.auth!.userId);
   });
 
   app.get('/cards/:id', auth, async (req) => {
     const { id } = parse(z.object({ id: Id }), req.params);
-    return presentCard(await services.cards.get(req.auth!.userId, id));
+    const [card, pocketMinor] = await Promise.all([
+      services.cards.get(req.auth!.userId, id),
+      services.cards.pocketBalance(req.auth!.userId),
+    ]);
+    return presentCard(card, pocketMinor);
   });
 
   app.post('/cards/virtual', signed, async (req, reply) => {
     const body = parse(IssueCard, req.body ?? {});
-    const card = await services.cards.issueVirtual(await h.currentUser(req), body);
-    return reply.status(201).send(presentCard(card));
+    const user = await h.currentUser(req);
+    const card = await services.cards.issueVirtual(user, body);
+    const pocketMinor = await services.cards.pocketBalance(user.id);
+    return reply.status(201).send(presentCard(card, pocketMinor));
   });
 
   app.get('/cards/:id/look-url', auth, async (req) => {
@@ -82,14 +102,32 @@ export function registerMoneyRoutes(app: FastifyInstance, { deps, services }: Co
 
   app.put('/cards/:id/status', signed, async (req) => {
     const { id } = parse(z.object({ id: Id }), req.params);
-    const { state } = parse(UpdateCardState, req.body);
-    return presentCard(await services.cards.updateWorkingState(req.auth!.userId, id, state));
+    const { state, preservePocket } = parse(UpdateCardState, req.body);
+    const card = await services.cards.updateWorkingState(req.auth!.userId, id, state, { preservePocket });
+    const pocketMinor = await services.cards.pocketBalance(req.auth!.userId);
+    return presentCard(card, pocketMinor);
   });
 
   app.put('/cards/:id/label', auth, async (req) => {
     const { id } = parse(z.object({ id: Id }), req.params);
     const { label } = parse(UpdateCardLabel, req.body);
-    return presentCard(await services.cards.updateLabel(req.auth!.userId, id, label));
+    const card = await services.cards.updateLabel(req.auth!.userId, id, label);
+    const pocketMinor = await services.cards.pocketBalance(req.auth!.userId);
+    return presentCard(card, pocketMinor);
+  });
+
+  app.post('/cards/:id/fund', signed, async (req, reply) => {
+    const { id } = parse(z.object({ id: Id }), req.params);
+    const body = parse(CardPocketTransfer, req.body);
+    const r = await services.cards.fundPocket(await h.currentUser(req), id, body);
+    return reply.status(r.status).send(r.body);
+  });
+
+  app.post('/cards/:id/withdraw', signed, async (req, reply) => {
+    const { id } = parse(z.object({ id: Id }), req.params);
+    const body = parse(CardPocketTransfer, req.body);
+    const r = await services.cards.withdrawPocket(await h.currentUser(req), id, body);
+    return reply.status(r.status).send(r.body);
   });
 
   app.post('/cards/:id/apple-pay/tokenize', signed, async (req) => {

@@ -48,7 +48,7 @@ const CustomersQuery = z.object({
   cursor: Cursor,
 });
 const TxnQuery = z.object({
-  type: z.enum(['deposit', 'transfer', 'conversion']).optional(),
+  type: z.enum(['deposit', 'transfer', 'conversion', 'card_pocket', 'card_purchase']).optional(),
   status: z.enum(['pending', 'completed', 'failed', 'reversed']).optional(),
   currency: z.enum(['COP', 'BRL']).optional(),
   customerId: Id.optional(),
@@ -59,7 +59,11 @@ const TxnQuery = z.object({
   limit: Limit,
   cursor: Cursor,
 });
-const ExportQuery = z.object({ from: DateQ, to: DateQ, type: z.enum(['deposit', 'transfer', 'conversion']).optional() });
+const ExportQuery = z.object({
+  from: DateQ,
+  to: DateQ,
+  type: z.enum(['deposit', 'transfer', 'conversion', 'card_pocket', 'card_purchase']).optional(),
+});
 const AuditQuery = z.object({
   actorId: Id.optional(),
   action: z.string().max(80).optional(),

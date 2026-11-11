@@ -474,6 +474,118 @@ describe('Coinsenda live adapter (SDK doble)', () => {
       surname: 'Martínez',
     });
   });
+
+  it('transfiere sin costo entre cuenta principal COP y card_mirror, sincroniza topes por tarjeta e ignora depósitos internos', async () => {
+    const { gw } = makeGateway();
+    const calls: { service: string; method: string; endpoint: string; data: any }[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const baseFake = (gw as unknown as { client: any }).client; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const origRequest = baseFake.request.bind(baseFake);
+
+    baseFake.deposit.user.__get__deposits = async () => ({
+      status: 200,
+      data: [
+        { id: 'dep_breb_1', currency: 'cop', amount: '50000', state: 'accepted', deposit_provider_id: 'dp_9', provider_type: 'breb' },
+        { id: 'dep_internal_1', currency: 'cop', amount: '20000', state: 'accepted', provider_type: 'internal_network' },
+        { id: 'dep_internal_2', currency: 'cop', amount: '10000', state: 'accepted', origin: 'internal' },
+      ],
+    });
+
+    baseFake.request = async (service: string, method: string, endpoint: string, data: any, options: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      calls.push({ service, method, endpoint, data });
+      if (endpoint === '/users/{id}/ledgerAccounts') {
+        return { status: 200, data: [{ id: 'lacc_cop_1', currency: 'cop', account_id: 'acc_card_mirror' }] };
+      }
+      if (endpoint === '/withdraws/add-new-self-transfer-public') {
+        return { status: 200, data: { data: { id: 'st_live_1', state: 'pending', cost: '0' } } };
+      }
+      if (endpoint === '/users/{id}/cards') {
+        return { status: 200, data: [{ id: 'cs_card_99', card_spending_control_id: null }] };
+      }
+      if (endpoint === '/users/{id}/cardSpendingControls') {
+        return { status: 200, data: [] };
+      }
+      if (endpoint === '/cardSpendingControls/add-new-card-spending-control-public') {
+        return { status: 200, data: { data: { id: 'csc_1' } } };
+      }
+      if (endpoint === '/cards/assign-card-spending-control-public') {
+        return { status: 200, data: { data: { ok: true } } };
+      }
+      if (endpoint === '/users/{id}/cardTransactions') {
+        return {
+          status: 200,
+          data: [
+            {
+              id: 'ctx_1',
+              card_id: 'cs_card_99',
+              local_amount: '18500',
+              merchant_name: 'Uber Rides',
+              status: 'approved',
+              created_at: '2026-11-11T15:00:00Z',
+            },
+          ],
+        };
+      }
+      return origRequest(service, method, endpoint, data, options);
+    };
+
+    const toCard = await gw.transferCardPocketFunds({ direction: 'to_card', amountMinor: 2_500_000n });
+    expect(toCard.transferId).toBe('st_live_1');
+    const selfTxCalls = calls.filter((c) => c.endpoint === '/withdraws/add-new-self-transfer-public');
+    expect(selfTxCalls[0]!.data).toEqual({
+      data: {
+        country: 'international',
+        account_id: 'acc_cop',
+        account_to: 'acc_card_mirror',
+        amount: '25000',
+      },
+    });
+
+    await gw.transferCardPocketFunds({ direction: 'from_card', amountMinor: 1_000_000n });
+    expect(selfTxCalls.length >= 1 || calls.filter((c) => c.endpoint === '/withdraws/add-new-self-transfer-public').length === 2).toBe(true);
+    const secondSelfTx = calls.filter((c) => c.endpoint === '/withdraws/add-new-self-transfer-public')[1]!;
+    expect(secondSelfTx.data).toEqual({
+      data: {
+        country: 'international',
+        account_id: 'acc_card_mirror',
+        account_to: 'acc_cop',
+        amount: '10000',
+      },
+    });
+
+    await gw.syncCardSpendingLimit({ providerCardId: 'cs_card_99', allowedAmountMinor: 1_500_000n });
+    const createCtrl = calls.find((c) => c.endpoint === '/cardSpendingControls/add-new-card-spending-control-public')!;
+    expect(createCtrl.data).toEqual({
+      data: {
+        currency: 'cop',
+        label: 'CuyPay Pocket ard_99',
+        rules: { purchase_limits: { daily: '15000', weekly: '15000', monthly: '15000' } },
+        country: 'international',
+      },
+    });
+    const assignCtrl = calls.find((c) => c.endpoint === '/cards/assign-card-spending-control-public')!;
+    expect(assignCtrl.data).toEqual({
+      data: {
+        card_id: 'cs_card_99',
+        card_spending_control_id: 'csc_1',
+        country: 'international',
+      },
+    });
+
+    const cardTxns = await gw.listCardTransactions();
+    expect(cardTxns).toHaveLength(1);
+    expect(cardTxns[0]).toMatchObject({
+      id: 'ctx_1',
+      providerCardId: 'cs_card_99',
+      amountMinor: 1_850_000n,
+      merchantName: 'Uber Rides',
+      state: 'accepted',
+    });
+
+    const deposits = await gw.listDeposits();
+    expect(deposits).toHaveLength(1);
+    expect(deposits[0]!.id).toBe('dep_breb_1');
+  });
 });
+
 
 

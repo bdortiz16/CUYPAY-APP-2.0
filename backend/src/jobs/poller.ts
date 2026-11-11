@@ -17,6 +17,8 @@ export function startPoller(container: Container): () => void {
       if (r.credited) deps.logger.info({ credited: r.credited }, 'deposits credited');
       const changed = await services.transfers.syncPending();
       if (changed) deps.logger.info({ changed }, 'pending transfers updated');
+      const cardTxns = await services.cards.syncPurchases();
+      if (cardTxns) deps.logger.info({ cardTxns }, 'card purchases synced');
     } catch (err) {
       deps.logger.error({ err: (err as Error).message }, 'poller tick failed');
     } finally {

@@ -270,5 +270,45 @@ struct DecodingTests {
         #expect(encoded.contains(#""email":"bryan@gmail.com""#))
         #expect(encoded.contains(#""phone":"+573154103795""#))
     }
+
+    @Test("Bolsillo de tarjeta decodifica saldos y opera recarga/retiro sin costo en MockAPIClient")
+    @MainActor
+    func cardPocketDecodingAndMockFlow() async throws {
+        let summary = try decode(CardPocketSummary.self, """
+        { "currency": "COP", "balanceMinor": 4500000, "availableMinor": 4500000, "mainAvailableMinor": 5500000 }
+        """)
+        #expect(summary.available.formatted() == "$ 45.000")
+        #expect(summary.mainAvailable.formatted() == "$ 55.000")
+
+        let purchase = try decode(WalletTransaction.self, """
+        { "id": "txn_cp1", "type": "card_purchase", "direction": "out", "currency": "COP",
+          "amountMinor": 1200000, "feeMinor": 0, "status": "completed",
+          "title": "Spotify Colombia", "subtitle": "Tarjeta CuyPay •••• 4242",
+          "createdAt": "2026-11-11T15:00:00Z" }
+        """)
+        #expect(purchase.type == .cardPurchase)
+
+        let api = MockAPIClient(latency: .zero)
+        let store = WalletStore(api: api)
+        await store.refreshAll()
+        let initialCop = store.copMainAvailable.minorUnits
+        #expect(initialCop > 5_000_000)
+
+        let card = try await api.issueVirtualCard(label: "CuyPay Virtual")
+        await store.refreshCards()
+        #expect(store.cardPocketBalance.minorUnits == 0)
+
+        let funded = try await api.fundCard(id: card.id, amountMinor: 3_500_000, idempotencyKey: "idem_fund_test_1")
+        await store.applyCardPocketTransfer(funded)
+        #expect(store.cardPocketBalance.minorUnits == 3_500_000)
+        #expect(store.copMainAvailable.minorUnits == initialCop - 3_500_000)
+        #expect(store.cardTransactions.first?.type == .cardPocket)
+
+        let withdrawn = try await api.withdrawCard(id: card.id, amountMinor: 1_500_000, idempotencyKey: "idem_withdraw_test_1")
+        await store.applyCardPocketTransfer(withdrawn)
+        #expect(store.cardPocketBalance.minorUnits == 2_000_000)
+        #expect(store.copMainAvailable.minorUnits == initialCop - 2_000_000)
+    }
 }
+
 

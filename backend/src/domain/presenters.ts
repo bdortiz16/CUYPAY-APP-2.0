@@ -53,7 +53,7 @@ export const presentBrebKey = (k: BrebKey) => ({
   createdAt: iso(k.createdAt),
 });
 
-export const presentCard = (c: Card) => ({
+export const presentCard = (c: Card, pocketBalanceMinor = 0n) => ({
   id: c.id,
   cardType: c.cardType,
   status: c.status,
@@ -62,6 +62,8 @@ export const presentCard = (c: Card) => ({
   lastFour: c.lastFour,
   brand: c.brand,
   currency: c.currency,
+  balanceMinor: c.status === 'canceled' ? 0 : n(pocketBalanceMinor),
+  availableMinor: c.status === 'canceled' ? 0 : n(pocketBalanceMinor),
   createdAt: iso(c.createdAt),
   updatedAt: iso(c.updatedAt),
 });
