@@ -11,6 +11,11 @@ struct CardView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
 
+    private enum ContactFollowUpAction {
+        case issueCard
+        case replaceCard
+    }
+
     @State private var isIssuing = false
     @State private var isCanceling = false
     @State private var isTogglingState = false
@@ -23,6 +28,8 @@ struct CardView: View {
     @State private var showCancelConfirm = false
     @State private var showAppleWalletSheet = false
     @State private var showApplePaySuccess = false
+    @State private var showEditContactSheet = false
+    @State private var contactFollowUpAction: ContactFollowUpAction?
     @State private var walletCoordinator: AppleWalletProvisioningCoordinator?
     @State private var errorMessage: String?
 
@@ -32,11 +39,29 @@ struct CardView: View {
 
     private var holderName: String {
         let verifiedHolder = activeCard?.holderName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !verifiedHolder.isEmpty {
+        if !verifiedHolder.isEmpty, verifiedHolder.lowercased() != "usuario cuypay" {
             return verifiedHolder.uppercased()
         }
-        let name = app.user?.fullName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return name.isEmpty ? "TITULAR CUYPAY" : name.uppercased()
+        if let user = app.user, !user.hasPlaceholderName {
+            let name = user.fullName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty { return name.uppercased() }
+        }
+        return verifiedHolder.isEmpty ? "TITULAR CUYPAY" : verifiedHolder.uppercased()
+    }
+
+    private var verificationEmailSummary: String {
+        guard let user = app.user, !user.hasPlaceholderEmail else {
+            return String(localized: "Sin correo configurado")
+        }
+        return user.email
+    }
+
+    private var needsCardContactReplacement: Bool {
+        if app.user?.hasPlaceholderContact == true {
+            return true
+        }
+        let cardHolder = activeCard?.holderName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        return cardHolder == "usuario cuypay"
     }
 
     private var headerSurfaceColor: Color {
@@ -70,6 +95,10 @@ struct CardView: View {
 
                                 if let errorMessage {
                                     ErrorBanner(message: errorMessage)
+                                }
+
+                                if needsCardContactReplacement {
+                                    placeholderContactBanner
                                 }
 
                                 cardDataSection(card)
@@ -129,6 +158,7 @@ struct CardView: View {
                 }
             }
             .task {
+                await app.refreshUser()
                 await store.refreshCards()
             }
             .onDisappear {
@@ -141,6 +171,24 @@ struct CardView: View {
             .sheet(isPresented: $showAppleWalletSheet) {
                 if let card = activeCard {
                     appleWalletSheet(card)
+                }
+            }
+            .sheet(isPresented: $showEditContactSheet) {
+                EditContactProfileSheet(
+                    subtitle: contactFollowUpAction == .replaceCard
+                        ? String(localized: "Ingresa tu nombre, correo y celular reales. Al guardar, reemplazaremos tu tarjeta anterior por una nueva vinculada a estos datos para recibir los códigos de Apple Wallet.")
+                        : String(localized: "Confirma el correo y el celular donde recibirás los códigos de verificación de tu tarjeta virtual y Apple Wallet."),
+                    saveButtonTitle: contactFollowUpAction == .replaceCard
+                        ? "Guardar y reemplazar tarjeta"
+                        : (contactFollowUpAction == .issueCard ? "Guardar y crear tarjeta" : "Guardar datos")
+                ) { _ in
+                    let followUp = contactFollowUpAction
+                    contactFollowUpAction = nil
+                    if followUp == .replaceCard {
+                        Task { await performCancelAndReissueAfterContactReady() }
+                    } else if followUp == .issueCard {
+                        Task { await issueCard() }
+                    }
                 }
             }
             .confirmationDialog(
@@ -560,6 +608,54 @@ struct CardView: View {
         }
     }
 
+    // MARK: - Aviso de datos de contacto para códigos Apple Wallet
+
+    private var placeholderContactBanner: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.title3)
+                    .foregroundStyle(Theme.warning)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Actualiza tu correo para recibir códigos")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.primary)
+                    Text("Esta tarjeta fue creada sin tu correo real. Actualiza tu correo y celular, y reemplázala gratis para recibir los códigos de Apple Wallet y compras.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Button {
+                contactFollowUpAction = .replaceCard
+                showEditContactSheet = true
+            } label: {
+                HStack(spacing: 8) {
+                    if isCanceling || isIssuing {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                    Text("Actualizar correo y reemplazar tarjeta")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(Theme.spruceSolid, in: .rect(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .disabled(isCanceling || isIssuing)
+        }
+        .padding(16)
+        .background(Theme.warning.opacity(colorScheme == .dark ? 0.14 : 0.10), in: .rect(cornerRadius: 16))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(Theme.warning.opacity(0.35), lineWidth: 1)
+        }
+    }
+
     // MARK: - Sección "Configurar tarjeta"
 
     private func cardSettingsSection(_ card: CardItem) -> some View {
@@ -577,6 +673,19 @@ struct CardView: View {
                 disabled: card.status != .active
             ) {
                 Task { await startAppleWalletFlow(card) }
+            }
+
+            Divider()
+
+            settingsRow(
+                icon: "envelope.badge.shield.half.filled",
+                iconColor: needsCardContactReplacement ? Theme.warning : Theme.spruce,
+                title: "Correo y celular de códigos",
+                subtitle: "\(verificationEmailSummary) · \(app.user?.phone ?? "") (reemplaza la tarjeta tras cambiar para actualizar Apple Wallet).",
+                disabled: isCanceling || isIssuing
+            ) {
+                contactFollowUpAction = needsCardContactReplacement ? .replaceCard : nil
+                showEditContactSheet = true
             }
 
             Divider()
@@ -676,6 +785,31 @@ struct CardView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(systemName: needsCardContactReplacement ? "exclamationmark.triangle.fill" : "envelope.badge.shield.half.filled")
+                                    .foregroundStyle(needsCardContactReplacement ? Theme.warning : Theme.spruce)
+                                Text(verbatim: "Códigos: \(verificationEmailSummary) · \(app.user?.phone ?? "")")
+                                    .font(.footnote.weight(.semibold))
+                            }
+                            Button {
+                                showAppleWalletSheet = false
+                                Task {
+                                    try? await Task.sleep(for: .milliseconds(250))
+                                    contactFollowUpAction = .replaceCard
+                                    showEditContactSheet = true
+                                }
+                            } label: {
+                                Text("¿No te llega el código? Actualizar correo/celular y reemplazar tarjeta")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(Theme.spruce)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 12))
+
                         if isLoadingSecrets {
                             HStack(spacing: 12) {
                                 ProgressView()
@@ -733,7 +867,7 @@ struct CardView: View {
                 }
             }
         }
-        .presentationDetents([.height(470), .large])
+        .presentationDetents([.height(540), .large])
     }
 
     private func walletSecretRow(label: LocalizedStringKey, value: String, copyValue: String, id: String) -> some View {
@@ -797,6 +931,29 @@ struct CardView: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 8)
 
+            if let user = app.user {
+                HStack(spacing: 10) {
+                    Image(systemName: user.hasPlaceholderContact ? "exclamationmark.triangle.fill" : "envelope.badge.shield.half.filled")
+                        .foregroundStyle(user.hasPlaceholderContact ? Theme.warning : Theme.spruce)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Códigos de Apple Wallet y compras")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(verbatim: "\(verificationEmailSummary) · \(user.phone)")
+                            .font(.footnote.weight(.medium))
+                    }
+                    Spacer()
+                    Button("Editar") {
+                        contactFollowUpAction = nil
+                        showEditContactSheet = true
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.spruce)
+                }
+                .padding(14)
+                .glassEffect(.regular, in: .rect(cornerRadius: 16))
+            }
+
             PrimaryButton(title: "Crear mi tarjeta virtual", isLoading: isIssuing) {
                 Task { await issueCard() }
             }
@@ -858,6 +1015,11 @@ struct CardView: View {
     // MARK: - Acciones
 
     private func issueCard() async {
+        if app.user?.hasPlaceholderContact == true {
+            contactFollowUpAction = .issueCard
+            showEditContactSheet = true
+            return
+        }
         isIssuing = true
         errorMessage = nil
         defer { isIssuing = false }
@@ -963,6 +1125,15 @@ struct CardView: View {
     }
 
     private func cancelAndReissueCard() async {
+        if app.user?.hasPlaceholderContact == true {
+            contactFollowUpAction = .replaceCard
+            showEditContactSheet = true
+            return
+        }
+        await performCancelAndReissueAfterContactReady()
+    }
+
+    private func performCancelAndReissueAfterContactReady() async {
         let canceled = await cancelCard()
         guard canceled else { return }
         await issueCard()

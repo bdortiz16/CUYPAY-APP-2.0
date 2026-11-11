@@ -59,6 +59,8 @@ export interface KycVerifiedProfile {
   isSandboxMockDocument: boolean;
   email: string | null;
   phone: string | null;
+  verifiedEmailFromKyc?: string | null;
+  verifiedPhoneFromKyc?: string | null;
   address: KycVerifiedAddress | null;
 }
 

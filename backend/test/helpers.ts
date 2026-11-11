@@ -104,7 +104,10 @@ export class TestClient {
 }
 
 let phoneSeq = 0;
-export async function registerUser(env: TestEnv, overrides: { firstName?: string; lastName?: string; phone?: string } = {}): Promise<TestClient> {
+export async function registerUser(
+  env: TestEnv,
+  overrides: { firstName?: string; lastName?: string; phone?: string; email?: string } = {},
+): Promise<TestClient> {
   const phone = overrides.phone ?? `+5730012${String(10000 + ++phoneSeq).slice(-5)}`;
   const otp = await env.app.inject({ method: 'POST', url: '/v1/auth/otp/request', payload: { phone } });
   if (otp.statusCode !== 200) throw new Error(`otp ${otp.statusCode} ${otp.body}`);
@@ -116,7 +119,7 @@ export async function registerUser(env: TestEnv, overrides: { firstName?: string
       otpId: otp.json().otpId,
       otpCode: '123456',
       phone,
-      email: `user${phoneSeq}_${Date.now()}@test.cuypay.com`,
+      email: overrides.email ?? `user${phoneSeq}_${Date.now()}@test.cuypay.com`,
       firstName: overrides.firstName ?? 'Ana',
       lastName: overrides.lastName ?? 'Gómez',
       country: 'CO',

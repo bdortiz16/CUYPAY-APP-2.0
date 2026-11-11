@@ -100,10 +100,11 @@ export class KycService {
     // Un aprobado final no se degrada por eventos tardíos de "pending".
     if (user.kycStatus === 'approved' && status === 'pending') return;
     const existing = await this.d.repos.kyc.byUser(user.id);
+    const resolvedApplicantId = info.applicantId ?? existing?.applicantId ?? null;
     await this.d.repos.kyc.upsert({
       userId: user.id,
       provider: 'sumsub',
-      applicantId: info.applicantId ?? existing?.applicantId ?? null,
+      applicantId: resolvedApplicantId,
       ...(existing?.providerCardHolderId ? { providerCardHolderId: existing.providerCardHolderId } : {}),
       levelName: existing?.levelName ?? this.d.config.SUMSUB_LEVEL_NAME,
       status,
@@ -112,6 +113,44 @@ export class KycService {
       rejectType: info.rejectType,
       updatedAt: now,
     });
+
+    if (status === 'approved' && this.d.kyc.getApplicantProfile) {
+      try {
+        const profile = await this.d.kyc.getApplicantProfile({
+          applicantId: resolvedApplicantId,
+          externalUserId: user.id,
+        });
+        if (profile) {
+          if (!profile.isSandboxMockDocument) {
+            if (profile.firstName && user.firstName.trim().toLowerCase() === 'usuario') {
+              user.firstName = profile.firstName;
+            }
+            if (profile.lastName && user.lastName.trim().toLowerCase() === 'cuypay') {
+              user.lastName = profile.lastName;
+            }
+          }
+          const currentEmail = user.email.trim().toLowerCase();
+          if (
+            profile.email &&
+            (currentEmail === 'usuario@cuypay.com' || currentEmail.endsWith('@pendiente.cuypay.com'))
+          ) {
+            const owner = await this.d.repos.users.byEmail(profile.email);
+            if (!owner || owner.id === user.id) {
+              user.email = profile.email.toLowerCase();
+            }
+          }
+          if (profile.verifiedPhoneFromKyc && profile.verifiedPhoneFromKyc !== user.phone) {
+            const owner = await this.d.repos.users.byPhone(profile.verifiedPhoneFromKyc);
+            if (!owner || owner.id === user.id) {
+              user.phone = profile.verifiedPhoneFromKyc;
+            }
+          }
+        }
+      } catch (err) {
+        this.d.logger.warn({ userId: user.id, err: (err as Error).message }, 'sumsub profile sync skipped on approval');
+      }
+    }
+
     user.kycStatus = status;
     user.tier = status === 'approved' ? 'full' : 'basic';
     user.updatedAt = now;

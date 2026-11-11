@@ -23,6 +23,20 @@ struct User: Codable, Hashable, Sendable, Identifiable {
         let last = lastName.first.map(String.init) ?? ""
         return (first + last).uppercased()
     }
+
+    var hasPlaceholderEmail: Bool {
+        let clean = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return clean.isEmpty || clean == "usuario@cuypay.com" || clean.hasSuffix("@pendiente.cuypay.com")
+    }
+
+    var hasPlaceholderName: Bool {
+        firstName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "usuario" &&
+            lastName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "cuypay"
+    }
+
+    var hasPlaceholderContact: Bool {
+        hasPlaceholderEmail || hasPlaceholderName
+    }
 }
 
 enum KYCStatus: String, Codable, Hashable, Sendable {
@@ -74,6 +88,13 @@ struct RegisterRequest: Codable, Hashable, Sendable {
     var deviceName: String
     var devicePublicKey: String
     var password: String? = nil
+}
+
+struct UpdateProfileRequest: Codable, Hashable, Sendable {
+    var firstName: String? = nil
+    var lastName: String? = nil
+    var email: String? = nil
+    var phone: String? = nil
 }
 
 struct LoginPasswordRequest: Codable, Hashable, Sendable {

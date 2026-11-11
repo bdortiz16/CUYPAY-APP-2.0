@@ -9,6 +9,7 @@ final class OnboardingModel {
     enum Step: Hashable {
         case phone
         case otp
+        case profile
         case password
         case faceID
         case kycIntro
@@ -55,12 +56,20 @@ final class OnboardingModel {
     var isOTPComplete: Bool { otpCode.count == 6 }
     var isPasswordValid: Bool { password.count >= 4 && password == confirmPassword }
     var isEmailValid: Bool {
-        let parts = email.trimmingCharacters(in: .whitespaces).split(separator: "@")
+        let clean = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard clean != "usuario@cuypay.com", !clean.hasSuffix("@pendiente.cuypay.com") else {
+            return false
+        }
+        let parts = clean.split(separator: "@")
         return parts.count == 2 && parts[1].contains(".") && !parts[0].isEmpty && parts[1].last != "."
     }
     var isProfileValid: Bool {
-        firstName.trimmingCharacters(in: .whitespaces).count >= 2 &&
-            lastName.trimmingCharacters(in: .whitespaces).count >= 2 &&
+        let cleanFirst = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanLast = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isPlaceholderName = cleanFirst.lowercased() == "usuario" && cleanLast.lowercased() == "cuypay"
+        return cleanFirst.count >= 2 &&
+            cleanLast.count >= 2 &&
+            !isPlaceholderName &&
             isEmailValid
     }
 
@@ -85,6 +94,22 @@ final class OnboardingModel {
     func confirmOTP() {
         guard isOTPComplete else { return }
         errorMessage = nil
+        if path.last != .profile {
+            path.append(.profile)
+        }
+    }
+
+    func confirmProfileStep() {
+        guard isProfileValid else {
+            if firstName.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 ||
+                lastName.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 {
+                errorMessage = String(localized: "Ingresa tus nombres y apellidos reales.")
+            } else if !isEmailValid {
+                errorMessage = String(localized: "Ingresa un correo electrónico válido.")
+            }
+            return
+        }
+        errorMessage = nil
         path.append(.password)
     }
 
@@ -104,6 +129,11 @@ final class OnboardingModel {
     /// Crea la clave en el Secure Enclave y registra la cuenta + dispositivo.
     func enrollAndRegister(app: AppModel) async {
         guard !isLoading, let otpId else { return }
+        guard isProfileValid else {
+            errorMessage = String(localized: "Completa tu nombre y correo electrónico antes de continuar.")
+            path = [.phone, .otp, .profile]
+            return
+        }
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -116,17 +146,17 @@ final class OnboardingModel {
 
         do {
             let publicKey = try await app.deviceKeys.createKey()
-            let cleanEmail = email.trimmingCharacters(in: .whitespaces).lowercased()
-            let cleanFirst = firstName.trimmingCharacters(in: .whitespaces)
-            let cleanLast = lastName.trimmingCharacters(in: .whitespaces)
+            let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let cleanFirst = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanLast = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
 
             let request = RegisterRequest(
                 otpId: otpId,
                 otpCode: otpCode,
                 phone: e164Phone,
-                email: cleanEmail.isEmpty ? "usuario@cuypay.com" : cleanEmail,
-                firstName: cleanFirst.isEmpty ? "Usuario" : cleanFirst,
-                lastName: cleanLast.isEmpty ? "CuyPay" : cleanLast,
+                email: cleanEmail,
+                firstName: cleanFirst,
+                lastName: cleanLast,
                 country: "CO",
                 deviceName: UIDevice.current.name,
                 devicePublicKey: publicKey,

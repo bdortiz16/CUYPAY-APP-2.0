@@ -42,6 +42,8 @@ interface SumsubApplicantInfoPayload {
   firstNameEn?: string;
   lastName?: string;
   lastNameEn?: string;
+  email?: string;
+  phone?: string;
   dob?: string;
   country?: string;
   nationality?: string;
@@ -280,6 +282,14 @@ export class LiveSumsubProvider implements KycProvider {
         : primaryDoc?.country || info?.country || fixed?.country || 'COL'
     );
 
+    const cleanEmailCandidate = (raw?: string | null): string | null => {
+      const e = String(raw ?? '').trim().toLowerCase();
+      if (!e || e === 'usuario@cuypay.com' || e.endsWith('@pendiente.cuypay.com')) return null;
+      return e;
+    };
+    const verifiedEmailFromKyc = cleanEmailCandidate(info?.email) ?? cleanEmailCandidate(fixed?.email);
+    const verifiedPhoneFromKyc = info?.phone?.trim() || fixed?.phone?.trim() || null;
+
     return {
       applicantId: applicant.id!,
       firstName,
@@ -290,8 +300,10 @@ export class LiveSumsubProvider implements KycProvider {
       documentType,
       documentNumber: documentNumber || null,
       isSandboxMockDocument,
-      email: applicant.email?.trim() || null,
-      phone: applicant.phone?.trim() || null,
+      email: verifiedEmailFromKyc ?? cleanEmailCandidate(applicant.email),
+      phone: verifiedPhoneFromKyc ?? (applicant.phone?.trim() || null),
+      verifiedEmailFromKyc,
+      verifiedPhoneFromKyc,
       address: extractSumsubAddress(info, fixed),
     };
   }

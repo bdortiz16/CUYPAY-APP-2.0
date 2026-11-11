@@ -137,10 +137,13 @@ export class MockCoinsendaGateway implements CoinsendaGateway {
     email: string;
     currency: Currency;
     label?: string;
-    holder?: { existingCardHolderId?: string | null; firstName: string; lastName: string };
+    holder?: { existingCardHolderId?: string | null; firstName: string; lastName: string; email?: string; phone?: string };
   }) {
     const cardId = `crd_cs_${randomUUID().slice(0, 8)}`;
-    const holderId = input.holder?.existingCardHolderId ?? `ch_mock_${input.userId}`;
+    const contactKey = `${input.holder?.email ?? input.email}:${input.holder?.phone ?? ''}`
+      .replace(/[^a-z0-9]/gi, '')
+      .slice(-8);
+    const holderId = input.holder?.existingCardHolderId ?? `ch_mock_${input.userId}_${contactKey}`;
     const resolvedName = input.holder ? `${input.holder.firstName} ${input.holder.lastName}`.trim() : input.holderName;
     return {
       providerCardId: cardId,

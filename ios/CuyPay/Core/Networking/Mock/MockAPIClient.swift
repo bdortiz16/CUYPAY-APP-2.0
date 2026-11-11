@@ -165,6 +165,26 @@ actor MockAPIClient: CuyPayAPI {
         return user
     }
 
+    func updateProfile(_ request: UpdateProfileRequest) async throws -> User {
+        await simulateLatency(0.5)
+        if let firstName = request.firstName?.trimmingCharacters(in: .whitespacesAndNewlines), !firstName.isEmpty {
+            user.firstName = firstName
+        }
+        if let lastName = request.lastName?.trimmingCharacters(in: .whitespacesAndNewlines), !lastName.isEmpty {
+            user.lastName = lastName
+        }
+        if let email = request.email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !email.isEmpty {
+            if email == "usuario@cuypay.com" || email.hasSuffix("@pendiente.cuypay.com") {
+                throw APIError.server(status: 422, code: .validationError, message: "Ingresa tu correo electrónico real.", limit: nil)
+            }
+            user.email = email
+        }
+        if let phone = request.phone?.trimmingCharacters(in: .whitespacesAndNewlines), !phone.isEmpty {
+            user.phone = phone
+        }
+        return user
+    }
+
     // MARK: - KYC
 
     func sumsubToken() async throws -> SumsubTokenResponse {

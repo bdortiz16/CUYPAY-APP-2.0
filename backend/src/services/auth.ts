@@ -68,7 +68,12 @@ export class AuthService {
     await this.d.repos.otps.update(otp);
   }
 
-  // ───────────── Registro ─────────────
+  // ───────────── Registro y perfil ─────────────
+
+  static isPlaceholderEmail(raw?: string | null): boolean {
+    const e = String(raw ?? '').trim().toLowerCase();
+    return !e || e === 'usuario@cuypay.com' || e.endsWith('@pendiente.cuypay.com');
+  }
 
   async register(input: {
     otpId: string;
@@ -86,27 +91,52 @@ export class AuthService {
     p256PublicKeyFromX963(input.devicePublicKey);
     await this.consumeOtp(input.otpId, input.phone, input.otpCode);
     const now = this.d.clock.now();
+    const rawEmail = input.email.trim().toLowerCase();
+    const normalizedEmail = AuthService.isPlaceholderEmail(rawEmail)
+      ? `pendiente+${input.phone.replace(/\D/g, '')}@pendiente.cuypay.com`
+      : rawEmail;
+    const cleanFirst = input.firstName.trim();
+    const cleanLast = input.lastName.trim();
 
     let user = await this.d.repos.users.byPhone(input.phone);
     let created = false;
     if (user) {
       await assertNotFrozen(this.d, user.id);
+      let userChanged = false;
       if (input.password) {
         user.passwordHash = this.hashPassword(user.id, input.password);
+        userChanged = true;
+      }
+      if (!AuthService.isPlaceholderEmail(rawEmail) && rawEmail !== user.email) {
+        const other = await this.d.repos.users.byEmail(rawEmail);
+        if (!other || other.id === user.id) {
+          user.email = rawEmail;
+          userChanged = true;
+        }
+      }
+      if (cleanFirst && cleanFirst.toLowerCase() !== 'usuario' && cleanFirst !== user.firstName) {
+        user.firstName = cleanFirst;
+        userChanged = true;
+      }
+      if (cleanLast && cleanLast.toLowerCase() !== 'cuypay' && cleanLast !== user.lastName) {
+        user.lastName = cleanLast;
+        userChanged = true;
+      }
+      if (userChanged) {
         user.updatedAt = now;
         await this.d.repos.users.update(user);
       }
       this.d.logger.warn({ userId: user.id }, 'device re-enrollment via OTP');
     } else {
-      const byEmail = await this.d.repos.users.byEmail(input.email);
+      const byEmail = await this.d.repos.users.byEmail(normalizedEmail);
       if (byEmail) throw new AppError('VALIDATION_ERROR', 'El correo ya está registrado', { field: 'email' });
       const userId = newId('usr', now);
       user = {
         id: userId,
         phone: input.phone,
-        email: input.email.toLowerCase(),
-        firstName: input.firstName.trim(),
-        lastName: input.lastName.trim(),
+        email: normalizedEmail,
+        firstName: cleanFirst,
+        lastName: cleanLast,
         country: 'CO',
         kycStatus: process.env.AUTO_APPROVE_KYC === 'true' ? 'approved' : 'not_started',
         tier: process.env.AUTO_APPROVE_KYC === 'true' ? 'full' : 'basic',
@@ -130,6 +160,83 @@ export class AuthService {
     if (created) await this.d.events.publish({ type: 'customer.created', user });
     await this.d.events.publish({ type: 'device.created', device });
     return this.issueSession(user, device, newId('sfm', now));
+  }
+
+  async updateProfile(
+    userId: string,
+    input: { firstName?: string; lastName?: string; email?: string; phone?: string },
+  ): Promise<User> {
+    const user = await this.d.repos.users.byId(userId);
+    if (!user) throw new AppError('NOT_FOUND', 'Usuario no encontrado');
+    await assertNotFrozen(this.d, user.id);
+
+    const now = this.d.clock.now();
+    let contactChanged = false;
+
+    if (input.email !== undefined) {
+      const cleanEmail = input.email.trim().toLowerCase();
+      if (AuthService.isPlaceholderEmail(cleanEmail)) {
+        throw new AppError('VALIDATION_ERROR', 'Ingresa tu correo electrónico personal real', { field: 'email' });
+      }
+      if (cleanEmail !== user.email) {
+        const existingByEmail = await this.d.repos.users.byEmail(cleanEmail);
+        if (existingByEmail && existingByEmail.id !== user.id) {
+          throw new AppError('VALIDATION_ERROR', 'Este correo electrónico ya está asociado a otra cuenta', { field: 'email' });
+        }
+        user.email = cleanEmail;
+        contactChanged = true;
+      }
+    }
+
+    if (input.phone !== undefined) {
+      const cleanPhone = input.phone.trim();
+      if (cleanPhone !== user.phone) {
+        const existingByPhone = await this.d.repos.users.byPhone(cleanPhone);
+        if (existingByPhone && existingByPhone.id !== user.id) {
+          throw new AppError('VALIDATION_ERROR', 'Este número de celular ya está asociado a otra cuenta', { field: 'phone' });
+        }
+        user.phone = cleanPhone;
+        contactChanged = true;
+      }
+    }
+
+    if (input.firstName !== undefined) {
+      const cleanFirst = input.firstName.trim();
+      if (cleanFirst.toLowerCase() === 'usuario') {
+        throw new AppError('VALIDATION_ERROR', 'Ingresa tu nombre real', { field: 'firstName' });
+      }
+      if (cleanFirst !== user.firstName) {
+        user.firstName = cleanFirst;
+        contactChanged = true;
+      }
+    }
+
+    if (input.lastName !== undefined) {
+      const cleanLast = input.lastName.trim();
+      if (cleanLast.toLowerCase() === 'cuypay') {
+        throw new AppError('VALIDATION_ERROR', 'Ingresa tu apellido real', { field: 'lastName' });
+      }
+      if (cleanLast !== user.lastName) {
+        user.lastName = cleanLast;
+        contactChanged = true;
+      }
+    }
+
+    user.updatedAt = now;
+    await this.d.repos.users.update(user);
+
+    if (contactChanged) {
+      const kycRec = await this.d.repos.kyc.byUser(user.id);
+      if (kycRec?.providerCardHolderId) {
+        await this.d.repos.kyc.upsert({
+          ...kycRec,
+          providerCardHolderId: null,
+          updatedAt: now,
+        });
+      }
+    }
+
+    return user;
   }
 
   // ───────────── Login con contraseña ─────────────

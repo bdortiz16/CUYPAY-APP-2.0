@@ -214,4 +214,61 @@ struct DecodingTests {
         #expect(store.activeCard?.id == "crd_new")
         #expect(store.activeCard?.holderName == "Bryan Ortiz")
     }
+
+    @Test("User detecta correos placeholder y OnboardingModel exige nombre y correo reales")
+    @MainActor
+    func placeholderContactAndOnboardingValidation() throws {
+        let legacyUser = User(
+            id: "usr_legacy",
+            firstName: "Usuario",
+            lastName: "CuyPay",
+            email: "usuario@cuypay.com",
+            phone: "+573005182067",
+            country: "CO",
+            kycStatus: .approved,
+            tier: .full,
+            createdAt: Date()
+        )
+        #expect(legacyUser.hasPlaceholderEmail == true)
+        #expect(legacyUser.hasPlaceholderName == true)
+        #expect(legacyUser.hasPlaceholderContact == true)
+
+        let realUser = User(
+            id: "usr_real",
+            firstName: "Bryan",
+            lastName: "Ortiz",
+            email: "bryan@gmail.com",
+            phone: "+573154103795",
+            country: "CO",
+            kycStatus: .approved,
+            tier: .full,
+            createdAt: Date()
+        )
+        #expect(realUser.hasPlaceholderContact == false)
+
+        let onboarding = OnboardingModel()
+        onboarding.otpCode = "123456"
+        onboarding.confirmOTP()
+        #expect(onboarding.path == [.profile])
+
+        onboarding.firstName = "Usuario"
+        onboarding.lastName = "CuyPay"
+        onboarding.email = "usuario@cuypay.com"
+        #expect(onboarding.isEmailValid == false)
+        #expect(onboarding.isProfileValid == false)
+
+        onboarding.firstName = "Bryan"
+        onboarding.lastName = "Ortiz"
+        onboarding.email = "bryan@gmail.com"
+        #expect(onboarding.isEmailValid == true)
+        #expect(onboarding.isProfileValid == true)
+        onboarding.confirmProfileStep()
+        #expect(onboarding.path == [.profile, .password])
+
+        let updateReq = UpdateProfileRequest(firstName: "Bryan", lastName: "Ortiz", email: "bryan@gmail.com", phone: "+573154103795")
+        let encoded = String(decoding: try JSONCoding.makeEncoder().encode(updateReq), as: UTF8.self)
+        #expect(encoded.contains(#""email":"bryan@gmail.com""#))
+        #expect(encoded.contains(#""phone":"+573154103795""#))
+    }
 }
+

@@ -711,24 +711,33 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
     const expectedHolderId = input.holder?.existingCardHolderId?.trim() || null;
 
     let holders = await this.listCardHolders();
+    const hasSameVerificationContacts = (h: any): boolean => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      const hEmail = String(h?.info_needed?.email ?? '').trim().toLowerCase();
+      const hPhone = String(h?.info_needed?.phone_number ?? '').replace(/\D/g, '');
+      return hEmail === holderInfo.email && hPhone === holderInfo.phone_number;
+    };
+
     const matchHolderForUser = (list: any[]) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       const byCurrency = list.filter(
         (h) => !h?.provider || String(h.provider).toLowerCase().includes(targetCurrency),
       );
       if (expectedHolderId) {
-        const byStoredId = byCurrency.find((h) => String(h?.id ?? '') === expectedHolderId);
+        const byStoredId = byCurrency.find(
+          (h) => String(h?.id ?? '') === expectedHolderId && hasSameVerificationContacts(h),
+        );
         if (byStoredId) return byStoredId;
       }
       if (holderInfo.id_number) {
         const byDoc = byCurrency.find(
-          (h) => String(h?.info_needed?.id_number ?? '').trim() === holderInfo.id_number,
+          (h) =>
+            String(h?.info_needed?.id_number ?? '').trim() === holderInfo.id_number &&
+            hasSameVerificationContacts(h),
         );
         if (byDoc) return byDoc;
       }
       if (cleanEmail && cleanEmail !== omnibusEmail) {
         const byEmailAndName = byCurrency.find((h) => {
-          const hEmail = String(h?.info_needed?.email ?? '').trim().toLowerCase();
-          if (hEmail !== cleanEmail) return false;
+          if (!hasSameVerificationContacts(h)) return false;
           const hName = normalizeCoinsendaSlug(h?.info_needed?.name);
           const hSurname = normalizeCoinsendaSlug(h?.info_needed?.surname);
           if (!hName && !hSurname) return true;

@@ -14,6 +14,8 @@ struct OnboardingFlowView: View {
                         PhoneEntryView(model: model)
                     case .otp:
                         OTPEntryView(model: model)
+                    case .profile:
+                        ProfileSetupView(model: model)
                     case .password:
                         PasswordSetupView(model: model)
                     case .faceID:
@@ -251,6 +253,76 @@ struct OTPEntryView: View {
             }
         }
         .onAppear { focused = true }
+    }
+}
+
+// MARK: - Datos del cliente (Nombre + Correo real)
+
+struct ProfileSetupView: View {
+    @Bindable var model: OnboardingModel
+    @FocusState private var focusedField: Field?
+
+    private enum Field {
+        case firstName
+        case lastName
+        case email
+    }
+
+    var body: some View {
+        OnboardingScaffold(
+            title: "Tus datos de contacto",
+            subtitle: "Ingresa tu nombre real y tu correo personal. Ahí recibirás los códigos de verificación de tu tarjeta virtual y Apple Wallet."
+        ) {
+            VStack(spacing: 16) {
+                TextField("Nombres (como aparecen en tu documento)", text: $model.firstName)
+                    .textContentType(.givenName)
+                    .textInputAutocapitalization(.words)
+                    .submitLabel(.next)
+                    .focused($focusedField, equals: .firstName)
+                    .onSubmit { focusedField = .lastName }
+                    .formFieldStyle()
+                    .accessibilityLabel(Text("Nombres"))
+
+                TextField("Apellidos", text: $model.lastName)
+                    .textContentType(.familyName)
+                    .textInputAutocapitalization(.words)
+                    .submitLabel(.next)
+                    .focused($focusedField, equals: .lastName)
+                    .onSubmit { focusedField = .email }
+                    .formFieldStyle()
+                    .accessibilityLabel(Text("Apellidos"))
+
+                TextField("Correo electrónico", text: $model.email)
+                    .keyboardType(.emailAddress)
+                    .textContentType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .focused($focusedField, equals: .email)
+                    .formFieldStyle()
+                    .accessibilityLabel(Text("Correo electrónico"))
+
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "envelope.badge.shield.half.filled")
+                        .foregroundStyle(Theme.spruce)
+                        .padding(.top, 2)
+                    Text("Los códigos de seguridad de Apple Wallet y compras en línea llegarán a este correo y a tu celular \(model.formattedPhone).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 4)
+
+                if let error = model.errorMessage {
+                    ErrorBanner(message: error)
+                }
+            }
+        } footer: {
+            PrimaryButton(title: "Continuar", isEnabled: model.isProfileValid) {
+                model.confirmProfileStep()
+            }
+        }
+        .onAppear { focusedField = .firstName }
     }
 }
 

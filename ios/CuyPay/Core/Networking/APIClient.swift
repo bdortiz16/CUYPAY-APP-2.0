@@ -219,6 +219,10 @@ actor APIClient: CuyPayAPI {
         try await send(.get("/me"))
     }
 
+    func updateProfile(_ request: UpdateProfileRequest) async throws -> User {
+        try await send(.put("/me", body: request))
+    }
+
     // MARK: - KYC
 
     func sumsubToken() async throws -> SumsubTokenResponse {

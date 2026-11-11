@@ -145,4 +145,66 @@ describe('Card & Bre-B lifecycle endpoints', () => {
     expect(storedCardB.providerCardHolderId).toBeTruthy();
     expect(storedCardA2.providerCardHolderId).not.toBe(storedCardB.providerCardHolderId);
   });
+
+  it('permite actualizar correo, celular y nombre con PUT /v1/me y regenera el CardHolder al reemplazar la tarjeta', async () => {
+    // Dos usuarios legacy registrados con el correo placeholder 'usuario@cuypay.com' no colisionan
+    const legacy1 = await registerUser(env, {
+      firstName: 'Usuario',
+      lastName: 'CuyPay',
+      email: 'usuario@cuypay.com',
+      phone: '+573005182067',
+    });
+    const legacy2 = await registerUser(env, {
+      firstName: 'Usuario',
+      lastName: 'CuyPay',
+      email: 'usuario@cuypay.com',
+      phone: '+573005182068',
+    });
+    const me1 = (await legacy1.call('GET', '/v1/me')).body;
+    const me2 = (await legacy2.call('GET', '/v1/me')).body;
+    expect(me1.email).toMatch(/@pendiente\.cuypay\.com$/);
+    expect(me2.email).toMatch(/@pendiente\.cuypay\.com$/);
+    expect(me1.email).not.toBe(me2.email);
+
+    const u1 = (await env.container.deps.repos.users.byId(legacy1.session.userId))!;
+    u1.kycStatus = 'approved';
+    await env.container.deps.repos.users.update(u1);
+
+    // Emitir tarjeta inicial (antes de actualizar perfil)
+    const oldCardRes = await legacy1.signed('POST', '/v1/cards/virtual', { label: 'CuyPay Virtual' });
+    expect(oldCardRes.status).toBe(201);
+    const oldStoredCard = (await env.container.deps.repos.cards.byId(oldCardRes.body.id))!;
+
+    // Rechaza guardar usuario@cuypay.com como correo real
+    const badEmailRes = await legacy1.call('PUT', '/v1/me', { email: 'usuario@cuypay.com' });
+    expect(badEmailRes.status).toBe(400);
+
+    // Actualiza datos reales del cliente (nombre, correo y celular donde llegan códigos de Apple Pay)
+    const updateRes = await legacy1.call('PUT', '/v1/me', {
+      firstName: 'Andrés',
+      lastName: 'Martínez',
+      email: 'andres.martinez@gmail.com',
+      phone: '+573154103799',
+    });
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body).toMatchObject({
+      firstName: 'Andrés',
+      lastName: 'Martínez',
+      email: 'andres.martinez@gmail.com',
+      phone: '+573154103799',
+    });
+
+    // Cancela tarjeta anterior y emite una nueva tarjeta vinculada al correo y celular reales
+    const cancelRes = await legacy1.signed('PUT', `/v1/cards/${oldCardRes.body.id}/status`, { state: 'canceled' });
+    expect(cancelRes.status).toBe(200);
+
+    const newCardRes = await legacy1.signed('POST', '/v1/cards/virtual', { label: 'CuyPay Virtual' });
+    expect(newCardRes.status).toBe(201);
+    expect(newCardRes.body.holderName).toBe('Andrés Martínez');
+
+    const newStoredCard = (await env.container.deps.repos.cards.byId(newCardRes.body.id))!;
+    expect(newStoredCard.providerCardHolderId).toBeTruthy();
+    expect(newStoredCard.providerCardHolderId).not.toBe(oldStoredCard.providerCardHolderId);
+  });
 });
+

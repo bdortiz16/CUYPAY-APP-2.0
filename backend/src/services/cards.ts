@@ -95,7 +95,7 @@ export class CardService {
     }
   }
 
-  private async resolveHolderFromKyc(user: User, existingCards: Card[]): Promise<CardHolderInput> {
+  private async resolveHolderFromKyc(user: User): Promise<CardHolderInput> {
     const now = this.d.clock.now();
     const kycRec = await this.d.repos.kyc.byUser(user.id);
     const kycProfile = this.d.kyc.getApplicantProfile
@@ -111,10 +111,56 @@ export class CardService {
       this.d.config.PROVIDERS_MODE !== 'live' ||
       Boolean(this.d.config.SUMSUB_APP_TOKEN?.startsWith('sbx:'));
 
-    const firstName = (kycProfile?.firstName || user.firstName).trim();
-    const lastName = (kycProfile?.lastName || user.lastName).trim();
-    const email = (user.email || kycProfile?.email || '').trim().toLowerCase();
-    const phone = (user.phone || kycProfile?.phone || '').trim();
+    const isPlaceholderEmail = (raw?: string | null) => {
+      const e = String(raw ?? '').trim().toLowerCase();
+      return !e || e === 'usuario@cuypay.com' || e.endsWith('@pendiente.cuypay.com');
+    };
+
+    const userFirst = user.firstName.trim();
+    const userLast = user.lastName.trim();
+    const isPlaceholderName = userFirst.toLowerCase() === 'usuario' && userLast.toLowerCase() === 'cuypay';
+
+    const firstName = (
+      (!kycProfile?.isSandboxMockDocument && kycProfile?.firstName) ||
+      (!isPlaceholderName ? userFirst : '') ||
+      kycProfile?.firstName ||
+      userFirst
+    ).trim();
+    const lastName = (
+      (!kycProfile?.isSandboxMockDocument && kycProfile?.lastName) ||
+      (!isPlaceholderName ? userLast : '') ||
+      kycProfile?.lastName ||
+      userLast
+    ).trim();
+
+    const email = (
+      (!isPlaceholderEmail(user.email) ? user.email : '') ||
+      (!isPlaceholderEmail(kycProfile?.verifiedEmailFromKyc) ? kycProfile?.verifiedEmailFromKyc : '') ||
+      (!isPlaceholderEmail(kycProfile?.email) ? kycProfile?.email : '') ||
+      ''
+    )
+      .trim()
+      .toLowerCase();
+
+    if (!email) {
+      if (this.d.config.PROVIDERS_MODE === 'live') {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          'Actualiza tu correo electrónico real en tu perfil antes de crear tu tarjeta para recibir los códigos de Apple Wallet y compras.',
+          { field: 'email' },
+        );
+      }
+    }
+
+    const effectiveEmail = email || user.email.trim().toLowerCase();
+    const phone = (user.phone || kycProfile?.verifiedPhoneFromKyc || kycProfile?.phone || '').trim();
+    if (!phone && this.d.config.PROVIDERS_MODE === 'live') {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        'Actualiza tu número de celular en tu perfil antes de crear tu tarjeta para recibir los códigos de verificación.',
+        { field: 'phone' },
+      );
+    }
 
     let documentNumber = kycProfile?.documentNumber ?? null;
     if (!documentNumber) {
@@ -127,7 +173,7 @@ export class CardService {
       }
     }
     if (!documentNumber && isSandboxOrMockKyc) {
-      documentNumber = deterministicSandboxDocumentNumber(user.id);
+      documentNumber = deterministicSandboxDocumentNumber(`${user.id}:${effectiveEmail}:${phone}`);
     }
     if (!documentNumber) {
       throw new AppError(
@@ -147,15 +193,12 @@ export class CardService {
       birthdate = '1996-05-15';
     }
 
-    const existingCardHolderId =
-      kycRec?.providerCardHolderId ??
-      existingCards.find((c) => c.providerCardHolderId)?.providerCardHolderId ??
-      null;
+    const existingCardHolderId = kycRec?.providerCardHolderId ?? null;
 
     return {
       firstName,
       lastName,
-      email,
+      email: effectiveEmail,
       phone,
       birthdate,
       nationality: kycProfile?.nationality || user.country || 'COL',
@@ -175,7 +218,7 @@ export class CardService {
       throw new AppError('VALIDATION_ERROR', 'Límite de tarjetas activas alcanzado (máximo 3)');
     }
 
-    const holder = await this.resolveHolderFromKyc(user, existing);
+    const holder = await this.resolveHolderFromKyc(user);
     const holderName = `${holder.firstName} ${holder.lastName}`.trim();
     const cardLabel = input?.label?.trim() || 'CuyPay Virtual';
     let issued;

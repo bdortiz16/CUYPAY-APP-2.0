@@ -362,5 +362,118 @@ describe('Coinsenda live adapter (SDK doble)', () => {
       data: { card_id: 'cs_card_1', new_label: 'Compras Online', country: 'international' },
     });
   });
+
+  it('no reutiliza un CardHolder previo si el correo o celular cambió (ej. usuario@cuypay.com -> correo real)', async () => {
+    const { gw } = makeGateway();
+    const calls: { endpoint: string; data: any }[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+    let cardIssued = false;
+    const holders: any[] = [ // eslint-disable-line @typescript-eslint/no-explicit-any
+      {
+        id: 'ch_stale_placeholder',
+        provider: 'mono_cop',
+        info_needed: {
+          name: 'Usuario',
+          surname: 'CuyPay',
+          email: 'usuario@cuypay.com',
+          phone_number: '573005182067',
+          id_number: '1987654321',
+          id_type: 'cedula_ciudadania',
+        },
+      },
+    ];
+
+    const baseFake = (gw as unknown as { client: any }).client; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const origRequest = baseFake.request.bind(baseFake);
+    baseFake.request = async (service: string, method: string, endpoint: string, data: any, options: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      calls.push({ endpoint, data });
+      if (endpoint === '/users/{id}/ledgerAccounts') {
+        return { status: 200, data: [{ id: 'lacc_cop_1', currency: 'cop', provider: 'mono_cop' }] };
+      }
+      if (endpoint === '/users/{id}/cardHolders') {
+        return { status: 200, data: [...holders] };
+      }
+      if (endpoint === '/cardHolders/add-new-card-holder-public') {
+        const created = {
+          id: 'ch_verified_real',
+          provider: 'mono_cop',
+          info_needed: data.data.info_needed,
+        };
+        holders.push(created);
+        return { status: 200, data: { data: created } };
+      }
+      if (endpoint === '/products') {
+        return {
+          status: 200,
+          data: [
+            {
+              id: 'prod_vcard_cop',
+              key: 'coinsenda-virtual-cop-card',
+              status: 'available',
+              stocks: [{ id: 'stk_1', available: '10', shipping_provider_id: 'sprov_1' }],
+            },
+          ],
+        };
+      }
+      if (endpoint === '/users/{id}/shippingAddresses') {
+        return { status: 200, data: [{ id: 'saddr_1', address_type: 'digital' }] };
+      }
+      if (endpoint === '/sales/add-new-sale-public') {
+        cardIssued = true;
+        return { status: 200, data: { data: { id: 'sale_2', trade_ids: ['trd_2'], state: 'accepted' } } };
+      }
+      if (endpoint === '/cards/assign-active-card-to-confirmed-cards-public') {
+        return { status: 200, data: { data: { assigned: 1 } } };
+      }
+      if (endpoint === '/users/{id}/cards') {
+        if (!cardIssued) return { status: 200, data: [] };
+        return {
+          status: 200,
+          data: [
+            {
+              id: 'cs_card_real',
+              trade_id: 'trd_2',
+              ledger_account_id: 'lacc_cop_1',
+              card_holder_id: 'ch_verified_real',
+              last_four: '4455',
+              working_state: 'active',
+            },
+          ],
+        };
+      }
+      return origRequest(service, method, endpoint, data, options);
+    };
+
+    const issued = await gw.issueCard({
+      userId: 'usr_legacy',
+      holderName: 'Andrés Martínez',
+      email: 'andres.martinez@gmail.com',
+      currency: 'COP',
+      label: 'CuyPay Virtual',
+      holder: {
+        existingCardHolderId: 'ch_stale_placeholder',
+        firstName: 'Andrés',
+        lastName: 'Martínez',
+        email: 'andres.martinez@gmail.com',
+        phone: '+573154103799',
+        birthdate: '1995-04-12',
+        nationality: 'COL',
+        documentCountry: 'COL',
+        documentType: 'cedula_ciudadania',
+        documentNumber: '1987654321',
+      },
+    });
+
+    expect(issued.providerCardHolderId).toBe('ch_verified_real');
+    expect(issued.holderName).toBe('Andrés Martínez');
+    const createHolderCall = calls.find((c) => c.endpoint === '/cardHolders/add-new-card-holder-public')!;
+    expect(createHolderCall).toBeDefined();
+    expect(createHolderCall.data.data.info_needed).toMatchObject({
+      email: 'andres.martinez@gmail.com',
+      phone_number: '573154103799',
+      name: 'Andrés',
+      surname: 'Martínez',
+    });
+  });
 });
+
 

@@ -10,6 +10,12 @@ const TxQuery = z.object({
   cursor: z.string().max(200).optional(),
 });
 const IdParam = z.object({ id: z.string().min(1).max(64) });
+const UpdateMe = z.object({
+  firstName: z.string().trim().min(2).max(80).optional(),
+  lastName: z.string().trim().min(2).max(80).optional(),
+  email: z.string().trim().email().max(254).optional(),
+  phone: z.string().regex(/^\+[1-9]\d{7,14}$/, 'Teléfono en formato E.164').optional(),
+});
 
 import { getFxSettings } from '../../services/runtime-config.js';
 
@@ -23,6 +29,12 @@ export function registerAccountRoutes(app: FastifyInstance, { deps, services }: 
       await services.kyc.applyStatus(user, 'approved', { applicantId: null, reviewAnswer: 'GREEN', rejectLabels: [], rejectType: null });
     }
     return presentUser(user);
+  });
+
+  app.put('/me', auth, async (req) => {
+    const body = parse(UpdateMe, req.body);
+    const updated = await services.auth.updateProfile(req.auth!.userId, body);
+    return presentUser(updated);
   });
 
   app.get('/wallets', auth, async (req) => {

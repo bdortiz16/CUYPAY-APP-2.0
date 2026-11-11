@@ -7,6 +7,7 @@ struct ProfileView: View {
     @State private var devicesLoaded = false
     @State private var errorMessage: String?
     @State private var showKYC = false
+    @State private var showEditContact = false
     @State private var confirmLogout = false
     @State private var confirmForget = false
     @State private var deviceToRemove: Device?
@@ -35,10 +36,37 @@ struct ProfileView: View {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(verbatim: user.fullName).font(.title3.weight(.semibold))
                                 Text(verbatim: user.phone).font(.subheadline).foregroundStyle(.secondary)
-                                Text(verbatim: user.email).font(.subheadline).foregroundStyle(.secondary)
+                                if user.hasPlaceholderEmail {
+                                    Text("Sin correo real configurado")
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(Theme.warning)
+                                } else {
+                                    Text(verbatim: user.email).font(.subheadline).foregroundStyle(.secondary)
+                                }
                             }
                         }
                         .padding(.vertical, 6)
+
+                        if user.hasPlaceholderContact {
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(Theme.warning)
+                                Text("Actualiza tu correo y nombre reales para recibir los códigos de verificación de tu tarjeta virtual y Apple Wallet.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        }
+
+                        Button {
+                            showEditContact = true
+                        } label: {
+                            Label("Editar correo, celular o nombre", systemImage: "pencil.line")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Theme.spruce)
+                        }
+                    } footer: {
+                        Text("Si actualizas tu correo o celular y ya tienes una tarjeta activa, reemplázala en Tarjeta Virtual para que Apple Wallet envíe los códigos al nuevo contacto.")
                     }
                     .listRowBackground(Rectangle().fill(.thinMaterial))
 
@@ -155,6 +183,9 @@ struct ProfileView: View {
         .sheet(isPresented: $showKYC) {
             KYCFlowSheet()
         }
+        .sheet(isPresented: $showEditContact) {
+            EditContactProfileSheet()
+        }
         .confirmationDialog("¿Cerrar sesión?", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("Cerrar sesión", role: .destructive) {
                 Task { await app.logout() }
@@ -201,6 +232,182 @@ struct ProfileView: View {
         do {
             try await app.api.deleteDevice(id: device.id)
             await loadDevices()
+        } catch {
+            errorMessage = error.userMessage
+        }
+    }
+}
+
+/// Hoja reutilizable para actualizar nombre, correo y celular de verificación (Apple Wallet / compras 3DS).
+struct EditContactProfileSheet: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.dismiss) private var dismiss
+
+    var subtitle: String? = nil
+    var saveButtonTitle: LocalizedStringKey = "Guardar datos"
+    var onSaved: ((User) -> Void)? = nil
+
+    @State private var firstName = ""
+    @State private var lastName = ""
+    @State private var email = ""
+    @State private var phoneDigits = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    @State private var didInitialize = false
+
+    private var isEmailValid: Bool {
+        let clean = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard clean != "usuario@cuypay.com", !clean.hasSuffix("@pendiente.cuypay.com") else {
+            return false
+        }
+        let parts = clean.split(separator: "@")
+        return parts.count == 2 && parts[1].contains(".") && !parts[0].isEmpty && parts[1].last != "."
+    }
+
+    private var isPhoneValid: Bool {
+        phoneDigits.count == 10 && phoneDigits.hasPrefix("3")
+    }
+
+    private var isFormValid: Bool {
+        let cleanFirst = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanLast = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isPlaceholderName = cleanFirst.lowercased() == "usuario" && cleanLast.lowercased() == "cuypay"
+        return cleanFirst.count >= 2 &&
+            cleanLast.count >= 2 &&
+            !isPlaceholderName &&
+            isEmailValid &&
+            isPhoneValid
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                BrandBackground()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Text(
+                            verbatim: subtitle ??
+                                String(localized: "Confirma el correo y el celular donde recibirás los códigos de verificación de tu tarjeta virtual y Apple Wallet.")
+                        )
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Nombres")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            TextField("Nombres reales", text: $firstName)
+                                .textContentType(.givenName)
+                                .textInputAutocapitalization(.words)
+                                .formFieldStyle()
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Apellidos")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            TextField("Apellidos reales", text: $lastName)
+                                .textContentType(.familyName)
+                                .textInputAutocapitalization(.words)
+                                .formFieldStyle()
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Correo electrónico")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            TextField("tucorreo@ejemplo.com", text: $email)
+                                .keyboardType(.emailAddress)
+                                .textContentType(.emailAddress)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .formFieldStyle()
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Celular (Colombia)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 10) {
+                                Text(verbatim: "🇨🇴 +57")
+                                    .font(.body.weight(.semibold))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 16)
+                                    .glassEffect(.regular, in: .rect(cornerRadius: 18))
+                                TextField("300 123 4567", text: $phoneDigits)
+                                    .keyboardType(.numberPad)
+                                    .textContentType(.telephoneNumber)
+                                    .monospacedDigit()
+                                    .formFieldStyle()
+                                    .onChange(of: phoneDigits) {
+                                        let filtered = String(phoneDigits.filter(\.isASCIIDigit).prefix(10))
+                                        if filtered != phoneDigits { phoneDigits = filtered }
+                                    }
+                            }
+                        }
+
+                        if let errorMessage {
+                            ErrorBanner(message: errorMessage)
+                        }
+
+                        PrimaryButton(
+                            title: saveButtonTitle,
+                            systemImage: "checkmark",
+                            isLoading: isSaving,
+                            isEnabled: isFormValid
+                        ) {
+                            Task { await save() }
+                        }
+                        .padding(.top, 6)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 28)
+                }
+                .scrollDismissesKeyboard(.interactively)
+            }
+            .navigationTitle("Datos de verificación")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    CloseToolbarButton { dismiss() }
+                }
+            }
+            .onAppear {
+                guard !didInitialize else { return }
+                didInitialize = true
+                if let user = app.user {
+                    firstName = user.hasPlaceholderName ? "" : user.firstName
+                    lastName = user.hasPlaceholderName ? "" : user.lastName
+                    email = user.hasPlaceholderEmail ? "" : user.email
+                    let digits = user.phone.filter(\.isASCIIDigit)
+                    if digits.count == 12, digits.hasPrefix("57") {
+                        phoneDigits = String(digits.dropFirst(2))
+                    } else {
+                        phoneDigits = String(digits.suffix(10))
+                    }
+                }
+            }
+        }
+    }
+
+    private func save() async {
+        guard isFormValid, !isSaving else { return }
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+
+        do {
+            let req = UpdateProfileRequest(
+                firstName: firstName.trimmingCharacters(in: .whitespacesAndNewlines),
+                lastName: lastName.trimmingCharacters(in: .whitespacesAndNewlines),
+                email: email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                phone: "+57" + phoneDigits
+            )
+            let updated = try await app.api.updateProfile(req)
+            app.user = updated
+            dismiss()
+            onSaved?(updated)
         } catch {
             errorMessage = error.userMessage
         }

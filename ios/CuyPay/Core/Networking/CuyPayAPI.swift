@@ -19,6 +19,7 @@ protocol CuyPayAPI: Sendable {
     func loginWithPassword(phone: String, password: String, deviceName: String?, devicePublicKey: String?) async throws -> AuthSession
     func logout() async throws
     func me() async throws -> User
+    func updateProfile(_ request: UpdateProfileRequest) async throws -> User
 
     // MARK: KYC
     func sumsubToken() async throws -> SumsubTokenResponse
