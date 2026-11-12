@@ -1,110 +1,13 @@
 import SwiftUI
+import UIKit
 
-/// Hoja de detalle de un movimiento / comprobante de recaudo o transferencia.
+/// Hoja de detalle de un movimiento / comprobante oficial de transferencia o recaudo.
 struct TransactionDetailSheet: View {
     let transaction: WalletTransaction
     let pocket: Currency
+    @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     @State private var copiedRef = false
-
-    private var isIncoming: Bool {
-        if transaction.type == .conversion, let conversion = transaction.conversion {
-            return conversion.toCurrency == pocket && transaction.currency != pocket
-        }
-        return transaction.direction == .in
-    }
-
-    private var displayedAmount: Money {
-        if transaction.type == .conversion, let conversion = transaction.conversion, isIncoming {
-            return conversion.toAmount
-        }
-        return transaction.amount
-    }
-
-    private var iconName: String {
-        switch transaction.type {
-        case .deposit: "arrow.down.left"
-        case .transfer: "arrow.up.right"
-        case .conversion: "arrow.left.arrow.right"
-        case .cardPocket: isIncoming ? "arrow.uturn.backward.circle" : "creditcard.and.123"
-        case .cardPurchase: "bag.fill"
-        case .savings: "lock.shield.fill"
-        case .loan: "banknote.fill"
-        case .unknown: "circle.dashed"
-        }
-    }
-
-    private var accentColor: Color {
-        switch transaction.type {
-        case .cardPocket, .savings, .loan: return isIncoming ? Theme.positive : Theme.spruce
-        case .cardPurchase: return Theme.ink
-        default: return isIncoming ? Theme.positive : Theme.ink
-        }
-    }
-
-    private var networkTitle: String {
-        switch transaction.type {
-        case .cardPocket: return "CuyPay · Bolsillo Tarjeta"
-        case .cardPurchase: return "Red Visa · Tarjeta CuyPay"
-        case .conversion: return "CuyPay · Conversión FX"
-        case .savings: return "CuyPay · Bolsillo de Ahorro"
-        case .loan: return "CuyPay · Créditos"
-        default: return "ACH Colombia · Bre-B"
-        }
-    }
-
-    private var statusTitle: String {
-        switch transaction.status {
-        case .completed:
-            switch transaction.type {
-            case .cardPocket: return isIncoming ? "Retiro exitoso" : "Recarga exitosa"
-            case .cardPurchase: return "Compra aprobada"
-            case .conversion: return "Conversión completada"
-            case .savings: return isIncoming ? "Reintegro acreditado" : "Bloqueo constituido"
-            case .loan: return isIncoming ? "Crédito desembolsado" : "Pago aplicado"
-            default: return isIncoming ? "Recibido exitosamente" : "Transferencia exitosa"
-            }
-        case .pending: return "En proceso"
-        case .failed: return "No completado"
-        case .reversed: return "Reversado"
-        case .unknown: return "Procesando"
-        }
-    }
-
-    private var statusBadgeColor: Color {
-        switch transaction.status {
-        case .completed: return Theme.spruce
-        case .pending, .unknown: return Theme.warning
-        case .failed, .reversed: return Theme.negative
-        }
-    }
-
-    private var statusBadgeIcon: String {
-        switch transaction.status {
-        case .completed: return "checkmark.seal.fill"
-        case .pending, .unknown: return "clock.fill"
-        case .failed, .reversed: return "xmark.octagon.fill"
-        }
-    }
-
-    private var formattedHeadlineAmount: String {
-        if isIncoming {
-            return displayedAmount.formatted(sign: .always)
-        }
-        return "-" + displayedAmount.formatted(sign: .never)
-    }
-
-    private var receiptText: String {
-        """
-        Comprobante de transacción CuyPay
-        Estado: \(statusTitle)
-        Tipo: \(transaction.title)
-        Monto: \(formattedHeadlineAmount)
-        Fecha: \(transaction.createdAt.formatted(date: .long, time: .shortened))
-        Referencia: \(transaction.id)
-        Red: \(networkTitle)
-        """
-    }
 
     var body: some View {
         NavigationStack {
@@ -112,103 +15,49 @@ struct TransactionDetailSheet: View {
                 BrandBackground()
 
                 ScrollView {
-                    VStack(spacing: 24) {
-                        // MARK: Cabecera con ícono y monto
+                    VStack(spacing: 18) {
+                        CuyPayVoucherCard(
+                            transaction: transaction,
+                            pocket: pocket,
+                            senderName: app.user?.fullName,
+                            copiedReference: copiedRef,
+                            onCopyReference: copyReference
+                        )
+                        .padding(.top, 8)
+
                         VStack(spacing: 12) {
-                            Image(systemName: iconName)
-                                .font(.system(size: 28, weight: .bold))
-                                .foregroundStyle(accentColor)
-                                .frame(width: 64, height: 64)
-                                .background(accentColor.opacity(0.12), in: .circle)
-                                .padding(.top, 16)
-
-                            Text(verbatim: formattedHeadlineAmount)
-                                .font(.system(.largeTitle, design: .serif).weight(.bold))
-                                .monospacedDigit()
-                                .foregroundStyle(isIncoming ? Theme.positive : .primary)
-
-                            StatusBadge(
-                                text: LocalizedStringKey(statusTitle),
-                                color: statusBadgeColor,
-                                systemImage: statusBadgeIcon
-                            )
-                        }
-
-                        // MARK: Ficha de detalles
-                        VStack(spacing: 14) {
-                            DetailRow(title: "Tipo de movimiento", value: transaction.title)
-                            if let subtitle = transaction.subtitle, !subtitle.isEmpty {
-                                DetailRow(title: isIncoming ? "Cuenta / Origen" : "Destino / Detalle", value: subtitle)
-                            }
-                            DetailRow(title: "Fecha y hora", value: transaction.createdAt.formatted(date: .long, time: .shortened))
-                            DetailRow(title: "Red de pago", value: networkTitle)
-
-                            if transaction.feeMinor > 0 {
-                                DetailRow(title: "Comisión", value: transaction.fee.formatted())
-                            } else {
-                                DetailRow(title: "Comisión", value: "\(Money.zero(transaction.currency).formatted()) (Sin costo)")
-                            }
-
-                            if let conv = transaction.conversion {
-                                Divider()
-                                DetailRow(title: "Moneda de origen", value: conv.fromAmount.formatted())
-                                DetailRow(title: "Moneda recibida", value: conv.toAmount.formatted())
-                                DetailRow(title: "Tasa aplicada", value: RateFormatter.headline(rate: conv.rate))
-                            }
-
-                            Divider()
-
-                            // Referencia con botón para copiar
-                            HStack {
-                                Text("Referencia")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Button {
-                                    UIPasteboard.general.string = transaction.id
-                                    withAnimation(.snappy) { copiedRef = true }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                        withAnimation { copiedRef = false }
-                                    }
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        Text(verbatim: transaction.id)
-                                            .font(.footnote.weight(.semibold))
-                                            .monospaced()
-                                            .lineLimit(1)
-                                        Image(systemName: copiedRef ? "checkmark" : "doc.on.doc")
-                                            .font(.caption.weight(.bold))
-                                            .foregroundStyle(copiedRef ? Theme.positive : Theme.spruce)
-                                    }
+                            Button {
+                                VoucherSharePresenter.shareTransactionVoucher(
+                                    transaction,
+                                    pocket: pocket,
+                                    senderName: app.user?.fullName
+                                )
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .font(.body.weight(.semibold))
+                                    Text("Compartir comprobante")
+                                        .font(.body.weight(.semibold))
                                 }
-                                .buttonStyle(.plain)
+                                .foregroundStyle(.primary)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 54)
+                                .contentShape(.capsule)
                             }
-                        }
-                        .padding(20)
-                        .glassEffect(.regular, in: .rect(cornerRadius: Theme.cardRadius))
-
-                        // MARK: Acciones
-                        VStack(spacing: 12) {
-                            ShareLink(item: receiptText) {
-                                Label("Compartir comprobante", systemImage: "square.and.arrow.up")
-                                    .font(.body.weight(.semibold))
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 52)
-                                    .glassEffect(.regular.interactive(), in: .capsule)
-                            }
-                            .foregroundStyle(.primary)
+                            .buttonStyle(.plain)
+                            .glassEffect(.regular.interactive(), in: .capsule)
 
                             PrimaryButton(title: "Listo", systemImage: "checkmark") {
                                 dismiss()
                             }
                         }
-                        .padding(.top, 8)
                     }
                     .padding(.horizontal, 20)
-                    .padding(.bottom, 24)
+                    .padding(.bottom, 28)
                 }
+                .scrollIndicators(.hidden)
             }
-            .navigationTitle("Detalle del movimiento")
+            .navigationTitle("Comprobante")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -216,7 +65,17 @@ struct TransactionDetailSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+    }
+
+    private func copyReference() {
+        UIPasteboard.general.string = transaction.id
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.snappy) { copiedRef = true }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation { copiedRef = false }
+        }
     }
 }

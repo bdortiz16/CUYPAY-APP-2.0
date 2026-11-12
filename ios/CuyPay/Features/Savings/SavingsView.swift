@@ -692,23 +692,6 @@ struct SavingsCertificateSheet: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
 
-    private var shareSummary: String {
-        let holder = certificate?.holderName ?? app.user?.fullName ?? "Titular CuyPay"
-        return """
-        CERTIFICADO DE BOLSILLO DE AHORRO CUYPAY
-        Referencia: \(block.id)
-        Titular: \(holder)
-        Plazo: \(block.termDays) días (\(String(format: "%.2f", block.lockedRate))% E.A.)
-        Capital bloqueado: \(block.principal.formatted())
-        Intereses garantizados: +\(block.expectedYield.formatted())
-        Total al vencimiento: \(block.totalPayout.formatted())
-        Constitución: \(block.startedAt.formatted(date: .abbreviated, time: .shortened))
-        Reintegro exacto: \(block.maturesAt.formatted(date: .abbreviated, time: .shortened))
-        Estado: \(block.status.title)
-        Operado por XATECH SERVICES S.A.S. — NIT 901.799.579
-        """
-    }
-
     var body: some View {
         NavigationStack {
             ZStack {
@@ -787,7 +770,12 @@ struct SavingsCertificateSheet: View {
                             }
                         }
 
-                        ShareLink(item: shareSummary) {
+                        Button {
+                            VoucherSharePresenter.shareSavingsCertificate(
+                                block: block,
+                                holderName: certificate?.holderName ?? app.user?.fullName
+                            )
+                        } label: {
                             Label("Compartir certificado", systemImage: "square.and.arrow.up")
                                 .font(.subheadline.weight(.semibold))
                                 .frame(maxWidth: .infinity)

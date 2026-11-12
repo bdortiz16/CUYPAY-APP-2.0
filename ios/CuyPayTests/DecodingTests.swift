@@ -445,5 +445,34 @@ struct DecodingTests {
         #expect(store.loansConfig != nil)
         #expect(store.userLoans != nil)
     }
+
+    @Test("Comprobante CuyPay genera imagen PNG @3x real para compartir en lugar de texto plano")
+    @MainActor
+    func voucherImageRendering() throws {
+        let sample = WalletTransaction(
+            id: "txn_01m76jnbch00161zt4jrm0",
+            type: .transfer,
+            direction: .out,
+            currency: .cop,
+            amountMinor: 14_300_000,
+            feeMinor: 0,
+            status: .pending,
+            title: "DINA CAMPAA",
+            subtitle: "Bre-B · 3167315972",
+            conversion: nil,
+            createdAt: Date()
+        )
+        let image = VoucherSharePresenter.renderVoucherImage(
+            for: sample,
+            pocket: .cop,
+            senderName: "Bryan Ortiz"
+        )
+        #expect(image != nil)
+        if let image {
+            #expect(image.size.width > 300)
+            #expect(image.size.height > 400)
+            #expect(image.pngData() != nil)
+        }
+    }
 }
 

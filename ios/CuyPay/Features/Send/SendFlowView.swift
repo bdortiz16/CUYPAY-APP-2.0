@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Hoja de envío Bre-B.
 struct SendFlowView: View {
@@ -364,64 +365,101 @@ private struct SendReviewView: View {
 // MARK: - 4. Comprobante
 
 private struct SendReceiptView: View {
+    @Environment(AppModel.self) private var app
+    @Environment(WalletStore.self) private var store
     let model: SendFlowModel
     let onDone: () -> Void
+
     @State private var appeared = false
+    @State private var copiedRef = false
+
+    private var liveTransaction: WalletTransaction? {
+        guard let initial = model.transaction else { return nil }
+        return store.transactions.first(where: { $0.id == initial.id }) ?? initial
+    }
 
     var body: some View {
         ZStack {
             BrandBackground()
-            if let transaction = model.transaction {
-                VStack(spacing: 20) {
-                    Spacer()
-                    Image(systemName: transaction.status == .pending ? "clock.badge.checkmark.fill" : "checkmark.circle.fill")
-                        .font(.system(size: 90))
-                        .foregroundStyle(transaction.status == .pending ? Theme.warning : Theme.spruce)
-                        .symbolEffect(.bounce, value: appeared)
-                        .scaleEffect(appeared ? 1 : 0.5)
-                    Text(transaction.status == .pending ? LocalizedStringKey("Envío en proceso") : LocalizedStringKey("¡Envío exitoso!"))
-                        .font(.system(.title, design: .rounded).weight(.bold))
-                    Text(verbatim: transaction.amount.formatted())
-                        .font(.system(size: 40, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-
-                    GlassCard {
-                        VStack(spacing: 10) {
-                            DetailRow(title: "Para", value: transaction.title)
-                            if let subtitle = transaction.subtitle {
-                                DetailRow(title: "Destino", value: subtitle)
+            if let transaction = liveTransaction {
+                ScrollView {
+                    VStack(spacing: 18) {
+                        CuyPayVoucherCard(
+                            transaction: transaction,
+                            pocket: transaction.currency,
+                            senderName: app.user?.fullName,
+                            copiedReference: copiedRef,
+                            onCopyReference: {
+                                UIPasteboard.general.string = transaction.id
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                withAnimation(.snappy) { copiedRef = true }
+                                Task { @MainActor in
+                                    try? await Task.sleep(for: .seconds(2))
+                                    withAnimation { copiedRef = false }
+                                }
                             }
-                            DetailRow(title: "Costo", value: transaction.feeMinor == 0 ? String(localized: "Gratis") : transaction.fee.formatted())
-                            DetailRow(title: "Fecha", value: transaction.createdAt.formatted(date: .abbreviated, time: .shortened))
-                            DetailRow(title: "Referencia", value: transaction.id)
-                        }
+                        )
+                        .scaleEffect(appeared ? 1 : 0.95)
+                        .opacity(appeared ? 1 : 0)
+                        .animation(.snappy, value: transaction.status)
+                        .padding(.top, 8)
                     }
-
-                    Spacer()
-
-                    ShareLink(item: receiptText(transaction)) {
-                        Label("Compartir comprobante", systemImage: "square.and.arrow.up")
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-                    }
-                    .buttonStyle(.glass)
-                    .controlSize(.large)
-
-                    PrimaryButton(title: "Listo", action: onDone)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
                 }
-                .padding(24)
+                .scrollIndicators(.hidden)
+                .safeAreaInset(edge: .bottom) {
+                    VStack(spacing: 10) {
+                        Button {
+                            VoucherSharePresenter.shareTransactionVoucher(
+                                transaction,
+                                pocket: transaction.currency,
+                                senderName: app.user?.fullName
+                            )
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.body.weight(.semibold))
+                                Text("Compartir comprobante")
+                                    .font(.body.weight(.semibold))
+                            }
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 54)
+                            .contentShape(.capsule)
+                        }
+                        .buttonStyle(.plain)
+                        .glassEffect(.regular.interactive(), in: .capsule)
+
+                        PrimaryButton(title: "Listo", action: onDone)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 6)
+                    .padding(.bottom, 10)
+                }
             }
         }
+        .navigationTitle("Comprobante")
+        .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
         .sensoryFeedback(.success, trigger: appeared) { _, newValue in newValue }
         .onAppear {
-            withAnimation(.bouncy(duration: 0.6)) { appeared = true }
+            withAnimation(.spring(duration: 0.48, bounce: 0.16)) { appeared = true }
         }
-    }
-
-    private func receiptText(_ transaction: WalletTransaction) -> String {
-        let date = transaction.createdAt.formatted(date: .abbreviated, time: .shortened)
-        return String(localized: "Comprobante CuyPay\nEnvío Bre-B de \(transaction.amount.formatted()) a \(transaction.title)\n\(date)\nRef: \(transaction.id)")
+        .task {
+            // Si el envío Bre-B inicia en estado pendiente, consultamos unos segundos por si liquida al instante.
+            for _ in 0..<8 {
+                guard !Task.isCancelled else { break }
+                guard liveTransaction?.status == .pending else { break }
+                try? await Task.sleep(for: .milliseconds(2500))
+                guard !Task.isCancelled else { break }
+                await store.refreshLiveState(allowHaptic: false)
+                if liveTransaction?.status == .completed {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    break
+                }
+            }
+        }
     }
 }
 

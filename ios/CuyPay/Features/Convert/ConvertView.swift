@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Convertir COP → BRL. Widget inspirado en cuypay.com ("Tú envías / Tu contacto recibe").
 struct ConvertView: View {
@@ -195,53 +196,62 @@ private struct ConvertContent: View {
 struct ConversionSuccessView: View {
     let transaction: WalletTransaction
     let onDone: () -> Void
+    @Environment(AppModel.self) private var app
     @State private var appeared = false
+    @State private var copiedRef = false
 
     var body: some View {
-        VStack(spacing: 22) {
-            Spacer()
-            ZStack {
-                Circle()
-                    .fill(Theme.spruce.opacity(0.18))
-                    .frame(width: 150, height: 150)
-                    .scaleEffect(appeared ? 1 : 0.4)
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 92))
-                    .foregroundStyle(Theme.spruce)
-                    .symbolEffect(.bounce, value: appeared)
-            }
-            Text("¡Conversión exitosa!")
-                .font(.system(.title, design: .rounded).weight(.bold))
-            if let conversion = transaction.conversion {
-                VStack(spacing: 6) {
-                    Text(verbatim: conversion.fromAmount.formatted())
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                        .strikethrough(false)
-                    Image(systemName: "arrow.down")
-                        .foregroundStyle(.secondary)
-                    Text(verbatim: conversion.toAmount.formatted())
-                        .font(.system(size: 40, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                }
-                GlassCard {
-                    VStack(spacing: 10) {
-                        DetailRow(title: "Tipo de cambio", value: RateFormatter.headline(rate: conversion.rate))
-                        DetailRow(title: "Costo", value: transaction.fee.formatted())
-                        DetailRow(title: "Referencia", value: transaction.id)
+        ScrollView {
+            VStack(spacing: 18) {
+                CuyPayVoucherCard(
+                    transaction: transaction,
+                    pocket: transaction.conversion?.toCurrency ?? transaction.currency,
+                    senderName: app.user?.fullName,
+                    copiedReference: copiedRef,
+                    onCopyReference: {
+                        UIPasteboard.general.string = transaction.id
+                        withAnimation(.snappy) { copiedRef = true }
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(2))
+                            withAnimation { copiedRef = false }
+                        }
                     }
+                )
+                .scaleEffect(appeared ? 1 : 0.95)
+                .opacity(appeared ? 1 : 0)
+                .padding(.top, 8)
+
+                VStack(spacing: 12) {
+                    Button {
+                        VoucherSharePresenter.shareTransactionVoucher(
+                            transaction,
+                            pocket: transaction.conversion?.toCurrency ?? transaction.currency,
+                            senderName: app.user?.fullName
+                        )
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.body.weight(.semibold))
+                            Text("Compartir comprobante")
+                                .font(.body.weight(.semibold))
+                        }
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 54)
+                        .contentShape(.capsule)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+
+                    PrimaryButton(title: "Listo", action: onDone)
                 }
             }
-            Text("Tus reales ya están disponibles en tu bolsillo BRL.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Spacer()
-            PrimaryButton(title: "Listo", action: onDone)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 28)
         }
-        .padding(24)
+        .scrollIndicators(.hidden)
         .onAppear {
-            withAnimation(.bouncy(duration: 0.6)) { appeared = true }
+            withAnimation(.spring(duration: 0.48, bounce: 0.16)) { appeared = true }
         }
     }
 }
@@ -256,4 +266,5 @@ struct ConversionSuccessView: View {
         BrandBackground()
         ConversionSuccessView(transaction: MockFixtures(now: Date()).transactions[2]) {}
     }
+    .appEnvironment(.preview())
 }
