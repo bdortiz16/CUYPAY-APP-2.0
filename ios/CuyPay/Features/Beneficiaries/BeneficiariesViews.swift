@@ -308,7 +308,7 @@ private struct AddBeneficiaryContent: View {
                         .font(.title3.weight(.bold))
                         .multilineTextAlignment(.center)
                     StatusBadge(
-                        text: isMerchant ? String(localized: "Comercio verificado en Bre-B") : String(localized: "Titular verificado en Bre-B"),
+                        text: isMerchant ? "Comercio verificado en Bre-B" : "Titular verificado en Bre-B",
                         color: Theme.spruce,
                         systemImage: isMerchant ? "storefront.fill" : "checkmark.seal.fill"
                     )
