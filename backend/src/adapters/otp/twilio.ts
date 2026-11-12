@@ -130,13 +130,13 @@ export class TwilioWhatsAppOtpSender implements OtpSender {
 
   private async sendViaVerify(formattedPhone: string): Promise<OtpDispatchResult> {
     const url = `https://verify.twilio.com/v2/Services/${this.opts.verifyServiceSid}/Verifications`;
+    const body = new URLSearchParams({
+      To: formattedPhone,
+      Channel: 'whatsapp',
+      Locale: 'es',
+    });
 
-    const tryChannel = async (channel: 'whatsapp' | 'sms') => {
-      const body = new URLSearchParams({
-        To: formattedPhone,
-        Channel: channel,
-        Locale: 'es',
-      });
+    try {
       const res = await this.fetchImpl(url, {
         method: 'POST',
         headers: {
@@ -145,44 +145,26 @@ export class TwilioWhatsAppOtpSender implements OtpSender {
         },
         body: body.toString(),
       });
-      return res;
-    };
-
-    try {
-      let res = await tryChannel('whatsapp');
-      let usedChannel: 'whatsapp' | 'sms' = 'whatsapp';
 
       if (!res.ok) {
         const errPayload = await this.parseTwilioError(res);
-        // Si no es bloqueo de cuenta/compliance ni teléfono inválido, probamos respaldo por SMS en Verify.
-        if (res.status !== 401 && errPayload.code !== 21608 && errPayload.code !== 20003 && errPayload.code !== 60200) {
-          this.opts.logger?.warn(
-            { status: res.status, twilioCode: errPayload.code, phoneSuffix: formattedPhone.slice(-4) },
-            'WhatsApp en Twilio Verify no disponible para este número; reintentando por SMS',
-          );
-          const smsRes = await tryChannel('sms');
-          if (smsRes.ok) {
-            res = smsRes;
-            usedChannel = 'sms';
-          } else {
-            const smsErr = await this.parseTwilioError(smsRes);
-            throw this.toAppError(smsRes.status, smsErr);
-          }
-        } else {
-          throw this.toAppError(res.status, errPayload);
-        }
+        this.opts.logger?.warn(
+          { status: res.status, twilioCode: errPayload.code, phoneSuffix: formattedPhone.slice(-4), err: errPayload.message },
+          'Twilio Verify WhatsApp falló',
+        );
+        throw this.toAppError(res.status, errPayload);
       }
 
       const data = (await res.json().catch(() => ({}))) as { sid?: string };
-      this.opts.logger?.info({ phoneSuffix: formattedPhone.slice(-4), channel: usedChannel }, 'OTP enviado con Twilio Verify');
+      this.opts.logger?.info({ phoneSuffix: formattedPhone.slice(-4), channel: 'whatsapp' }, 'OTP enviado por WhatsApp con Twilio Verify');
       return {
         verificationMode: 'twilio_verify',
-        channel: usedChannel,
+        channel: 'whatsapp',
         externalSid: data.sid,
       };
     } catch (err) {
       if (err instanceof AppError) throw err;
-      this.opts.logger?.error({ err }, 'Error de red llamando a Twilio Verify');
+      this.opts.logger?.error({ err }, 'Error de red llamando a Twilio Verify WhatsApp');
       throw new AppError('PROVIDER_ERROR', 'Error de conexión al enviar el código por WhatsApp', { provider: 'twilio' });
     }
   }

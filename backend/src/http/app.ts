@@ -156,7 +156,13 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
   };
 
   const health = async (_req: FastifyRequest, reply: FastifyReply) =>
-    reply.send({ ok: true, service: 'cuypay-backend', mode: config.PROVIDERS_MODE, time: deps.clock.now().toISOString() });
+    reply.send({
+      ok: true,
+      service: 'cuypay-backend',
+      mode: config.PROVIDERS_MODE,
+      otpMode: config.OTP_PROVIDER_MODE,
+      time: deps.clock.now().toISOString(),
+    });
   app.get('/health', health);
 
   await app.register(

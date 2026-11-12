@@ -195,8 +195,9 @@ function parseDotEnvFile(filePath: string): Record<string, string> {
       }
       if (key && val !== '') out[key] = val;
     }
-  } catch {
-    // Ignorar si no es legible.
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[config] No se pudo leer ${filePath}:`, err instanceof Error ? err.message : err);
   }
   return out;
 }
@@ -208,6 +209,10 @@ export function loadConfig(source: Record<string, string | undefined> = process.
       : source;
   // Las cadenas vacías se tratan como "no definida".
   const cleaned = Object.fromEntries(Object.entries(effectiveSource).filter(([, v]) => v !== undefined && v !== ''));
+  // En producción/live nunca permitir que OTP caiga silenciosamente en 'mock' si no fue forzado explícitamente.
+  if (cleaned.PROVIDERS_MODE === 'live' && !cleaned.OTP_PROVIDER_MODE) {
+    cleaned.OTP_PROVIDER_MODE = cleaned.TWILIO_ACCOUNT_SID && cleaned.TWILIO_AUTH_TOKEN ? 'twilio' : 'live';
+  }
   const parsed = EnvSchema.safeParse(cleaned);
   if (!parsed.success) {
     const msg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');

@@ -7,8 +7,7 @@ struct ProfileView: View {
     @Environment(AppModel.self) private var app
     @Environment(WalletStore.self) private var store
 
-    @State private var showEditContact = false
-    @State private var editContactFocus: EditContactProfileSheet.FocusField?
+    @State private var editContactTarget: EditContactProfileSheet.Target?
     @State private var showReceiveSheet = false
     @State private var showSavingsSheet = false
     @State private var showLoansSheet = false
@@ -192,8 +191,8 @@ struct ProfileView: View {
                 .accessibilityLabel(Text("Notificaciones"))
             }
         }
-        .sheet(isPresented: $showEditContact) {
-            EditContactProfileSheet(initialFocus: editContactFocus)
+        .sheet(item: $editContactTarget) { target in
+            EditContactProfileSheet(target: target)
         }
         .sheet(isPresented: $showReceiveSheet) {
             ReceiveView()
@@ -241,8 +240,7 @@ struct ProfileView: View {
 
     private func userHeaderButton(for user: User) -> some View {
         Button {
-            editContactFocus = nil
-            showEditContact = true
+            editContactTarget = .all
         } label: {
             HStack(spacing: 14) {
                 AvatarView(initials: user.initials, size: 58, seed: user.id)
@@ -284,8 +282,7 @@ struct ProfileView: View {
 
     private var contactWarningCard: some View {
         Button {
-            editContactFocus = .email
-            showEditContact = true
+            editContactTarget = .all
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -377,8 +374,7 @@ struct ProfileView: View {
 
 private struct AccountConfigurationView: View {
     @Environment(AppModel.self) private var app
-    @State private var showEditContact = false
-    @State private var editFocus: EditContactProfileSheet.FocusField?
+    @State private var editTarget: EditContactProfileSheet.Target?
     @State private var showReceive = false
     @State private var showCard = false
     @State private var showSavings = false
@@ -392,8 +388,7 @@ private struct AccountConfigurationView: View {
                 if let user = app.user {
                     Section("Datos verificados por WhatsApp") {
                         Button {
-                            editFocus = .phone
-                            showEditContact = true
+                            editTarget = .phone
                         } label: {
                             HStack {
                                 Label("Cambiar celular", systemImage: "phone.badge.checkmark")
@@ -409,8 +404,7 @@ private struct AccountConfigurationView: View {
                         .foregroundStyle(.primary)
 
                         Button {
-                            editFocus = .email
-                            showEditContact = true
+                            editTarget = .email
                         } label: {
                             HStack {
                                 Label("Cambiar correo electrónico", systemImage: "envelope.badge.shield.half.filled")
@@ -427,8 +421,7 @@ private struct AccountConfigurationView: View {
                         .foregroundStyle(.primary)
 
                         Button {
-                            editFocus = .firstName
-                            showEditContact = true
+                            editTarget = .name
                         } label: {
                             HStack {
                                 Label("Nombre del titular", systemImage: "person.text.rectangle")
@@ -539,8 +532,8 @@ private struct AccountConfigurationView: View {
         }
         .navigationTitle("Configurar")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showEditContact) {
-            EditContactProfileSheet(initialFocus: editFocus)
+        .sheet(item: $editTarget) { target in
+            EditContactProfileSheet(target: target)
         }
         .sheet(isPresented: $showReceive) {
             ReceiveView()
@@ -1081,6 +1074,15 @@ private struct HelpSupportSheet: View {
 // MARK: - Hoja reutilizable para actualizar nombre, correo y celular con confirmación OTP por WhatsApp (o correo)
 
 struct EditContactProfileSheet: View {
+    enum Target: String, Identifiable {
+        case all
+        case phone
+        case email
+        case name
+
+        var id: String { rawValue }
+    }
+
     enum FocusField: Hashable {
         case firstName
         case lastName
@@ -1096,9 +1098,9 @@ struct EditContactProfileSheet: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
 
+    var target: Target = .all
     var subtitle: String? = nil
     var saveButtonTitle: LocalizedStringKey = "Guardar datos"
-    var initialFocus: FocusField? = nil
     var onSaved: ((User) -> Void)? = nil
 
     @State private var step: Step = .form
@@ -1137,17 +1139,31 @@ struct EditContactProfileSheet: View {
     }
 
     private var phoneChanged: Bool {
-        guard let user = app.user else { return true }
-        return e164Phone != user.phone.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard target == .phone || target == .all else { return false }
+        guard let user = app.user else { return isPhoneValid }
+        return isPhoneValid && e164Phone != user.phone.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var emailChanged: Bool {
-        guard let user = app.user else { return true }
-        return cleanEmail != user.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard target == .email || target == .all else { return false }
+        guard let user = app.user else { return isEmailValid }
+        return isEmailValid && cleanEmail != user.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private var requiresOTPConfirmation: Bool {
-        phoneChanged || emailChanged
+        switch target {
+        case .phone, .email:
+            return true
+        case .name:
+            return false
+        case .all:
+            return phoneChanged || emailChanged
+        }
+    }
+
+    private var isNameValid: Bool {
+        let isPlaceholderName = cleanFirstName.lowercased() == "usuario" && cleanLastName.lowercased() == "cuypay"
+        return cleanFirstName.count >= 2 && cleanLastName.count >= 2 && !isPlaceholderName
     }
 
     private var isEmailValid: Bool {
@@ -1163,12 +1179,28 @@ struct EditContactProfileSheet: View {
     }
 
     private var isFormValid: Bool {
-        let isPlaceholderName = cleanFirstName.lowercased() == "usuario" && cleanLastName.lowercased() == "cuypay"
-        return cleanFirstName.count >= 2 &&
-            cleanLastName.count >= 2 &&
-            !isPlaceholderName &&
-            isEmailValid &&
-            isPhoneValid
+        switch target {
+        case .phone:
+            return isPhoneValid && phoneChanged
+        case .email:
+            return isEmailValid && emailChanged
+        case .name:
+            return isNameValid
+        case .all:
+            return isNameValid && isEmailValid && isPhoneValid
+        }
+    }
+
+    private var navigationHeading: LocalizedStringKey {
+        if step == .otp {
+            return "Confirmar código WhatsApp"
+        }
+        switch target {
+        case .phone: return "Cambiar celular"
+        case .email: return "Cambiar correo"
+        case .name: return "Nombre del titular"
+        case .all: return "Datos de contacto"
+        }
     }
 
     var body: some View {
@@ -1184,7 +1216,7 @@ struct EditContactProfileSheet: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
-            .navigationTitle(step == .form ? "Datos de contacto" : "Confirmar código")
+            .navigationTitle(navigationHeading)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if step == .otp {
@@ -1208,91 +1240,149 @@ struct EditContactProfileSheet: View {
                 if let user = app.user {
                     firstName = user.hasPlaceholderName ? "" : user.firstName
                     lastName = user.hasPlaceholderName ? "" : user.lastName
-                    email = user.hasPlaceholderEmail ? "" : user.email
-                    let digits = user.phone.filter(\.isASCIIDigit)
-                    if digits.count == 12, digits.hasPrefix("57") {
-                        phoneDigits = String(digits.dropFirst(2))
+                    email = (target == .email || user.hasPlaceholderEmail) ? "" : user.email
+                    if target == .phone {
+                        phoneDigits = ""
                     } else {
-                        phoneDigits = String(digits.suffix(10))
+                        let digits = user.phone.filter(\.isASCIIDigit)
+                        if digits.count == 12, digits.hasPrefix("57") {
+                            phoneDigits = String(digits.dropFirst(2))
+                        } else {
+                            phoneDigits = String(digits.suffix(10))
+                        }
                     }
                 }
-                if let initialFocus {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        focusedField = initialFocus
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    switch target {
+                    case .phone: focusedField = .phone
+                    case .email: focusedField = .email
+                    case .name, .all: focusedField = .firstName
                     }
                 }
             }
         }
     }
 
+    private var defaultSubtitle: String {
+        switch target {
+        case .phone:
+            return "Ingresa tu nuevo número de celular. Te enviaremos un código de verificación de 6 dígitos por WhatsApp para confirmar el cambio."
+        case .email:
+            return "Ingresa tu nuevo correo electrónico. Confirmaremos el cambio enviando un código de verificación a tu WhatsApp registrado."
+        case .name:
+            return "Actualiza tus nombres y apellidos tal como aparecen en tu documento de identidad."
+        case .all:
+            return "Actualiza tu celular o correo y confírmalo con un código por WhatsApp. Aquí también llegan las alertas de tu tarjeta virtual y Apple Wallet."
+        }
+    }
+
     private var formContent: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(
-                verbatim: subtitle ??
-                    String(localized: "Actualiza tu celular o correo y confírmalo con un código por WhatsApp. Aquí también llegan las alertas de tu tarjeta virtual y Apple Wallet.")
-            )
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
+            Text(verbatim: subtitle ?? defaultSubtitle)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Nombres")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                TextField("Nombres reales", text: $firstName)
-                    .textContentType(.givenName)
-                    .textInputAutocapitalization(.words)
-                    .focused($focusedField, equals: .firstName)
-                    .formFieldStyle()
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Apellidos")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                TextField("Apellidos reales", text: $lastName)
-                    .textContentType(.familyName)
-                    .textInputAutocapitalization(.words)
-                    .focused($focusedField, equals: .lastName)
-                    .formFieldStyle()
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Correo electrónico")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                TextField("tucorreo@ejemplo.com", text: $email)
-                    .keyboardType(.emailAddress)
-                    .textContentType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .focused($focusedField, equals: .email)
-                    .formFieldStyle()
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Celular con WhatsApp (Colombia)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+            if target == .phone, let currentPhone = app.user?.phone, !currentPhone.isEmpty {
                 HStack(spacing: 10) {
-                    Text(verbatim: "🇨🇴 +57")
-                        .font(.body.weight(.semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 16)
-                        .glassEffect(.regular, in: .rect(cornerRadius: 18))
-                    TextField("300 123 4567", text: $phoneDigits)
-                        .keyboardType(.numberPad)
-                        .textContentType(.telephoneNumber)
-                        .monospacedDigit()
-                        .focused($focusedField, equals: .phone)
+                    Image(systemName: "phone.badge.checkmark")
+                        .foregroundStyle(Theme.spruce)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Celular actual registrado")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(verbatim: currentPhone)
+                            .font(.subheadline.weight(.semibold))
+                            .monospacedDigit()
+                    }
+                    Spacer()
+                }
+                .padding(14)
+                .glassEffect(.regular, in: .rect(cornerRadius: 16))
+            }
+
+            if target == .email, let user = app.user, !user.hasPlaceholderEmail {
+                HStack(spacing: 10) {
+                    Image(systemName: "envelope.badge.shield.half.filled")
+                        .foregroundStyle(Theme.spruce)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Correo actual registrado")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(verbatim: user.email)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                }
+                .padding(14)
+                .glassEffect(.regular, in: .rect(cornerRadius: 16))
+            }
+
+            if target == .name || target == .all {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Nombres")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("Nombres reales", text: $firstName)
+                        .textContentType(.givenName)
+                        .textInputAutocapitalization(.words)
+                        .focused($focusedField, equals: .firstName)
                         .formFieldStyle()
-                        .onChange(of: phoneDigits) {
-                            var digits = phoneDigits.filter(\.isASCIIDigit)
-                            if digits.count == 12 && digits.hasPrefix("57") {
-                                digits = String(digits.dropFirst(2))
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Apellidos")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("Apellidos reales", text: $lastName)
+                        .textContentType(.familyName)
+                        .textInputAutocapitalization(.words)
+                        .focused($focusedField, equals: .lastName)
+                        .formFieldStyle()
+                }
+            }
+
+            if target == .email || target == .all {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(target == .email ? "Nuevo correo electrónico" : "Correo electrónico")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("tucorreo@ejemplo.com", text: $email)
+                        .keyboardType(.emailAddress)
+                        .textContentType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($focusedField, equals: .email)
+                        .formFieldStyle()
+                }
+            }
+
+            if target == .phone || target == .all {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(target == .phone ? "Nuevo celular con WhatsApp (Colombia)" : "Celular con WhatsApp (Colombia)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        Text(verbatim: "🇨🇴 +57")
+                            .font(.body.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 16)
+                            .glassEffect(.regular, in: .rect(cornerRadius: 18))
+                        TextField("300 123 4567", text: $phoneDigits)
+                            .keyboardType(.numberPad)
+                            .textContentType(.telephoneNumber)
+                            .monospacedDigit()
+                            .focused($focusedField, equals: .phone)
+                            .formFieldStyle()
+                            .onChange(of: phoneDigits) {
+                                var digits = phoneDigits.filter(\.isASCIIDigit)
+                                if digits.count == 12 && digits.hasPrefix("57") {
+                                    digits = String(digits.dropFirst(2))
+                                }
+                                let filtered = String(digits.prefix(10))
+                                if filtered != phoneDigits { phoneDigits = filtered }
                             }
-                            let filtered = String(digits.prefix(10))
-                            if filtered != phoneDigits { phoneDigits = filtered }
-                        }
+                    }
                 }
             }
 
@@ -1336,13 +1426,13 @@ struct EditContactProfileSheet: View {
     private var otpContent: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Ingresa el código de 6 dígitos")
+                Text("Ingresa el código de WhatsApp")
                     .font(.title3.weight(.bold))
                 if let otpResponse {
                     Text(
                         otpResponse.channel == .email
                             ? LocalizedStringKey("Enviamos el código al correo \(otpResponse.maskedDestination).")
-                            : LocalizedStringKey("Enviamos el código por WhatsApp a \(otpResponse.maskedDestination).")
+                            : LocalizedStringKey("Te enviamos un código de 6 dígitos por WhatsApp a \(otpResponse.maskedDestination).")
                     )
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -1408,7 +1498,7 @@ struct EditContactProfileSheet: View {
             }
 
             PrimaryButton(
-                title: saveButtonTitle,
+                title: target == .phone ? "Confirmar nuevo celular" : saveButtonTitle,
                 systemImage: "checkmark.shield.fill",
                 isLoading: isSaving,
                 isEnabled: otpCode.count == 6
@@ -1487,10 +1577,10 @@ struct EditContactProfileSheet: View {
                 ConfirmContactUpdateRequest(
                     otpId: otpId,
                     otpCode: otpCode,
-                    firstName: cleanFirstName,
-                    lastName: cleanLastName,
-                    email: cleanEmail,
-                    phone: e164Phone
+                    firstName: (target == .all || target == .name) ? cleanFirstName : nil,
+                    lastName: (target == .all || target == .name) ? cleanLastName : nil,
+                    email: emailChanged ? cleanEmail : nil,
+                    phone: phoneChanged ? e164Phone : nil
                 )
             )
             app.user = updated

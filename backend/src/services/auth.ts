@@ -454,8 +454,10 @@ export class AuthService {
     }
 
     const requestedPhone = input.phone?.trim();
-    if (requestedPhone && requestedPhone !== user.phone && otp.phone !== requestedPhone) {
-      throw new AppError('OTP_INVALID', 'El código ingresado no corresponde al nuevo número de celular.');
+    if (requestedPhone && requestedPhone !== user.phone) {
+      if (otp.phone !== requestedPhone || otp.channel === 'email') {
+        throw new AppError('OTP_INVALID', 'Para cambiar tu número debes confirmar el código enviado por WhatsApp al nuevo celular.');
+      }
     }
 
     const requestedEmail = input.email?.trim().toLowerCase();
@@ -509,7 +511,7 @@ export class AuthService {
     const phoneChanging = input.phone !== undefined && input.phone.trim() !== user.phone;
     const emailChanging = input.email !== undefined && input.email.trim().toLowerCase() !== user.email.toLowerCase();
 
-    if ((phoneChanging || emailChanging) && this.d.config.OTP_PROVIDER_MODE !== 'mock') {
+    if ((phoneChanging || emailChanging) && (this.d.config.OTP_PROVIDER_MODE !== 'mock' || this.d.config.PROVIDERS_MODE === 'live')) {
       throw new AppError(
         'VALIDATION_ERROR',
         'Confirma el código de seguridad enviado por WhatsApp para cambiar tu celular o correo electrónico.',

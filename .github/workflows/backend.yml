@@ -98,7 +98,7 @@ jobs:
           CMD_ID=$(aws ssm send-command \
             --instance-ids i-09bdb8b8aa495588f \
             --document-name "AWS-RunShellScript" \
-            --parameters "commands=[\"set -e\",\"mkdir -p /opt/cuypay\",\"docker cp cuypay-backend:/tmp/cuypay_store.json /opt/cuypay/cuypay_store.backup.json || true\",\"rm -rf /tmp/deploy-dist && mkdir -p /tmp/deploy-dist\",\"curl -fsSL '${PRESIGNED_URL}' -o /tmp/deploy-dist/backend-dist.tar.gz\",\"tar -xzf /tmp/deploy-dist/backend-dist.tar.gz -C /tmp/deploy-dist\",\"docker cp /tmp/deploy-dist/dist/. cuypay-backend:/app/dist/\",\"if [ -s /tmp/deploy-dist/.env.runtime ]; then docker cp /tmp/deploy-dist/.env.runtime cuypay-backend:/app/.env.runtime; fi\",\"rm -rf /tmp/deploy-dist\",\"docker restart cuypay-backend\",\"sleep 4\",\"curl -fsSL http://127.0.0.1:8080/health\"]" \
+            --parameters "commands=[\"set -e\",\"mkdir -p /opt/cuypay\",\"docker cp cuypay-backend:/tmp/cuypay_store.json /opt/cuypay/cuypay_store.backup.json || true\",\"rm -rf /tmp/deploy-dist && mkdir -p /tmp/deploy-dist\",\"curl -fsSL '${PRESIGNED_URL}' -o /tmp/deploy-dist/backend-dist.tar.gz\",\"tar -xzf /tmp/deploy-dist/backend-dist.tar.gz -C /tmp/deploy-dist\",\"docker cp /tmp/deploy-dist/dist/. cuypay-backend:/app/dist/\",\"if [ -s /tmp/deploy-dist/.env.runtime ]; then docker cp /tmp/deploy-dist/.env.runtime cuypay-backend:/app/.env.runtime && docker exec -u 0 cuypay-backend chown cuypay:cuypay /app/.env.runtime && docker exec -u 0 cuypay-backend chmod 600 /app/.env.runtime; fi\",\"rm -rf /tmp/deploy-dist\",\"docker restart cuypay-backend\",\"sleep 4\",\"curl -fsSL http://127.0.0.1:8080/health\"]" \
             --query "Command.CommandId" --output text)
           for i in $(seq 1 15); do
             sleep 3
