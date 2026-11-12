@@ -7,30 +7,6 @@ import { requireKycApproved } from './kyc.js';
 
 export const CORPORATE_BREB_PREFIX = 'xatechservic';
 
-const GENERIC_ALIAS_RE = /^@[a-z0-9](?:[a-z0-9.]{1,34}[a-z0-9])?$/;
-const SUFFIX_RE = /^[a-z0-9](?:[a-z0-9.]{1,18}[a-z0-9])?$/;
-
-const slug = (s: string) =>
-  s
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-
-function normalizeCorporateTypos(handleWithoutAt: string): string {
-  let lower = handleWithoutAt.toLowerCase().replace(/\.{2,}/g, '.').replace(/^\.+|\.+$/g, '');
-  // Corrige variante común escrita sin 'v' (@xatechseric -> @xatechservic)
-  if (lower.startsWith('xatechseric') && !lower.startsWith(CORPORATE_BREB_PREFIX) && lower.length > 'xatechseric'.length) {
-    lower = CORPORATE_BREB_PREFIX + lower.slice('xatechseric'.length).replace(/^\.+/, '');
-  }
-  // Evita duplicación accidental (@xatechservicxatechservicbryan039 -> @xatechservicbryan039)
-  const doubled = CORPORATE_BREB_PREFIX + CORPORATE_BREB_PREFIX;
-  if (lower.startsWith(doubled) && lower.length > doubled.length) {
-    lower = CORPORATE_BREB_PREFIX + lower.slice(doubled.length).replace(/^\.+/, '');
-  }
-  return lower;
-}
-
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('breb_timeout')), ms);
@@ -48,7 +24,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-/** Llave Bre-B propia (recibir COP). */
+/**
+ * Llave Bre-B propia (recibir COP).
+ * Siempre generada automáticamente de forma genérica por el sistema / red Bre-B.
+ */
 export class BrebService {
   constructor(private readonly d: ServiceDeps) {}
 
@@ -59,53 +38,44 @@ export class BrebService {
   async get(userId: string): Promise<BrebKey> {
     const key = await this.d.repos.brebKeys.byUser(userId);
     if (!key) throw new AppError('NOT_FOUND', 'Aún no tienes llave Bre-B');
+
+    if (key.status === 'pending' && key.providerKeyId && this.d.coinsenda.syncBrebKey) {
+      try {
+        const synced = await withTimeout(this.d.coinsenda.syncBrebKey(key.providerKeyId), 2_500);
+        if (synced) {
+          if (synced.status === 'canceled') {
+            key.status = 'replaced';
+            await this.d.repos.brebKeys.update(key);
+            throw new AppError('NOT_FOUND', 'Aún no tienes llave Bre-B');
+          }
+          let changed = false;
+          if (synced.alias && synced.alias !== key.alias) {
+            key.alias = synced.alias;
+            changed = true;
+          }
+          if (synced.status !== key.status) {
+            key.status = synced.status;
+            changed = true;
+          }
+          if (changed) {
+            await this.d.repos.brebKeys.update(key);
+          }
+        }
+      } catch (err) {
+        if (isAppError(err) && err.code === 'NOT_FOUND') throw err;
+        // Mejor esfuerzo: si el proveedor tarda, devolvemos el estado almacenado.
+      }
+    }
+
     return key;
   }
 
-  normalizeAlias(input: string): string {
-    const raw = input.trim().toLowerCase().replace(/\s+/g, '').replace(/^@+/, '');
-    const cleaned = normalizeCorporateTypos(raw);
-
-    if (cleaned.startsWith(CORPORATE_BREB_PREFIX) && cleaned.length > CORPORATE_BREB_PREFIX.length) {
-      const suffix = cleaned.slice(CORPORATE_BREB_PREFIX.length).replace(/^\.+|\.+$/g, '');
-      if (suffix.length < 3 || suffix.length > 16 || !SUFFIX_RE.test(suffix)) {
-        throw new AppError(
-          'VALIDATION_ERROR',
-          `Después de @${CORPORATE_BREB_PREFIX} escribe de 3 a 16 letras o números (ej. bryan039 o 1019).`,
-          { field: 'preferredAlias' },
-        );
-      }
-      return `@${CORPORATE_BREB_PREFIX}${suffix}`;
-    }
-
+  private generateSystemAlias(): string {
+    const code = randomInt(100000, 1000000);
     if (this.isLiveMode) {
-      const suffix = cleaned.replace(/^\.+|\.+$/g, '');
-      if (suffix.length < 3 || suffix.length > 16 || !SUFFIX_RE.test(suffix)) {
-        throw new AppError(
-          'VALIDATION_ERROR',
-          `Escribe de 3 a 16 letras o números para tu llave @${CORPORATE_BREB_PREFIX} (ej. bryan039 o 1019).`,
-          { field: 'preferredAlias' },
-        );
-      }
-      return `@${CORPORATE_BREB_PREFIX}${suffix}`;
+      return `@${CORPORATE_BREB_PREFIX}${code}`;
     }
-
-    const withAt = `@${cleaned}`;
-    if (cleaned.length < 3 || !GENERIC_ALIAS_RE.test(withAt)) {
-      throw new AppError('VALIDATION_ERROR', 'La llave debe tener entre 3 y 20 letras o números.', {
-        field: 'preferredAlias',
-      });
-    }
-    return withAt;
-  }
-
-  private generateAlias(user: User): string {
-    if (this.isLiveMode) {
-      const base = slug(user.firstName).slice(0, 5) || 'cuy';
-      return `@${CORPORATE_BREB_PREFIX}${base}${randomInt(100, 1000)}`;
-    }
-    const base = `@cuypay${slug(user.firstName).slice(0, 10)}`;
-    return `${base}${randomInt(100, 1000)}`;
+    return `@cuypay${code}`;
   }
 
   private async isFree(alias: string): Promise<boolean> {
@@ -114,7 +84,6 @@ export class BrebService {
       return (await withTimeout(this.d.coinsenda.resolveBrebAlias(alias), 3_500)) === null;
     } catch (err) {
       if (isAppError(err) && err.code === 'BREB_ALIAS_TAKEN') return false;
-      this.d.logger.warn({ alias, err: (err as Error)?.message }, 'resolveBrebAlias lento o no disponible; procediendo a creación directa');
       return true;
     }
   }
@@ -130,48 +99,60 @@ export class BrebService {
       await Promise.allSettled(
         activeOrStale
           .filter((k) => Boolean(k.providerKeyId))
-          .map((k) => withTimeout(this.d.coinsenda.cancelBrebKey!(k.providerKeyId), 4_500)),
+          .map((k) => withTimeout(this.d.coinsenda.cancelBrebKey!(k.providerKeyId), 5_000)),
       );
     }
     return activeOrStale;
   }
 
-  async create(user: User, preferredAlias?: string): Promise<BrebKey> {
+  async create(user: User, _ignoredPreferredAlias?: string): Promise<BrebKey> {
     requireKycApproved(user);
     if (await this.d.repos.brebKeys.byUser(user.id)) {
       throw new AppError('BREB_KEY_EXISTS', 'Ya tienes una llave Bre-B activa.');
     }
 
     let alias: string;
-    if (preferredAlias && preferredAlias.trim()) {
-      alias = this.normalizeAlias(preferredAlias);
-      if (!(await this.isFree(alias))) {
-        throw new AppError('BREB_ALIAS_TAKEN', 'Esa llave ya está en uso. Prueba con otra combinación.', { alias });
-      }
+    if (this.isLiveMode) {
+      alias = this.generateSystemAlias();
     } else {
       let found: string | null = null;
-      for (let i = 0; i < 8 && !found; i++) {
-        const candidate = this.generateAlias(user);
+      for (let i = 0; i < 10 && !found; i++) {
+        const candidate = this.generateSystemAlias();
         if (await this.isFree(candidate)) found = candidate;
       }
-      if (!found) {
-        throw new AppError('BREB_ALIAS_TAKEN', 'No pudimos encontrar una llave libre automática, escribe una personalizada.');
-      }
-      alias = found;
+      alias = found ?? `@cuypay${Date.now().toString().slice(-8)}`;
     }
+
+    const [allActive, userHistory] = await Promise.all([
+      this.d.repos.brebKeys.listActive(),
+      this.d.repos.brebKeys.listByUser(user.id),
+    ]);
+    const activeOtherProviderIds = allActive
+      .filter((k) => k.userId !== user.id && Boolean(k.providerKeyId))
+      .map((k) => k.providerKeyId);
+    const retiredUserProviderIds = userHistory
+      .filter((k) => k.status === 'replaced' && Boolean(k.providerKeyId))
+      .map((k) => k.providerKeyId);
 
     const holderName = `${user.firstName} ${user.lastName}`.trim();
     let created;
     try {
-      created = await this.d.coinsenda.createBrebKey({ alias, holderName, userRef: user.id });
+      created = await this.d.coinsenda.createBrebKey({
+        alias,
+        holderName,
+        userRef: user.id,
+        activeOtherProviderIds,
+        retiredUserProviderIds,
+      });
     } catch (err) {
       if (isAppError(err)) throw err;
-      this.d.logger.error({ err, userId: user.id, alias }, 'createBrebKey failed');
+      this.d.logger.error({ err, userId: user.id }, 'createBrebKey failed');
       throw new AppError(
         'PROVIDER_ERROR',
         'La red Bre-B del Banco de la República está tardando en responder. Inténtalo de nuevo en unos segundos.',
       );
     }
+
     const now = this.d.clock.now();
     const key: BrebKey = {
       id: newId('brk', now),
@@ -191,49 +172,10 @@ export class BrebService {
     return this.d.repos.brebKeys.listByUser(userId);
   }
 
-  async change(user: User, newPreferredAlias: string): Promise<BrebKey> {
+  async change(user: User, _ignoredPreferredAlias?: string): Promise<BrebKey> {
     requireKycApproved(user);
-    const existing = await this.d.repos.brebKeys.byUser(user.id);
-    if (!existing) {
-      return this.create(user, newPreferredAlias);
-    }
-
-    const alias = this.normalizeAlias(newPreferredAlias);
-    if (alias.toLowerCase() === existing.alias.toLowerCase()) {
-      return existing;
-    }
-    if (!(await this.isFree(alias))) {
-      throw new AppError('BREB_ALIAS_TAKEN', 'Esa llave ya está en uso. Prueba con otra combinación.', { alias });
-    }
-
-    // Retirar todas las llaves previas activas/bloqueadas del usuario para preservar trazabilidad de depósitos
     await this.retireAllUserAliasKeys(user.id);
-
-    const holderName = `${user.firstName} ${user.lastName}`.trim();
-    let created;
-    try {
-      created = await this.d.coinsenda.createBrebKey({ alias, holderName, userRef: user.id });
-    } catch (err) {
-      if (isAppError(err)) throw err;
-      this.d.logger.error({ err, userId: user.id, alias }, 'changeBrebKey failed');
-      throw new AppError(
-        'PROVIDER_ERROR',
-        'La red Bre-B del Banco de la República está tardando en responder. Inténtalo de nuevo en unos segundos.',
-      );
-    }
-    const now = this.d.clock.now();
-    const newKey: BrebKey = {
-      id: newId('brk', now),
-      userId: user.id,
-      type: 'alias',
-      alias: created.alias,
-      status: created.status,
-      holderName,
-      providerKeyId: created.providerKeyId,
-      createdAt: now,
-    };
-    await this.d.repos.brebKeys.create(newKey);
-    return newKey;
+    return this.create(user);
   }
 
   async delete(user: User): Promise<void> {
@@ -242,3 +184,4 @@ export class BrebService {
     await this.retireAllUserAliasKeys(user.id);
   }
 }
+

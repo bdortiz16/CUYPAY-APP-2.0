@@ -82,7 +82,7 @@ struct WelcomeView: View {
                             ValuePropRow(
                                 systemImage: "arrow.down.left.circle.fill",
                                 title: "Recibe en COP con Bre-B",
-                                subtitle: "Tu propia llave Bre-B personalizada desde cualquier banco."
+                                subtitle: "Tu propia llave Bre-B al instante desde cualquier banco."
                             )
                             ValuePropRow(
                                 systemImage: "creditcard.circle.fill",

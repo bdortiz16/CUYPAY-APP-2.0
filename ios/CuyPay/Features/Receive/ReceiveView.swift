@@ -1,24 +1,19 @@
 import SwiftUI
 import UIKit
 
-/// Recibir COP: muestra la llave Bre-B propia (grande, copiar/compartir, QR) o permite crearla (🔐).
+/// Recibir COP: muestra la llave Bre-B propia (grande, copiar/compartir, QR) o permite generarla automáticamente por el sistema (🔐).
 struct ReceiveView: View {
     @Environment(AppModel.self) private var app
     @Environment(WalletStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
-    nonisolated static let corporatePrefix = "xatechservic"
-
-    @State private var preferredAlias = ""
-    @State private var newAlias = ""
     @State private var isCreating = false
     @State private var isChanging = false
     @State private var isDeleting = false
-    @State private var showChangeKey = false
+    @State private var showRegenerateConfirm = false
     @State private var showDeleteConfirm = false
     @State private var showKYCSheet = false
     @State private var errorMessage: String?
-    @State private var changeKeyError: String?
     @State private var copied = false
     @State private var didDeleteKey = false
     @State private var createdCount = 0
@@ -53,7 +48,6 @@ struct ReceiveView: View {
                     .animation(.snappy, value: store.brebKey?.id)
                 }
                 .scrollIndicators(.hidden)
-                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("Recibir")
             .navigationBarTitleDisplayMode(.inline)
@@ -68,11 +62,19 @@ struct ReceiveView: View {
             .sensoryFeedback(.success, trigger: copied) { _, newValue in newValue }
             .sensoryFeedback(.success, trigger: createdCount)
             .sensoryFeedback(.success, trigger: deletedCount)
-            .sheet(isPresented: $showChangeKey) {
-                changeKeySheet
-            }
             .sheet(isPresented: $showKYCSheet) {
                 KYCFlowSheet()
+            }
+            .confirmationDialog(
+                "¿Generar una nueva llave Bre-B?",
+                isPresented: $showRegenerateConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Generar nueva llave") {
+                    Task { await regenerateKey() }
+                }
+            } message: {
+                Text("El sistema te asignará automáticamente una nueva llave genérica Bre-B y tu llave actual quedará desactivada. Se confirmará con Face ID.")
             }
             .confirmationDialog(
                 "¿Eliminar tu llave Bre-B?",
@@ -83,75 +85,9 @@ struct ReceiveView: View {
                     Task { await deleteKey() }
                 }
             } message: {
-                Text("Ya no podrás recibir dinero por Bre-B hasta que crees una nueva llave. Se confirmará con Face ID.")
+                Text("Ya no podrás recibir dinero por Bre-B hasta que generes una nueva llave automática. Se confirmará con Face ID.")
             }
         }
-    }
-
-    // MARK: Hoja para cambiar llave
-
-    private var changeKeySheet: some View {
-        let sanitizedChange = Self.sanitizeCustomSuffix(newAlias)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
-
-        return NavigationStack {
-            ZStack {
-                BrandBackground()
-                ScrollView {
-                    VStack(spacing: 18) {
-                        VStack(spacing: 6) {
-                            Text("Cambiar mi llave Bre-B")
-                                .font(.system(.title3, design: .serif).weight(.semibold))
-                            Text("Escribe el identificador personalizado que quieres usar con el prefijo @\(Self.corporatePrefix). Tu llave anterior se cancelará automáticamente.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(.top, 12)
-
-                        aliasInputField(
-                            placeholder: "bryan039 o 1019",
-                            text: $newAlias
-                        )
-
-                        if !sanitizedChange.isEmpty {
-                            HStack(spacing: 6) {
-                                Image(systemName: sanitizedChange.count >= 3 ? "sparkles" : "info.circle")
-                                    .font(.caption)
-                                    .foregroundStyle(sanitizedChange.count >= 3 ? Theme.spruce : .secondary)
-                                Text(verbatim: sanitizedChange.count >= 3
-                                     ? "Nueva llave: @\(Self.corporatePrefix)\(sanitizedChange)"
-                                     : "Escribe al menos 3 letras o números después de @\(Self.corporatePrefix).")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(sanitizedChange.count >= 3 ? Theme.spruce : .secondary)
-                                Spacer()
-                            }
-                            .padding(.horizontal, 4)
-                        }
-
-                        if let changeKeyError {
-                            ErrorBanner(message: changeKeyError)
-                        }
-
-                        PrimaryButton(title: "Confirmar con Face ID", systemImage: "faceid", isLoading: isChanging) {
-                            Task { await changeKey() }
-                        }
-                        .disabled(sanitizedChange.count < 3 || isChanging)
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 24)
-                }
-                .scrollIndicators(.hidden)
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    CloseToolbarButton { showChangeKey = false }
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
     }
 
     // MARK: Llave existente
@@ -228,16 +164,24 @@ struct ReceiveView: View {
 
             HStack(spacing: 12) {
                 Button {
-                    changeKeyError = nil
-                    newAlias = ""
-                    showChangeKey = true
+                    errorMessage = nil
+                    showRegenerateConfirm = true
                 } label: {
-                    Label("Cambiar llave", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.subheadline.weight(.medium))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
+                    HStack(spacing: 6) {
+                        if isChanging {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                        Text(isChanging ? "Generando…" : "Nueva llave")
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
                 }
                 .buttonStyle(.glass)
+                .disabled(isChanging || isDeleting)
 
                 Button(role: .destructive) {
                     showDeleteConfirm = true
@@ -257,7 +201,7 @@ struct ReceiveView: View {
                     .padding(.vertical, 10)
                 }
                 .buttonStyle(.glass)
-                .disabled(isDeleting)
+                .disabled(isDeleting || isChanging)
             }
 
             GlassCard {
@@ -272,13 +216,10 @@ struct ReceiveView: View {
         }
     }
 
-    // MARK: Crear llave
+    // MARK: Generar llave automática por el sistema
 
     private var createContent: some View {
-        let sanitizedCreate = Self.sanitizeCustomSuffix(preferredAlias)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
-
-        return VStack(spacing: 20) {
+        VStack(spacing: 20) {
             if didDeleteKey {
                 GlassCard {
                     HStack(spacing: 12) {
@@ -288,7 +229,7 @@ struct ReceiveView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Llave Bre-B eliminada")
                                 .font(.subheadline.weight(.semibold))
-                            Text("Crea una nueva llave personalizada abajo o cierra esta ventana.")
+                            Text("Genera una nueva llave automática abajo o cierra esta ventana.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -307,43 +248,30 @@ struct ReceiveView: View {
             Image(systemName: "key.viewfinder")
                 .font(.system(size: 68, weight: .light))
                 .foregroundStyle(Theme.spruce)
-                .padding(.top, didDeleteKey ? 4 : 20)
-            Text("Crea tu llave Bre-B")
+                .padding(.top, didDeleteKey ? 4 : 24)
+
+            Text("Genera tu llave Bre-B")
                 .font(.system(.title, design: .rounded).weight(.bold))
-            Text("Con tu llave cualquier persona te puede enviar pesos desde su banco, al instante.")
+
+            Text("El sistema te asignará automáticamente una llave única Bre-B para que recibas pesos desde cualquier banco o billetera al instante, 24/7.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Tu identificador personal")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                aliasInputField(
-                    placeholder: "bryan039 o 1019",
-                    text: $preferredAlias
-                )
-
-                if sanitizedCreate.isEmpty {
-                    Text(verbatim: "Opcional: escribe de 3 a 16 letras o números después de @\(Self.corporatePrefix) (ej. bryan039 o 1019), o déjalo vacío para asignarte una automática.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if sanitizedCreate.count < 3 {
-                    Text(verbatim: "Escribe al menos 3 letras o números después de @\(Self.corporatePrefix).")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(verbatim: "Tu llave quedará: @\(Self.corporatePrefix)\(sanitizedCreate)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Theme.spruce)
+            GlassCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("Asignación automática e inmediata por el sistema.", systemImage: "checkmark.seal.fill")
+                    Label("Recibe dinero 24/7 desde cualquier banco sin costo.", systemImage: "bolt.fill")
+                    Label("Incluye código QR listo para copiar o compartir.", systemImage: "qrcode")
                 }
+                .font(.subheadline)
+                .symbolRenderingMode(.hierarchical)
             }
 
-            PrimaryButton(title: "Crear mi llave Bre-B", systemImage: "faceid", isLoading: isCreating) {
+            PrimaryButton(title: "Generar mi llave Bre-B", systemImage: "faceid", isLoading: isCreating) {
                 Task { await createKey() }
             }
-            .disabled((!preferredAlias.isEmpty && sanitizedCreate.count < 3) || isCreating)
+            .disabled(isCreating)
 
             Label("Te pediremos Face ID para firmar esta operación.", systemImage: "lock.fill")
                 .font(.caption)
@@ -351,68 +279,11 @@ struct ReceiveView: View {
         }
     }
 
-    private func aliasInputField(placeholder: String, text: Binding<String>) -> some View {
-        HStack(spacing: 8) {
-            Text(verbatim: "@\(Self.corporatePrefix)")
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(Theme.spruce)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(Theme.spruce.opacity(0.14), in: .rect(cornerRadius: 10))
-                .fixedSize()
-
-            TextField(placeholder, text: Binding(
-                get: { text.wrappedValue },
-                set: { updated in
-                    text.wrappedValue = Self.sanitizeCustomSuffix(updated)
-                }
-            ))
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .keyboardType(.asciiCapable)
-        }
-        .formFieldStyle()
-    }
-
-    nonisolated static func sanitizeCustomSuffix(_ raw: String) -> String {
-        var cleaned = raw
-            .folding(options: .diacriticInsensitive, locale: nil)
-            .lowercased()
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: "@", with: "")
-
-        if cleaned.hasPrefix(corporatePrefix), cleaned.count > corporatePrefix.count {
-            cleaned = String(cleaned.dropFirst(corporatePrefix.count))
-                .trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        } else if cleaned.hasPrefix("xatechseric"), cleaned.count > "xatechseric".count {
-            cleaned = String(cleaned.dropFirst("xatechseric".count))
-                .trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        }
-
-        let allowed = cleaned.unicodeScalars.filter { scalar in
-            (scalar.value >= 97 && scalar.value <= 122) ||
-            (scalar.value >= 48 && scalar.value <= 57) ||
-            scalar.value == 46
-        }
-        var result = String(String.UnicodeScalarView(allowed))
-        while result.contains("..") {
-            result = result.replacingOccurrences(of: "..", with: ".")
-        }
-        return String(result.prefix(16))
-    }
-
-    nonisolated static func formatCorporateAlias(suffix raw: String) -> String? {
-        let trimmed = sanitizeCustomSuffix(raw)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        guard !trimmed.isEmpty else { return nil }
-        return "@\(corporatePrefix)\(trimmed)"
-    }
-
     private var kycRequired: some View {
         ContentUnavailableView {
             Label("Verifica tu identidad", systemImage: "person.badge.shield.checkmark")
         } description: {
-            Text("Para crear tu llave Bre-B necesitamos verificar tu identidad.")
+            Text("Para generar tu llave Bre-B necesitamos verificar tu identidad.")
         } actions: {
             PrimaryButton(title: "Verificar identidad", systemImage: "person.badge.shield.checkmark.fill") {
                 showKYCSheet = true
@@ -426,12 +297,10 @@ struct ReceiveView: View {
         isCreating = true
         errorMessage = nil
         defer { isCreating = false }
-        let formatted = Self.formatCorporateAlias(suffix: preferredAlias)
         do {
-            let key = try await app.api.createBrebKey(preferredAlias: formatted)
+            let key = try await app.api.createBrebKey()
             withAnimation(.snappy) {
                 didDeleteKey = false
-                preferredAlias = ""
                 store.brebKey = key
             }
             createdCount += 1
@@ -442,28 +311,21 @@ struct ReceiveView: View {
         }
     }
 
-    private func changeKey() async {
+    private func regenerateKey() async {
         isChanging = true
-        changeKeyError = nil
         errorMessage = nil
         defer { isChanging = false }
-        guard let formatted = Self.formatCorporateAlias(suffix: newAlias),
-              formatted.count >= Self.corporatePrefix.count + 4 else {
-            changeKeyError = String(localized: "Escribe al menos 3 letras o números después de @xatechservic.")
-            return
-        }
         do {
-            let key = try await app.api.changeBrebKey(preferredAlias: formatted)
+            let key = try await app.api.changeBrebKey()
             withAnimation(.snappy) {
                 didDeleteKey = false
                 store.brebKey = key
-                showChangeKey = false
             }
             createdCount += 1
         } catch APIError.biometricCancelled {
             // El usuario canceló Face ID voluntariamente.
         } catch {
-            changeKeyError = error.userMessage
+            errorMessage = error.userMessage
         }
     }
 
@@ -475,9 +337,6 @@ struct ReceiveView: View {
             try await app.api.deleteBrebKey()
             withAnimation(.snappy) {
                 store.clearBrebKey()
-                showChangeKey = false
-                preferredAlias = ""
-                newAlias = ""
                 didDeleteKey = true
             }
             deletedCount += 1

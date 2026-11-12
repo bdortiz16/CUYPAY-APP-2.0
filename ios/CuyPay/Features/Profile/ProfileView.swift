@@ -51,7 +51,7 @@ struct ProfileView: View {
                                     .foregroundStyle(.primary)
                                 Text(
                                     store.brebKey.map { "Tu llave activa: \($0.alias)" }
-                                        ?? "Elige y activa tu llave personalizada Bre-B"
+                                        ?? "Genera y activa tu llave Bre-B al instante"
                                 )
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)

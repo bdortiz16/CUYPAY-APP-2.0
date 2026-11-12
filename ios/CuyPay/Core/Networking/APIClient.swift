@@ -287,7 +287,7 @@ actor APIClient: CuyPayAPI {
         try await send(.post("/breb/key", body: CreateBrebKeyRequest(preferredAlias: preferredAlias), signReason: SignReason.createBrebKey))
     }
 
-    func changeBrebKey(preferredAlias: String) async throws -> BrebKey {
+    func changeBrebKey(preferredAlias: String?) async throws -> BrebKey {
         try await send(.put("/breb/key", body: CreateBrebKeyRequest(preferredAlias: preferredAlias), signReason: SignReason.changeBrebKey))
     }
 

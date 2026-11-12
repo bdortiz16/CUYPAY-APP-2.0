@@ -600,7 +600,7 @@ describe('Coinsenda live adapter (SDK doble)', () => {
       if (endpoint === '/users/{id}/depositProviderUserConfigs') {
         return {
           status: 200,
-          data: [{ id: 'dpuc_1', account_id: 'acc_cop', provider_type: 'breb', custom: { alias_prefix: 'xatechservic' } }],
+          data: [{ id: 'dpuc_1', account_id: 'acc_cop', provider_type: 'breb', custom: { alias_prefix: 'xatechservic', custom_alias: '@vieja' } }],
         };
       }
       if (endpoint === '/depositProviderUserConfigs/update-deposit-provider-user-config-public') {
@@ -613,8 +613,7 @@ describe('Coinsenda live adapter (SDK doble)', () => {
             data: {
               id: 'dp_bryan_1',
               state: 'confirmed',
-              account: { account_id: { type: 'breb' } },
-              reference: { data: { alias_value: data.data.alias } },
+              account: { account_id: { type: 'breb', account_id: '@xatechservic849201' } },
             },
           },
         };
@@ -643,14 +642,14 @@ describe('Coinsenda live adapter (SDK doble)', () => {
     });
 
     const created = await gw.createBrebKey({
-      alias: '@xatechsericbryan039',
+      alias: '@xatechservic123456',
       holderName: 'Bryan Ortiz',
       userRef: 'usr_bryan',
     });
 
     expect(created).toMatchObject({
       providerKeyId: 'dp_bryan_1',
-      alias: '@xatechservicbryan039',
+      alias: '@xatechservic849201',
       status: 'active',
     });
 
@@ -669,6 +668,7 @@ describe('Coinsenda live adapter (SDK doble)', () => {
         },
       },
     });
+    expect(cfgCall.data.data.custom.custom_alias).toBeUndefined();
     expect(cfgCall.data.data.userId).toBeUndefined();
 
     const createCall = calls.find((c) => c.endpoint === '/depositProviders/create-deposit-provider-by-account-id-public')!;
@@ -676,11 +676,11 @@ describe('Coinsenda live adapter (SDK doble)', () => {
       data: {
         account_id: 'acc_cop',
         deposit_account_id: 'dacc_1',
-        alias: '@xatechservicbryan039',
         country: 'international',
         recaptcha_response: 'BYPASS_RECAPTCHA_DEV',
       },
     });
+    expect(createCall.data.data.alias).toBeUndefined();
     expect(createCall.data.data.userId).toBeUndefined();
 
     const subscribeCall = calls.find((c) => c.endpoint === '/depositProviders/subscribe-to-new-deposits')!;

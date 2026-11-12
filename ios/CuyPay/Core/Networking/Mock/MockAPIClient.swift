@@ -302,33 +302,28 @@ actor MockAPIClient: CuyPayAPI {
     }
 
     func createBrebKey(preferredAlias: String?) async throws -> BrebKey {
+        _ = preferredAlias
         try requireKYC()
         if brebKeyState != nil {
             throw APIError.server(status: 409, code: .brebKeyExists, message: nil, limit: nil)
         }
         try await requireSignature(SignReason.createBrebKey)
         await simulateLatency(1.5)
-        let generated = "@cuypay\(user.firstName.lowercased().folding(options: .diacriticInsensitive, locale: nil))\(Int.random(in: 100...999))"
-        let base: String
-        if let preferredAlias, !preferredAlias.isEmpty {
-            base = preferredAlias
-        } else {
-            base = generated
-        }
-        let alias = base.hasPrefix("@") ? base : "@" + base
-        if alias == "@cuypay" {
-            throw APIError.server(status: 409, code: .brebAliasTaken, message: nil, limit: nil)
-        }
+        let alias = "@xatechservic\(Int.random(in: 100000...999999))"
         let key = BrebKey(id: Self.newId("brk"), alias: alias, status: .active, holderName: user.fullName, createdAt: Date())
         brebKeyState = key
         return key
     }
 
-    func changeBrebKey(preferredAlias: String) async throws -> BrebKey {
+    func changeBrebKey(preferredAlias: String?) async throws -> BrebKey {
+        _ = preferredAlias
         try requireKYC()
         try await requireSignature(SignReason.changeBrebKey)
         await simulateLatency(1.5)
-        let alias = preferredAlias.hasPrefix("@") ? preferredAlias : "@" + preferredAlias
+        var alias = "@xatechservic\(Int.random(in: 100000...999999))"
+        while alias == brebKeyState?.alias {
+            alias = "@xatechservic\(Int.random(in: 100000...999999))"
+        }
         let key = BrebKey(id: Self.newId("brk"), alias: alias, status: .active, holderName: user.fullName, createdAt: Date())
         brebKeyState = key
         return key

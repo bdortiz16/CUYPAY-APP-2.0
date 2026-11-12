@@ -35,17 +35,23 @@ describe('seed demo', () => {
     expect(entries.reduce((s, e) => s + e.amountMinor, 0n)).toBe(0n);
   });
 
-  it('rutas dev: aprobar KYC y simular depósito', async () => {
+  it('rutas dev: aprobar KYC y simular depósito con llave genérica del sistema', async () => {
     const c = await registerUser(env);
     expect((await c.call('POST', '/v1/dev/kyc/approve')).body.status).toBe('approved');
-    await c.signed('POST', '/v1/breb/key', { preferredAlias: 'miLlave01' });
-    expect((await c.call('GET', '/v1/breb/key')).body.alias).toBe('@millave01');
+    const created = await c.signed('POST', '/v1/breb/key', { preferredAlias: 'miLlave01' });
+    expect(created.status).toBe(200);
+    // Incluso si un cliente envía preferredAlias, el sistema siempre genera una llave genérica automática
+    expect(created.body.alias).toMatch(/^@cuypay\d{6}$/);
+    expect((await c.call('GET', '/v1/breb/key')).body.alias).toBe(created.body.alias);
     const dep = await c.call('POST', '/v1/dev/deposits/simulate', { amountMinor: 1_000_000, payerName: 'Tía Rosa' });
     expect(dep.status).toBe(201);
     expect(dep.body).toMatchObject({ type: 'deposit', direction: 'in', amountMinor: 1_000_000, title: 'Tía Rosa' });
-    // llave tomada
+    // un segundo usuario también recibe su propia llave genérica única sin colisión
     const other = await registerUser(env);
     await other.call('POST', '/v1/dev/kyc/approve');
-    expect((await other.signed('POST', '/v1/breb/key', { preferredAlias: '@millave01' })).body.error.code).toBe('BREB_ALIAS_TAKEN');
+    const otherKey = await other.signed('POST', '/v1/breb/key', {});
+    expect(otherKey.status).toBe(200);
+    expect(otherKey.body.alias).toMatch(/^@cuypay\d{6}$/);
+    expect(otherKey.body.alias).not.toBe(created.body.alias);
   });
 });

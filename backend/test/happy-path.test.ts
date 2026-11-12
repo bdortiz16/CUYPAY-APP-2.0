@@ -58,7 +58,7 @@ describe('flujo completo (happy path)', () => {
     expect((await c.call('GET', '/v1/breb/key')).status).toBe(404);
     const key = await c.signed('POST', '/v1/breb/key', {});
     expect(key.status).toBe(200);
-    expect(key.body.alias).toMatch(/^@cuypayana\d{3}$/);
+    expect(key.body.alias).toMatch(/^@cuypay\d{6}$/);
     expect(key.body).toMatchObject({ status: 'active', holderName: 'Ana Gómez' });
     expect((await c.signed('POST', '/v1/breb/key', {})).body.error.code).toBe('BREB_KEY_EXISTS');
     expect((await c.call('GET', '/v1/breb/key')).body.id).toBe(key.body.id);

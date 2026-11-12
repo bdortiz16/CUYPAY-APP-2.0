@@ -33,13 +33,13 @@ protocol CuyPayAPI: Sendable {
     func wallets() async throws -> [Wallet]
     func wallets(syncDeposits: Bool) async throws -> [Wallet]
 
-    // MARK: Llave Bre-B propia
+    // MARK: Llave Bre-B propia (siempre genérica generada por el sistema)
     /// `nil` si el usuario aún no tiene llave (404 NOT_FOUND).
     func brebKey() async throws -> BrebKey?
     /// 🔐
     func createBrebKey(preferredAlias: String?) async throws -> BrebKey
     /// 🔐
-    func changeBrebKey(preferredAlias: String) async throws -> BrebKey
+    func changeBrebKey(preferredAlias: String?) async throws -> BrebKey
     /// 🔐
     func deleteBrebKey() async throws
 
@@ -113,6 +113,14 @@ protocol CuyPayAPI: Sendable {
 }
 
 extension CuyPayAPI {
+    func createBrebKey() async throws -> BrebKey {
+        try await createBrebKey(preferredAlias: nil)
+    }
+
+    func changeBrebKey() async throws -> BrebKey {
+        try await changeBrebKey(preferredAlias: nil)
+    }
+
     func updateCardStatus(id: String, state: String) async throws -> CardItem {
         try await updateCardStatus(id: id, state: state, preservePocket: nil)
     }
@@ -131,8 +139,8 @@ extension CuyPayAPI {
 /// Textos del diálogo de Face ID para cada operación firmada.
 enum SignReason {
     static var login: String { String(localized: "Ingresa a CuyPay") }
-    static var createBrebKey: String { String(localized: "Confirma la creación de tu llave Bre-B") }
-    static var changeBrebKey: String { String(localized: "Confirma el cambio de tu llave Bre-B") }
+    static var createBrebKey: String { String(localized: "Confirma la generación de tu llave Bre-B") }
+    static var changeBrebKey: String { String(localized: "Confirma la generación de tu nueva llave Bre-B") }
     static var deleteBrebKey: String { String(localized: "Confirma la eliminación de tu llave Bre-B") }
     static var issueCard: String { String(localized: "Autoriza la emisión de tu tarjeta virtual") }
     static var updateCardStatus: String { String(localized: "Confirma el cambio de estado de tu tarjeta") }

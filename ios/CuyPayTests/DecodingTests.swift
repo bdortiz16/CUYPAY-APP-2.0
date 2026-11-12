@@ -475,33 +475,31 @@ struct DecodingTests {
         }
     }
 
-    @Test("Bre-B respeta @xatechservic para bryan039 y 1019, limpia inmediatamente al eliminar y mapea errores de biometría/gateway")
+    @Test("Bre-B siempre genera llaves genéricas por el sistema, limpia inmediatamente al eliminar y mapea errores de biometría/gateway")
     @MainActor
-    func brebCorporateFormatDeleteAndErrorMapping() async throws {
-        #expect(ReceiveView.formatCorporateAlias(suffix: "bryan039") == "@xatechservicbryan039")
-        #expect(ReceiveView.formatCorporateAlias(suffix: "1019") == "@xatechservic1019")
-        #expect(ReceiveView.formatCorporateAlias(suffix: "@xatechservicbryan039") == "@xatechservicbryan039")
-        #expect(ReceiveView.formatCorporateAlias(suffix: "@xatechseric1019") == "@xatechservic1019")
-        #expect(ReceiveView.formatCorporateAlias(suffix: "   ") == nil)
-
+    func brebGenericSystemKeyLifecycleAndErrorMapping() async throws {
         let api = MockAPIClient(latency: .zero)
         let store = WalletStore(api: api)
         await store.refreshAll()
 
-        let initialKey = try await api.createBrebKey(preferredAlias: ReceiveView.formatCorporateAlias(suffix: "1019"))
+        let initialKey = try await api.createBrebKey()
         store.brebKey = initialKey
-        #expect(store.brebKey?.alias == "@xatechservic1019")
+        #expect(initialKey.alias.hasPrefix("@xatechservic"))
+        #expect(initialKey.alias.count == "@xatechservic".count + 6)
 
         try await api.deleteBrebKey()
         store.clearBrebKey()
         #expect(store.brebKey == nil)
         #expect(store.brebKeyLoaded == true)
 
-        let recreatedAlnum = try await api.createBrebKey(preferredAlias: ReceiveView.formatCorporateAlias(suffix: "bryan039"))
-        #expect(recreatedAlnum.alias == "@xatechservicbryan039")
+        // Incluso si alguien pasara preferredAlias, siempre se asigna una llave genérica del sistema
+        let recreatedGeneric = try await api.createBrebKey(preferredAlias: "bryan039")
+        #expect(recreatedGeneric.alias.hasPrefix("@xatechservic"))
+        #expect(recreatedGeneric.alias != "@xatechservicbryan039")
 
-        let changedNumeric = try await api.changeBrebKey(preferredAlias: ReceiveView.formatCorporateAlias(suffix: "1019")!)
-        #expect(changedNumeric.alias == "@xatechservic1019")
+        let regeneratedGeneric = try await api.changeBrebKey()
+        #expect(regeneratedGeneric.alias.hasPrefix("@xatechservic"))
+        #expect(regeneratedGeneric.alias != recreatedGeneric.alias)
 
         #expect(APIError.biometricFailed.userMessage.contains("Face ID"))
         let gatewayErr = APIClient.parseError(status: 504, data: Data("<html>Gateway time-out</html>".utf8), decoder: decoder)

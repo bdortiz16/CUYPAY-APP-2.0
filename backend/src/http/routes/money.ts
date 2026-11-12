@@ -18,8 +18,8 @@ const Amount = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const IdemKey = z.string().min(8).max(128).regex(/^[A-Za-z0-9_\-:.]+$/);
 const Id = z.string().min(1).max(64);
 
-const CreateKey = z.object({ preferredAlias: z.string().trim().min(1).max(48).optional() });
-const ChangeKey = z.object({ preferredAlias: z.string().trim().min(1).max(48) });
+const CreateKey = z.object({ preferredAlias: z.string().trim().max(64).optional() });
+const ChangeKey = z.object({ preferredAlias: z.string().trim().max(64).optional() });
 const IssueCard = z.object({ label: z.string().min(1).max(30).optional() });
 const UpdateCardState = z.object({
   state: z.enum(['active', 'frozen', 'canceled']),
@@ -47,17 +47,17 @@ export function registerMoneyRoutes(app: FastifyInstance, { deps, services }: Co
   const auth = { preHandler: [h.authenticate] };
   const signed = { preHandler: [h.authenticate, h.requireSignature] };
 
-  // ── Llave Bre-B propia ──
+  // ── Llave Bre-B propia (siempre genérica generada por el sistema) ──
   app.get('/breb/key', auth, async (req) => presentBrebKey(await services.breb.get(req.auth!.userId)));
 
   app.post('/breb/key', signed, async (req) => {
-    const { preferredAlias } = parse(CreateKey, req.body);
-    return presentBrebKey(await services.breb.create(await h.currentUser(req), preferredAlias));
+    parse(CreateKey, req.body);
+    return presentBrebKey(await services.breb.create(await h.currentUser(req)));
   });
 
   app.put('/breb/key', signed, async (req) => {
-    const { preferredAlias } = parse(ChangeKey, req.body);
-    return presentBrebKey(await services.breb.change(await h.currentUser(req), preferredAlias));
+    parse(ChangeKey, req.body);
+    return presentBrebKey(await services.breb.change(await h.currentUser(req)));
   });
 
   app.delete('/breb/key', signed, async (req, reply) => {

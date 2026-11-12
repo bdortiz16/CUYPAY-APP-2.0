@@ -79,13 +79,24 @@ export interface CardHolderInput {
 }
 
 export interface CoinsendaGateway {
-  /** Crea (reclama) una llave Bre-B propia para un usuario: depositProvider en la cuenta COP de CuyPay. */
-  createBrebKey(input: { alias: string; holderName: string; userRef: string }): Promise<{
+  /** Crea (reclama) una llave Bre-B genérica generada por el sistema para un usuario: depositProvider en la cuenta COP de CuyPay. */
+  createBrebKey(input: {
+    alias: string;
+    holderName: string;
+    userRef: string;
+    activeOtherProviderIds?: string[];
+    retiredUserProviderIds?: string[];
+  }): Promise<{
     providerKeyId: string;
     alias: string;
     status: 'active' | 'pending' | 'blocked';
     raw: unknown;
   }>;
+  /** Sincroniza el alias y estado actuales de una llave Bre-B en el proveedor (cuando inicia en estado pending). */
+  syncBrebKey?(providerKeyId: string): Promise<{
+    alias: string | null;
+    status: 'active' | 'pending' | 'blocked' | 'canceled';
+  } | null>;
   /** Consulta el directorio Bre-B. `null` = la llave no existe (withdrawaccount_23). */
   resolveBrebAlias(alias: string): Promise<BrebAliasHolder | null>;
   /** Inscribe la cuenta destino (Bre-B) en Coinsenda. */

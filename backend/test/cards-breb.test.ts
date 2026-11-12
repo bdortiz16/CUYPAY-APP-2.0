@@ -15,15 +15,16 @@ describe('Card & Bre-B lifecycle endpoints', () => {
     user.kycStatus = 'approved';
     await env.container.deps.repos.users.update(user);
 
-    // 2. Bre-B Key: crear llave preferida
-    const createKeyRes = await c.signed('POST', '/v1/breb/key', { preferredAlias: 'carlos123' });
+    // 2. Bre-B Key: crear llave genérica del sistema (ignora preferredAlias si viniera)
+    const createKeyRes = await c.signed('POST', '/v1/breb/key', {});
     expect(createKeyRes.status).toBe(200);
-    expect(createKeyRes.body.alias).toBe('@carlos123');
+    expect(createKeyRes.body.alias).toMatch(/^@cuypay\d{6}$/);
 
-    // Cambiar llave
-    const changeKeyRes = await c.signed('PUT', '/v1/breb/key', { preferredAlias: 'carlosperez' });
+    // Regenerar llave genérica del sistema
+    const changeKeyRes = await c.signed('PUT', '/v1/breb/key', {});
     expect(changeKeyRes.status).toBe(200);
-    expect(changeKeyRes.body.alias).toBe('@carlosperez');
+    expect(changeKeyRes.body.alias).toMatch(/^@cuypay\d{6}$/);
+    expect(changeKeyRes.body.alias).not.toBe(createKeyRes.body.alias);
 
     // 3. Tarjetas: listar (inicialmente vacío)
     const listCardsRes = await c.call('GET', '/v1/cards');
@@ -337,13 +338,13 @@ describe('Card & Bre-B lifecycle endpoints', () => {
     expect(copWallet.availableMinor).toBe(8_800_000); // $70.000 + $18.000 devueltos = $88.000 COP
   });
 
-  it('retira todas las llaves Bre-B previas (incluyendo bloqueadas), permite @xatechservicbryan039 y @xatechservic1019, y sincroniza depósitos', async () => {
+  it('retira llaves Bre-B previas, genera siempre llaves genéricas por el sistema (ignorando personalizadas) y sincroniza depósitos', async () => {
     const c = await registerUser(env, { firstName: 'Bryan', lastName: 'Ortiz', phone: '+573154103792' });
     const user = (await env.container.deps.repos.users.byId(c.session.userId))!;
     user.kycStatus = 'approved';
     await env.container.deps.repos.users.update(user);
 
-    // Simula llave legada en estado 'blocked' (previa a 'replaced') + llave activa actual
+    // Simula llave legada en estado 'blocked' (previa a 'replaced')
     await env.container.deps.repos.brebKeys.create({
       id: 'brk_legacy_blocked',
       userId: user.id,
@@ -355,8 +356,8 @@ describe('Card & Bre-B lifecycle endpoints', () => {
       createdAt: new Date(Date.now() - 60_000),
     });
 
-    const genericKey = await c.signed('POST', '/v1/breb/key', {});
-    expect(genericKey.status).toBe(409); // bloqueada legada aún figuraba hasta eliminarla
+    const blockedAttempt = await c.signed('POST', '/v1/breb/key', {});
+    expect(blockedAttempt.status).toBe(409); // bloqueada legada aún figuraba hasta eliminarla
 
     // 1. Elimina todas las llaves previas de golpe y verifica que GET /v1/breb/key devuelva 404 inmediato y DELETE repetido sea 204
     const delRes = await c.signed('DELETE', '/v1/breb/key', {});
@@ -366,25 +367,21 @@ describe('Card & Bre-B lifecycle endpoints', () => {
     const secondDel = await c.signed('DELETE', '/v1/breb/key', {});
     expect(secondDel.status).toBe(204);
 
-    // 2. Crea llave personalizada con @xatechservicbryan039 (incluso corrigiendo typo @xatechsericbryan039)
-    const customKey = await c.signed('POST', '/v1/breb/key', { preferredAlias: '@xatechsericbryan039' });
-    expect(customKey.status).toBe(200);
-    expect(customKey.body.alias).toBe('@xatechservicbryan039');
-    expect(customKey.body.status).toBe('active');
+    // 2. Crea llave genérica automática por el sistema (incluso si un cliente enviara preferredAlias personalizado, lo ignora)
+    const firstGeneric = await c.signed('POST', '/v1/breb/key', { preferredAlias: '@xatechservicbryan039' });
+    expect(firstGeneric.status).toBe(200);
+    expect(firstGeneric.body.alias).toMatch(/^@cuypay\d{6}$/);
+    expect(firstGeneric.body.alias).not.toBe('@xatechservicbryan039');
+    expect(firstGeneric.body.status).toBe('active');
 
-    // 3. Permite cambiar a sufijo numérico (@xatechservic1019) respetando el prefijo corporativo
-    const numericKey = await c.signed('PUT', '/v1/breb/key', { preferredAlias: '@xatechservic1019' });
-    expect(numericKey.status).toBe(200);
-    expect(numericKey.body.alias).toBe('@xatechservic1019');
-    expect(numericKey.body.status).toBe('active');
-
-    // En modo live, sufijos cortos como 'bryan039' o '1019' se normalizan automáticamente con @xatechservic
+    // 3. En modo live también genera siempre una llave genérica corporativa por el sistema al regenerar con PUT /v1/breb/key
     const prevMode = env.container.deps.config.PROVIDERS_MODE;
     env.container.deps.config.PROVIDERS_MODE = 'live';
     try {
-      expect(env.container.services.breb.normalizeAlias('bryan039')).toBe('@xatechservicbryan039');
-      expect(env.container.services.breb.normalizeAlias('1019')).toBe('@xatechservic1019');
-      expect(env.container.services.breb.normalizeAlias('@xatechservic1019')).toBe('@xatechservic1019');
+      const liveGeneric = await c.signed('PUT', '/v1/breb/key', {});
+      expect(liveGeneric.status).toBe(200);
+      expect(liveGeneric.body.alias).toMatch(/^@xatechservic\d{6}$/);
+      expect(liveGeneric.body.status).toBe('active');
     } finally {
       env.container.deps.config.PROVIDERS_MODE = prevMode;
     }
