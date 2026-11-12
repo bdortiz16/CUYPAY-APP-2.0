@@ -29,6 +29,8 @@ function Treasury() {
   const toast = useToast();
   const { data: t, setData, error, loading, reload } = useLoad((a) => a.treasury(), []);
   const fx = useLoad((a) => a.fx(), []);
+  const savingsPool = useLoad((a) => a.savingsPool(), []);
+  const loansPool = useLoad((a) => a.loansPool(), []);
   const [reconOpen, setReconOpen] = useState(false);
   const [fxOpen, setFxOpen] = useState(false);
   const [form, setForm] = useState({ spreadBps: "", feeBps: "", minFee: "", minAmount: "", maxAmount: "", enabled: true });
@@ -56,6 +58,8 @@ function Treasury() {
   };
 
   const f = fx.data;
+  const sav = savingsPool.data;
+  const lp = loansPool.data;
   const previewSpread = Number.parseInt(form.spreadBps || "0", 10);
   const previewFee = Number.parseInt(form.feeBps || "0", 10);
   const previewRate = f ? customerRateFrom(f.midRate, Number.isFinite(previewSpread) ? previewSpread : 0) : 0;
@@ -70,7 +74,15 @@ function Treasury() {
         sub={<>Saldos en proveedores vs. pasivos con clientes (ledger) · {timeAgo(t.asOf)}</>}
         actions={
           <>
-            <button type="button" className={s.btn} onClick={() => void reload()}>
+            <button
+              type="button"
+              className={s.btn}
+              onClick={() => {
+                void reload();
+                void savingsPool.reload();
+                void loansPool.reload();
+              }}
+            >
               Actualizar
             </button>
             <GuardedButton allowed={manage} className={s.btnPrimary} onClick={() => setReconOpen(true)} id="treasury-reconcile" disabled={t.reconciliation.status === "running"}>
@@ -94,6 +106,22 @@ function Treasury() {
             }
           />
         ))}
+        {sav ? (
+          <Kpi
+            label="Bolsillo de Ahorro"
+            href="/admin-portal/savings/"
+            value={formatMinor(Number(sav.collectionPoolBalanceMinor), "COP")}
+            sub={`Reserva 72h: ${formatMinor(Number(sav.escrowLockedBalanceMinor), "COP")} · ${sav.activeBlocksCount} activos`}
+          />
+        ) : null}
+        {lp ? (
+          <Kpi
+            label="Fondo de Préstamos"
+            href="/admin-portal/loans/"
+            value={formatMinor(Number(lp.availablePoolMinor), "COP")}
+            sub={`Cartera: ${formatMinor(Number(lp.activePortfolioRemainingMinor), "COP")} · ${lp.pendingApplicationsCount} sol.`}
+          />
+        ) : null}
         <Kpi label="Ingresos hoy" value={formatMinor(t.revenue.todayMinor, t.revenue.currency)} />
         <Kpi label="Ingresos 30 días" value={formatMinor(t.revenue.monthMinor, t.revenue.currency)} />
       </div>

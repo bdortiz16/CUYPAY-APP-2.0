@@ -431,5 +431,19 @@ struct DecodingTests {
             #expect(paid.loan.paid.minorUnits >= 5_000_000)
         }
     }
+
+    @Test("WalletStore sincroniza Bolsillo de Ahorro y Créditos para los cuadrados de Inicio")
+    @MainActor
+    func homeSquareCardsStoreSync() async throws {
+        let api = MockAPIClient(latency: .zero)
+        let store = WalletStore(api: api)
+        await store.refreshAll()
+        #expect(store.savingsLoaded == true)
+        #expect(store.savingsConfig != nil)
+        #expect(store.userSavings != nil)
+        #expect(store.loansLoaded == true)
+        #expect(store.loansConfig != nil)
+        #expect(store.userLoans != nil)
+    }
 }
 

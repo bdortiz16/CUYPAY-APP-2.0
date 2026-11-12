@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { formatMinor } from "@/lib/format";
 import { ApiError, type Currency } from "@/lib/admin/types";
@@ -184,14 +185,22 @@ export function PageHead({ title, sub, actions }: { title: string; sub?: React.R
   );
 }
 
-export function Kpi({ label, value, sub }: { label: string; value: React.ReactNode; sub?: React.ReactNode }) {
-  return (
-    <div className={s.kpi}>
+export function Kpi({ label, value, sub, href }: { label: string; value: React.ReactNode; sub?: React.ReactNode; href?: string }) {
+  const inner = (
+    <>
       <div className={s.kpiLabel}>{label}</div>
       <div className={s.kpiValue}>{value}</div>
       {sub ? <div className={s.kpiSub}>{sub}</div> : null}
-    </div>
+    </>
   );
+  if (href) {
+    return (
+      <Link href={href} className={s.kpi} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
+        {inner}
+      </Link>
+    );
+  }
+  return <div className={s.kpi}>{inner}</div>;
 }
 
 export function ErrorBox({ message, onRetry }: { message: string; onRetry?: () => void }) {

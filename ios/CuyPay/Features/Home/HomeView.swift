@@ -74,35 +74,46 @@ struct HomeView: View {
                             ErrorBanner(message: error)
                         }
 
-                        HStack(alignment: .top, spacing: 12) {
-                            RateChartCard(
-                                rate: store.fxRate,
-                                isLoading: !store.hasLoadedOnce,
-                                onTap: store.fxRate != nil ? { openGated(.convert) } : nil
-                            )
-                            CardQuickCard(
-                                card: store.activeCard,
-                                hideAmounts: hideAmounts,
-                                isLoading: !store.cardsLoaded,
-                                onTap: { openGated(.card) }
-                            )
-                        }
-
-                        // Accesos directos a Bolsillo de Ahorro y Créditos
-                        HStack(spacing: 12) {
-                            quickFinancePill(
-                                title: "Bolsillo de Ahorro",
-                                subtitle: "30 a 360 días",
-                                systemImage: "lock.rotation"
-                            ) {
-                                openGated(.savingsVault)
+                        VStack(spacing: 12) {
+                            HStack(alignment: .top, spacing: 12) {
+                                CardQuickCard(
+                                    card: store.activeCard,
+                                    hideAmounts: hideAmounts,
+                                    isLoading: !store.cardsLoaded,
+                                    onTap: { openGated(.card) }
+                                )
+                                SavingsQuickCard(
+                                    userSavings: store.userSavings,
+                                    config: store.savingsConfig,
+                                    hideAmounts: hideAmounts,
+                                    isLoading: !store.savingsLoaded && !store.hasLoadedOnce,
+                                    onTap: { openGated(.savingsVault) }
+                                )
                             }
-                            quickFinancePill(
-                                title: "Créditos",
-                                subtitle: "Solicita hasta 360d",
-                                systemImage: "banknote.fill"
-                            ) {
-                                openGated(.loans)
+
+                            HStack(alignment: .top, spacing: 12) {
+                                LoansQuickCard(
+                                    userLoans: store.userLoans,
+                                    config: store.loansConfig,
+                                    hideAmounts: hideAmounts,
+                                    isLoading: !store.loansLoaded && !store.hasLoadedOnce,
+                                    onTap: { openGated(.loans) }
+                                )
+
+                                if store.fxRate != nil || !store.hasLoadedOnce {
+                                    RateChartCard(
+                                        rate: store.fxRate,
+                                        isLoading: !store.hasLoadedOnce,
+                                        onTap: store.fxRate != nil ? { openGated(.convert) } : nil
+                                    )
+                                } else {
+                                    BeneficiariesQuickCard(
+                                        beneficiaries: store.activeBeneficiaries,
+                                        onSelect: { openGated(.send(preselected: $0)) },
+                                        onAdd: { openGated(.addBeneficiary) },
+                                        onSeeAll: { path.append(.beneficiaries) }
+                                    )
+                                }
                             }
                         }
 
@@ -168,46 +179,6 @@ struct HomeView: View {
                 }
             }
         }
-    }
-
-    private func quickFinancePill(
-        title: LocalizedStringKey,
-        subtitle: LocalizedStringKey,
-        systemImage: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(Theme.spruce)
-                    .frame(width: 34, height: 34)
-                    .background(Theme.spruce.opacity(0.12), in: .circle)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Text(subtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 0)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity)
-            .contentShape(.rect(cornerRadius: 20))
-        }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 20))
     }
 
     // MARK: Encabezado

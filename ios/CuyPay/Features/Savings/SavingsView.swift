@@ -228,6 +228,9 @@ struct SavingsView: View {
             let (cfg, savings) = try await (configTask, userSavingsTask)
             self.config = cfg
             self.userSavings = savings
+            store.savingsConfig = cfg
+            store.userSavings = savings
+            store.savingsLoaded = true
             self.isLoading = false
         } catch {
             self.errorMessage = error.userMessage

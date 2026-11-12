@@ -379,19 +379,332 @@ struct CardQuickCard: View {
     }
 }
 
+// MARK: - Bolsillo de Ahorro (cuadrado rápido en Inicio)
+
+struct SavingsQuickCard: View {
+    let userSavings: UserSavingsResponse?
+    let config: SavingsConfig?
+    var hideAmounts: Bool = false
+    let isLoading: Bool
+    let onTap: () -> Void
+
+    private var activeCount: Int {
+        userSavings?.summary.activeCount ?? 0
+    }
+
+    private var totalPrincipal: Money {
+        userSavings?.summary.totalPrincipal ?? .zero(.cop)
+    }
+
+    private var expectedYield: Money {
+        userSavings?.summary.totalExpectedYield ?? .zero(.cop)
+    }
+
+    private var maxRateBadge: String {
+        let maxRate = config?.rates.filter(\.enabled).map(\.ratePercent).max() ?? 12.0
+        return String(format: "%.0f%% E.A.", maxRate)
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    Text("Bolsillo de Ahorro")
+                        .font(.system(.subheadline, design: .serif).weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.80)
+                    Spacer(minLength: 2)
+                    Circle()
+                        .fill(activeCount > 0 ? Theme.positive : Theme.spruce.opacity(0.75))
+                        .frame(width: 7, height: 7)
+                }
+
+                if isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 110)
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 4) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "lock.rotation")
+                                    .font(.system(size: 10, weight: .bold))
+                                Text("30–360d")
+                                    .font(.system(size: 9, weight: .semibold))
+                            }
+                            .foregroundStyle(.white.opacity(0.88))
+
+                            Spacer(minLength: 4)
+
+                            Text(verbatim: maxRateBadge)
+                                .font(.system(size: 8.5, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2.5)
+                                .background(.white.opacity(0.18), in: Capsule())
+                        }
+
+                        Spacer(minLength: 0)
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(activeCount > 0 ? "Ahorro bloqueado" : "Saldo en ahorro")
+                                .font(.system(size: 8.5, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.75))
+                            Text(verbatim: hideAmounts ? totalPrincipal.maskedString : totalPrincipal.formatted())
+                                .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                        }
+
+                        HStack(alignment: .center) {
+                            if activeCount > 0 {
+                                Text(verbatim: "\(activeCount) activo\(activeCount == 1 ? "" : "s")")
+                                    .font(.system(size: 9.5, weight: .semibold))
+                                    .foregroundStyle(.white.opacity(0.86))
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text(verbatim: hideAmounts ? "+••••" : "+" + expectedYield.formatted())
+                                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                    .monospacedDigit()
+                                    .foregroundStyle(Color(red: 0.58, green: 0.96, blue: 0.80))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
+                            } else {
+                                Text("Plazos 30·60·90·180·360d")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.84))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.80)
+                                Spacer(minLength: 0)
+                            }
+                        }
+                    }
+                    .padding(11)
+                    .frame(maxWidth: .infinity, minHeight: 98)
+                    .background(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.04, green: 0.19, blue: 0.17),
+                                Theme.spruceSolid,
+                                Color(red: 0.11, green: 0.46, blue: 0.40)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        in: RoundedRectangle(cornerRadius: 14)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .strokeBorder(.white.opacity(0.20), lineWidth: 0.8)
+                    )
+
+                    HStack(spacing: 4) {
+                        Text(activeCount > 0 ? "Ver bolsillo" : "Ahorrar y ganar")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(activeCount > 0 ? .primary : Theme.spruce)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 2)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 190, alignment: .top)
+            .contentShape(.rect(cornerRadius: Theme.cardRadius))
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: Theme.cardRadius))
+        .accessibilityLabel(Text("Bolsillo de Ahorro"))
+    }
+}
+
+// MARK: - Créditos (cuadrado rápido en Inicio)
+
+struct LoansQuickCard: View {
+    let userLoans: UserLoansResponse?
+    let config: LoanConfig?
+    var hideAmounts: Bool = false
+    let isLoading: Bool
+    let onTap: () -> Void
+
+    private var activeCount: Int {
+        userLoans?.summary.activeCount ?? 0
+    }
+
+    private var pendingCount: Int {
+        userLoans?.summary.pendingCount ?? 0
+    }
+
+    private var activeRemaining: Money {
+        userLoans?.summary.activeRemaining ?? .zero(.cop)
+    }
+
+    private var maxLoanAmount: Money {
+        config?.maxAmount ?? Money(minorUnits: 10_000_000_00, currency: .cop)
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    Text("Créditos")
+                        .font(.system(.subheadline, design: .serif).weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Spacer(minLength: 2)
+                    Circle()
+                        .fill(pendingCount > 0 ? Theme.warning : (activeCount > 0 ? Theme.positive : Theme.ink.opacity(0.45)))
+                        .frame(width: 7, height: 7)
+                }
+
+                if isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 110)
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 4) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "banknote.fill")
+                                    .font(.system(size: 10, weight: .bold))
+                                Text("30–360d")
+                                    .font(.system(size: 9, weight: .semibold))
+                            }
+                            .foregroundStyle(.white.opacity(0.88))
+
+                            Spacer(minLength: 4)
+
+                            Text("Pagaré")
+                                .font(.system(size: 8.5, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.95))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2.5)
+                                .background(.white.opacity(0.16), in: Capsule())
+                        }
+
+                        Spacer(minLength: 0)
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            if activeCount > 0 {
+                                Text("Saldo por pagar")
+                                    .font(.system(size: 8.5, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.75))
+                                Text(verbatim: hideAmounts ? activeRemaining.maskedString : activeRemaining.formatted())
+                                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
+                            } else if pendingCount > 0 {
+                                Text("Solicitud enviada")
+                                    .font(.system(size: 8.5, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.75))
+                                Text("En estudio")
+                                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Color(red: 0.98, green: 0.82, blue: 0.44))
+                                    .lineLimit(1)
+                            } else {
+                                Text("Cupo hasta")
+                                    .font(.system(size: 8.5, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.75))
+                                Text(verbatim: hideAmounts ? maxLoanAmount.maskedString : maxLoanAmount.formatted())
+                                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.70)
+                            }
+                        }
+
+                        HStack(alignment: .center) {
+                            if activeCount > 0 {
+                                Text(verbatim: "\(activeCount) activo\(activeCount == 1 ? "" : "s")")
+                                    .font(.system(size: 9.5, weight: .semibold))
+                                    .foregroundStyle(.white.opacity(0.86))
+                            } else if pendingCount > 0 {
+                                Text(verbatim: "\(pendingCount) pendiente\(pendingCount == 1 ? "" : "s")")
+                                    .font(.system(size: 9.5, weight: .semibold))
+                                    .foregroundStyle(.white.opacity(0.86))
+                            } else {
+                                Text("Desembolso inmediato")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.84))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.80)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    .padding(11)
+                    .frame(maxWidth: .infinity, minHeight: 98)
+                    .background(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.07, green: 0.10, blue: 0.13),
+                                Color(red: 0.11, green: 0.18, blue: 0.22),
+                                Color(red: 0.08, green: 0.27, blue: 0.26)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        in: RoundedRectangle(cornerRadius: 14)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .strokeBorder(.white.opacity(0.18), lineWidth: 0.8)
+                    )
+
+                    HStack(spacing: 4) {
+                        Text(activeCount > 0 ? "Ver mi crédito" : (pendingCount > 0 ? "Ver solicitud" : "Solicitar crédito"))
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(activeCount > 0 ? .primary : Theme.spruce)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 2)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 190, alignment: .top)
+            .contentShape(.rect(cornerRadius: Theme.cardRadius))
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: Theme.cardRadius))
+        .accessibilityLabel(Text("Créditos CuyPay"))
+    }
+}
+
 // MARK: - Beneficiarios (acciones rápidas)
 
 struct BeneficiariesQuickCard: View {
     let beneficiaries: [Beneficiary]
     let onSelect: (Beneficiary) -> Void
     let onAdd: () -> Void
+    var onSeeAll: (() -> Void)? = nil
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Beneficiarios")
-                .font(.system(.subheadline, design: .serif).weight(.semibold))
+            HStack {
+                Text("Beneficiarios")
+                    .font(.system(.subheadline, design: .serif).weight(.semibold))
+                Spacer()
+                if let onSeeAll {
+                    Button(action: onSeeAll) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("Ver todos los beneficiarios"))
+                }
+            }
 
             LazyVGrid(columns: columns, spacing: 10) {
                 ForEach(beneficiaries.prefix(5)) { beneficiary in

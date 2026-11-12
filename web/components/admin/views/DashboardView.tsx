@@ -81,8 +81,11 @@ function eventTime(e: StreamEvent): string {
 export function DashboardView() {
   const { feed, can, api } = useSession();
   const toast = useToast();
+  const canTreasury = can("treasury:read");
   const { data, error, loading, reload } = useLoad((api) => api.dashboard(), []);
   const fx = useLoad((api) => api.fx(), []);
+  const savingsPool = useLoad((a) => (canTreasury ? a.savingsPool() : Promise.resolve(null)), [canTreasury]);
+  const loansPool = useLoad((a) => (canTreasury ? a.loansPool() : Promise.resolve(null)), [canTreasury]);
   const [togglingCorridor, setTogglingCorridor] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -106,7 +109,13 @@ export function DashboardView() {
     ["transaction.created", "transaction.updated", "customer.created", "customer.updated", "kyc.updated", "compliance.alert", "provider.status", "treasury.updated"],
     () => {
       if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => void reload(true), 800);
+      timer.current = setTimeout(() => {
+        void reload(true);
+        if (canTreasury) {
+          void savingsPool.reload(true);
+          void loansPool.reload(true);
+        }
+      }, 800);
     },
   );
 
@@ -116,6 +125,8 @@ export function DashboardView() {
 
   const d = data;
   const q = d.queues;
+  const sav = savingsPool.data;
+  const lp = loansPool.data;
 
   return (
     <>
@@ -123,7 +134,17 @@ export function DashboardView() {
         title="Resumen de hoy"
         sub={<>Actualizado {timeAgo(d.generatedAt)} · Hora de Bogotá</>}
         actions={
-          <button type="button" className={s.btn} onClick={() => void reload()}>
+          <button
+            type="button"
+            className={s.btn}
+            onClick={() => {
+              void reload();
+              if (canTreasury) {
+                void savingsPool.reload();
+                void loansPool.reload();
+              }
+            }}
+          >
             Actualizar
           </button>
         }
@@ -134,6 +155,22 @@ export function DashboardView() {
         <Kpi label="KYC aprobado" value={formatInt(d.customers.kycApproved)} sub={`${d.customers.kycPending} pendientes`} />
         <Kpi label="Depósitos hoy" value={formatMinor(d.today.deposits.volumeMinor, "COP")} sub={`${d.today.deposits.count} operaciones`} />
         <Kpi label="Envíos hoy" value={formatMinor(d.today.transfers.volumeMinor, "COP")} sub={`${d.today.transfers.count} operaciones`} />
+        {sav ? (
+          <Kpi
+            label="Bolsillo de Ahorro"
+            href="/admin-portal/savings/"
+            value={formatMinor(Number(sav.collectionPoolBalanceMinor), "COP")}
+            sub={`${sav.activeBlocksCount} activos · Reserva 72h: ${formatMinor(Number(sav.escrowLockedBalanceMinor), "COP")}`}
+          />
+        ) : null}
+        {lp ? (
+          <Kpi
+            label="Fondo de Préstamos"
+            href="/admin-portal/loans/"
+            value={formatMinor(Number(lp.availablePoolMinor), "COP")}
+            sub={`${lp.activeLoansCount} activos · ${lp.pendingApplicationsCount} por aprobar`}
+          />
+        ) : null}
         <Kpi
           label="Conversiones hoy"
           value={formatMinor(d.today.conversions.fromVolumeMinor, "COP")}
@@ -171,6 +208,30 @@ export function DashboardView() {
                     </span>
                   </td>
                 </tr>
+                {sav ? (
+                  <tr>
+                    <td>
+                      <Link href="/admin-portal/savings/">Ahorros &lt;72 h pendientes de reserva</Link>
+                    </td>
+                    <td className={s.right}>
+                      <span className={cx(s.num, sav.maturing72hUnfundedCount ? s.neg : s.faint)} style={{ fontWeight: 700 }}>
+                        {sav.maturing72hUnfundedCount}
+                      </span>
+                    </td>
+                  </tr>
+                ) : null}
+                {lp ? (
+                  <tr>
+                    <td>
+                      <Link href="/admin-portal/loans/">Solicitudes de préstamo por aprobar</Link>
+                    </td>
+                    <td className={s.right}>
+                      <span className={cx(s.num, lp.pendingApplicationsCount ? s.neg : s.faint)} style={{ fontWeight: 700 }}>
+                        {lp.pendingApplicationsCount}
+                      </span>
+                    </td>
+                  </tr>
+                ) : null}
                 <tr>
                   <td>
                     <Link href="/admin-portal/transactions/?status=failed">Transacciones fallidas (24 h)</Link>

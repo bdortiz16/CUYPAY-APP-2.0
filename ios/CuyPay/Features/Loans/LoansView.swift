@@ -263,6 +263,9 @@ struct LoansView: View {
             let (cfg, list) = try await (cfgTask, loansTask)
             self.config = cfg
             self.userLoans = list
+            store.loansConfig = cfg
+            store.userLoans = list
+            store.loansLoaded = true
             self.isLoading = false
         } catch {
             self.errorMessage = error.userMessage

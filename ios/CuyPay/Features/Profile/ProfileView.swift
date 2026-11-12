@@ -381,6 +381,8 @@ private struct AccountConfigurationView: View {
     @State private var editFocus: EditContactProfileSheet.FocusField?
     @State private var showReceive = false
     @State private var showCard = false
+    @State private var showSavings = false
+    @State private var showLoans = false
     @State private var showKYC = false
 
     var body: some View {
@@ -471,6 +473,32 @@ private struct AccountConfigurationView: View {
                         }
                         .foregroundStyle(.primary)
 
+                        Button {
+                            if app.isKYCApproved { showSavings = true } else { showKYC = true }
+                        } label: {
+                            HStack {
+                                Label("Bolsillo de Ahorro", systemImage: "lock.rotation")
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .foregroundStyle(.primary)
+
+                        Button {
+                            if app.isKYCApproved { showLoans = true } else { showKYC = true }
+                        } label: {
+                            HStack {
+                                Label("Créditos CuyPay", systemImage: "banknote.fill")
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .foregroundStyle(.primary)
+
                         NavigationLink {
                             BeneficiariesView()
                         } label: {
@@ -521,6 +549,14 @@ private struct AccountConfigurationView: View {
         }
         .sheet(isPresented: $showCard) {
             CardView()
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showSavings) {
+            SavingsView()
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showLoans) {
+            LoansView()
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showKYC) {

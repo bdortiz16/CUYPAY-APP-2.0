@@ -19,6 +19,12 @@ final class WalletStore {
     var brebKeyLoaded = false
     var cards: [CardItem] = []
     var cardsLoaded = false
+    var savingsConfig: SavingsConfig?
+    var userSavings: UserSavingsResponse?
+    var savingsLoaded = false
+    var loansConfig: LoanConfig?
+    var userLoans: UserLoansResponse?
+    var loansLoaded = false
 
     var isLoading = false
     var hasLoadedOnce = false
@@ -86,6 +92,10 @@ final class WalletStore {
         async let limitsTask = api.limits()
         async let keyTask = api.brebKey()
         async let cardsTask = api.cards()
+        async let savingsCfgTask = api.savingsConfig()
+        async let userSavingsTask = api.userSavings()
+        async let loansCfgTask = api.loansConfig()
+        async let userLoansTask = api.userLoans()
 
         do {
             wallets = try await walletsTask
@@ -106,7 +116,7 @@ final class WalletStore {
             processIncomingDeposits(page.items, allowHaptic: true)
         }
         if let items = try? await beneficiariesTask { beneficiaries = items }
-        if let rate = try? await rateTask { fxRate = rate }
+        fxRate = try? await rateTask
         if let snapshot = try? await limitsTask { limits = snapshot }
         do {
             brebKey = try await keyTask
@@ -117,11 +127,19 @@ final class WalletStore {
         if let cardList = try? await cardsTask {
             cards = cardList
             cardsLoaded = true
+        } else {
+            cardsLoaded = true
         }
+        if let savCfg = try? await savingsCfgTask { savingsConfig = savCfg }
+        if let sav = try? await userSavingsTask { userSavings = sav }
+        savingsLoaded = true
+        if let lnCfg = try? await loansCfgTask { loansConfig = lnCfg }
+        if let ln = try? await userLoansTask { userLoans = ln }
+        loansLoaded = true
     }
 
     /// Sincronización silenciosa en vivo (sin parpadeo ni esqueletos de carga):
-    /// actualiza saldo disponible, movimientos entrantes y bolsillo de tarjeta automáticamente.
+    /// actualiza saldo disponible, movimientos entrantes, tarjeta, ahorros y créditos automáticamente.
     func refreshLiveState(allowHaptic: Bool = true) async {
         guard !isLoading, !isLiveRefreshing else { return }
         isLiveRefreshing = true
@@ -131,6 +149,8 @@ final class WalletStore {
         async let walletsTask = api.wallets(syncDeposits: true)
         async let transactionsTask = api.transactions(currency: nil, limit: 30, cursor: nil)
         async let cardsTask = api.cards()
+        async let savingsTask = api.userSavings()
+        async let loansTask = api.userLoans()
 
         do {
             let freshWallets = try await walletsTask
@@ -166,6 +186,24 @@ final class WalletStore {
                 withAnimation(.snappy) {
                     cards = freshCards
                     cardsLoaded = true
+                }
+            }
+        }
+
+        if let freshSavings = try? await savingsTask {
+            if freshSavings != userSavings || !savingsLoaded {
+                withAnimation(.snappy) {
+                    userSavings = freshSavings
+                    savingsLoaded = true
+                }
+            }
+        }
+
+        if let freshLoans = try? await loansTask {
+            if freshLoans != userLoans || !loansLoaded {
+                withAnimation(.snappy) {
+                    userLoans = freshLoans
+                    loansLoaded = true
                 }
             }
         }
@@ -222,6 +260,24 @@ final class WalletStore {
         }
     }
 
+    func refreshSavings() async {
+        let api = self.api
+        async let cfgTask = api.savingsConfig()
+        async let savTask = api.userSavings()
+        if let cfg = try? await cfgTask { savingsConfig = cfg }
+        if let sav = try? await savTask { userSavings = sav }
+        savingsLoaded = true
+    }
+
+    func refreshLoans() async {
+        let api = self.api
+        async let cfgTask = api.loansConfig()
+        async let lnTask = api.userLoans()
+        if let cfg = try? await cfgTask { loansConfig = cfg }
+        if let ln = try? await lnTask { userLoans = ln }
+        loansLoaded = true
+    }
+
     /// Aplica al instante el resultado de recargar o retirar del bolsillo de la tarjeta y sincroniza con el backend.
     func applyCardPocketTransfer(_ response: CardPocketTransferResponse) async {
         if let idx = cards.firstIndex(where: { $0.id == response.card.id }) {
@@ -244,12 +300,14 @@ final class WalletStore {
         _ = await (w, c, t)
     }
 
-    /// Después de un envío o conversión.
+    /// Después de un envío, bloqueo de ahorro, crédito o conversión.
     func refreshAfterMovement() async {
         async let w: Void = refreshWallets()
         async let t: Void = refreshTransactions()
         async let l: Void = refreshLimits()
-        _ = await (w, t, l)
+        async let s: Void = refreshSavings()
+        async let ln: Void = refreshLoans()
+        _ = await (w, t, l, s, ln)
     }
 
     // MARK: - Detección de nuevos depósitos y centro de notificaciones
@@ -333,6 +391,12 @@ final class WalletStore {
         brebKeyLoaded = false
         cards = []
         cardsLoaded = false
+        savingsConfig = nil
+        userSavings = nil
+        savingsLoaded = false
+        loansConfig = nil
+        userLoans = nil
+        loansLoaded = false
         hasLoadedOnce = false
         errorMessage = nil
         unreadNotificationsCount = 0
