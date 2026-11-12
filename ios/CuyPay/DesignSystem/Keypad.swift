@@ -3,10 +3,14 @@ import SwiftUI
 /// Teclado numérico de vidrio para montos (sin `Double`, ver `AmountInput`).
 struct AmountKeypad: View {
     @Binding var input: AmountInput
+    var keyHeight: CGFloat = 56
+    var spacing: CGFloat = 12
     @State private var tapCount = 0
     @State private var rejectCount = 0
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: spacing), count: 3)
+    }
 
     private enum Key: Hashable {
         case digit(Int)
@@ -20,8 +24,8 @@ struct AmountKeypad: View {
     }
 
     var body: some View {
-        GlassEffectContainer(spacing: 12) {
-            LazyVGrid(columns: columns, spacing: 12) {
+        GlassEffectContainer(spacing: spacing) {
+            LazyVGrid(columns: columns, spacing: spacing) {
                 ForEach(keys, id: \.self) { key in
                     keyView(key)
                 }
@@ -52,16 +56,16 @@ struct AmountKeypad: View {
                 tapCount += 1
             })
         case .empty:
-            Color.clear.frame(height: 56)
+            Color.clear.frame(height: keyHeight)
         }
     }
 
     private func keyButton(label: Text, accessibility: Text, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             label
-                .font(.title2.weight(.medium))
+                .font(.title3.weight(.semibold))
                 .monospacedDigit()
-                .frame(maxWidth: .infinity, minHeight: 56)
+                .frame(maxWidth: .infinity, minHeight: keyHeight)
                 .contentShape(.rect(cornerRadius: 18))
         }
         .buttonStyle(.plain)

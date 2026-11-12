@@ -55,7 +55,7 @@ private struct ConvertContent: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: 12) {
                 widget
 
                 HStack {
@@ -82,24 +82,25 @@ private struct ConvertContent: View {
                     ErrorBanner(message: error)
                 }
 
-                AmountKeypad(input: $model.input)
+                AmountKeypad(input: $model.input, keyHeight: 46, spacing: 9)
+                    .padding(.top, 2)
+
+                PrimaryButton(
+                    title: "Convertir ahora",
+                    systemImage: "faceid",
+                    isLoading: model.isConverting,
+                    isEnabled: model.canConvert(available: available, limits: store.limits)
+                ) {
+                    Task { await model.convert(store: store) }
+                }
+                .padding(.top, 4)
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 12)
+            .padding(.top, 4)
+            .padding(.bottom, 20)
         }
+        .scrollIndicators(.hidden)
         .scrollBounceBehavior(.basedOnSize)
-        .safeAreaInset(edge: .bottom) {
-            PrimaryButton(
-                title: "Convertir ahora",
-                systemImage: "faceid",
-                isLoading: model.isConverting,
-                isEnabled: model.canConvert(available: available, limits: store.limits)
-            ) {
-                Task { await model.convert(store: store) }
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 8)
-        }
         .onChange(of: model.input) { model.amountChanged() }
         .sensoryFeedback(.success, trigger: model.result != nil) { _, newValue in newValue }
     }
@@ -107,9 +108,9 @@ private struct ConvertContent: View {
     // MARK: Widget
 
     private var widget: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 10) {
             ZStack {
-                VStack(spacing: 8) {
+                VStack(spacing: 6) {
                     amountBox(
                         label: "TÚ CONVIERTES",
                         amount: model.input.isEmpty ? "0" : model.input.displayString,
@@ -125,13 +126,13 @@ private struct ConvertContent: View {
                     )
                 }
                 Image(systemName: "arrow.down")
-                    .font(.footnote.weight(.bold))
-                    .frame(width: 32, height: 32)
+                    .font(.caption.weight(.bold))
+                    .frame(width: 30, height: 30)
                     .glassEffect(.regular, in: .circle)
                     .accessibilityHidden(true)
             }
 
-            VStack(spacing: 10) {
+            VStack(spacing: 6) {
                 DetailRow(title: "Costo de conversión", value: model.quote?.fee.formatted() ?? "—", systemImage: "minus.circle.fill")
                 DetailRow(title: "Monto a convertir", value: model.quote?.amountToConvert.formatted() ?? "—", systemImage: "equal.circle.fill")
                 DetailRow(title: "Tipo de cambio", value: model.quote.map { RateFormatter.headline(rate: $0.rate) } ?? "—", systemImage: "multiply.circle.fill")
@@ -139,7 +140,7 @@ private struct ConvertContent: View {
             .padding(.horizontal, 4)
 
             HStack(spacing: 10) {
-                CountdownRing(remaining: model.secondsRemaining, total: ConvertViewModel.quoteValidity)
+                CountdownRing(remaining: model.secondsRemaining, total: ConvertViewModel.quoteValidity, size: 28)
                 Group {
                     if model.isQuoting {
                         Text("Actualizando cotización…")
@@ -153,23 +154,24 @@ private struct ConvertContent: View {
                 .foregroundStyle(.secondary)
                 Spacer()
             }
-            .padding(12)
-            .background(Theme.spruce.opacity(0.08), in: .rect(cornerRadius: 16))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(Theme.spruce.opacity(0.08), in: .rect(cornerRadius: 14))
         }
-        .padding(16)
+        .padding(14)
         .glassEffect(.regular, in: .rect(cornerRadius: Theme.cardRadius))
     }
 
     private func amountBox(label: LocalizedStringKey, amount: String, currency: Currency, isPlaceholder: Bool, isLoading: Bool = false) -> some View {
         HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(label)
                     .font(.caption2.weight(.bold))
                     .tracking(0.8)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 6) {
                     Text(verbatim: amount)
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(isPlaceholder ? .secondary : .primary)
                         .contentTransition(.numericText())
@@ -184,9 +186,10 @@ private struct ConvertContent: View {
             Spacer()
             CurrencyChip(currency: currency)
         }
-        .padding(14)
-        .background(.background.opacity(0.55), in: .rect(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(.primary.opacity(0.06)))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.background.opacity(0.55), in: .rect(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.primary.opacity(0.06)))
         .accessibilityElement(children: .combine)
     }
 }

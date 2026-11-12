@@ -287,7 +287,7 @@ struct HomeView: View {
                 .presentationDragIndicator(.visible)
         case .convert:
             ConvertView()
-                .presentationDetents([.fraction(0.85), .large])
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         case .card:
             CardView(onOpenProfile: {

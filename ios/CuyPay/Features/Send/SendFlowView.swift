@@ -254,21 +254,22 @@ private struct SendAmountView: View {
                         ErrorBanner(message: error)
                     }
 
-                    AmountKeypad(input: $model.input)
+                    AmountKeypad(input: $model.input, keyHeight: 50, spacing: 10)
+
+                    PrimaryButton(
+                        title: "Continuar",
+                        isLoading: model.isLoading,
+                        isEnabled: model.input.minorUnits > 0 && !insufficient
+                    ) {
+                        Task { await model.requestPreview() }
+                    }
+                    .padding(.top, 4)
                 }
                 .padding(.horizontal, 20)
+                .padding(.bottom, 20)
             }
-        }
-        .safeAreaInset(edge: .bottom) {
-            PrimaryButton(
-                title: "Continuar",
-                isLoading: model.isLoading,
-                isEnabled: model.input.minorUnits > 0 && !insufficient
-            ) {
-                Task { await model.requestPreview() }
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 8)
+            .scrollIndicators(.hidden)
+            .scrollBounceBehavior(.basedOnSize)
         }
         .navigationTitle("Monto")
         .navigationBarTitleDisplayMode(.inline)
