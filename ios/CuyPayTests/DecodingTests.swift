@@ -487,18 +487,21 @@ struct DecodingTests {
         let api = MockAPIClient(latency: .zero)
         let store = WalletStore(api: api)
         await store.refreshAll()
-        #expect(store.brebKey != nil)
+
+        let initialKey = try await api.createBrebKey(preferredAlias: ReceiveView.formatCorporateAlias(suffix: "1019"))
+        store.brebKey = initialKey
+        #expect(store.brebKey?.alias == "@xatechservic1019")
 
         try await api.deleteBrebKey()
         store.clearBrebKey()
         #expect(store.brebKey == nil)
         #expect(store.brebKeyLoaded == true)
 
-        let createdNumeric = try await api.createBrebKey(preferredAlias: ReceiveView.formatCorporateAlias(suffix: "1019"))
-        #expect(createdNumeric.alias == "@xatechservic1019")
+        let recreatedAlnum = try await api.createBrebKey(preferredAlias: ReceiveView.formatCorporateAlias(suffix: "bryan039"))
+        #expect(recreatedAlnum.alias == "@xatechservicbryan039")
 
-        let changedAlnum = try await api.changeBrebKey(preferredAlias: ReceiveView.formatCorporateAlias(suffix: "bryan039")!)
-        #expect(changedAlnum.alias == "@xatechservicbryan039")
+        let changedNumeric = try await api.changeBrebKey(preferredAlias: ReceiveView.formatCorporateAlias(suffix: "1019")!)
+        #expect(changedNumeric.alias == "@xatechservic1019")
 
         #expect(APIError.biometricFailed.userMessage.contains("Face ID"))
         let gatewayErr = APIClient.parseError(status: 504, data: Data("<html>Gateway time-out</html>".utf8), decoder: decoder)
