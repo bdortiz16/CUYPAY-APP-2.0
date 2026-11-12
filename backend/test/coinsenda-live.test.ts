@@ -613,13 +613,17 @@ describe('Coinsenda live adapter (SDK doble)', () => {
             data: {
               id: 'dp_bryan_1',
               state: 'confirmed',
-              reference: { data: { alias_value: '@bryan777' } },
+              account: { account_id: { type: 'breb' } },
+              reference: { data: { alias_value: data.data.alias } },
             },
           },
         };
       }
       if (endpoint === '/depositProviders/subscribe-to-new-deposits') {
         return { status: 200, data: { data: { subscribed: true } } };
+      }
+      if (endpoint === '/depositProviders/cancel-deposit-provider-public') {
+        return { status: 404, data: { error: { code: 'depositprovider_not_found' } } };
       }
       return origRequest(service, method, endpoint, data, options);
     };
@@ -639,14 +643,14 @@ describe('Coinsenda live adapter (SDK doble)', () => {
     });
 
     const created = await gw.createBrebKey({
-      alias: '@xatechsericbryan',
+      alias: '@xatechsericbryan039',
       holderName: 'Bryan Ortiz',
       userRef: 'usr_bryan',
     });
 
     expect(created).toMatchObject({
       providerKeyId: 'dp_bryan_1',
-      alias: '@bryan777',
+      alias: '@xatechservicbryan039',
       status: 'active',
     });
 
@@ -658,13 +662,26 @@ describe('Coinsenda live adapter (SDK doble)', () => {
         country: 'international',
         recaptcha_response: 'BYPASS_RECAPTCHA_DEV',
         custom: {
-          alias_prefix: 'bryan',
+          alias_prefix: 'xatechservic',
           name: 'Bryan',
           surname: 'Ortiz',
           merchant_name: 'CuyPay',
         },
       },
     });
+    expect(cfgCall.data.data.userId).toBeUndefined();
+
+    const createCall = calls.find((c) => c.endpoint === '/depositProviders/create-deposit-provider-by-account-id-public')!;
+    expect(createCall.data).toMatchObject({
+      data: {
+        account_id: 'acc_cop',
+        deposit_account_id: 'dacc_1',
+        alias: '@xatechservicbryan039',
+        country: 'international',
+        recaptcha_response: 'BYPASS_RECAPTCHA_DEV',
+      },
+    });
+    expect(createCall.data.data.userId).toBeUndefined();
 
     const subscribeCall = calls.find((c) => c.endpoint === '/depositProviders/subscribe-to-new-deposits')!;
     expect(subscribeCall).toBeDefined();
@@ -675,6 +692,9 @@ describe('Coinsenda live adapter (SDK doble)', () => {
         country: 'international',
       },
     });
+
+    // cancelBrebKey es idempotente ante 404
+    await expect(gw.cancelBrebKey('dp_inexistente')).resolves.toBeUndefined();
 
     const deps = await gw.listDeposits();
     expect(deps).toHaveLength(1);

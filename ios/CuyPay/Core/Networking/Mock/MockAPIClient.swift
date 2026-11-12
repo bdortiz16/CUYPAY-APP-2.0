@@ -80,6 +80,8 @@ actor MockAPIClient: CuyPayAPI {
             _ = try await signer.sign(Data("mock".utf8), reason: reason)
         } catch DeviceKeyError.biometryCancelled {
             throw APIError.biometricCancelled
+        } catch DeviceKeyError.biometryFailed {
+            throw APIError.biometricFailed
         } catch {
             throw APIError.deviceKeyUnavailable
         }

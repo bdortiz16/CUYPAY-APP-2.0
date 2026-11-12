@@ -474,5 +474,35 @@ struct DecodingTests {
             #expect(image.pngData() != nil)
         }
     }
+
+    @Test("Bre-B respeta @xatechservic para bryan039 y 1019, limpia inmediatamente al eliminar y mapea errores de biometría/gateway")
+    @MainActor
+    func brebCorporateFormatDeleteAndErrorMapping() async throws {
+        #expect(ReceiveView.formatCorporateAlias(suffix: "bryan039") == "@xatechservicbryan039")
+        #expect(ReceiveView.formatCorporateAlias(suffix: "1019") == "@xatechservic1019")
+        #expect(ReceiveView.formatCorporateAlias(suffix: "@xatechservicbryan039") == "@xatechservicbryan039")
+        #expect(ReceiveView.formatCorporateAlias(suffix: "@xatechseric1019") == "@xatechservic1019")
+        #expect(ReceiveView.formatCorporateAlias(suffix: "   ") == nil)
+
+        let api = MockAPIClient(latency: .zero)
+        let store = WalletStore(api: api)
+        await store.refreshAll()
+        #expect(store.brebKey != nil)
+
+        try await api.deleteBrebKey()
+        store.clearBrebKey()
+        #expect(store.brebKey == nil)
+        #expect(store.brebKeyLoaded == true)
+
+        let createdNumeric = try await api.createBrebKey(preferredAlias: ReceiveView.formatCorporateAlias(suffix: "1019"))
+        #expect(createdNumeric.alias == "@xatechservic1019")
+
+        let changedAlnum = try await api.changeBrebKey(preferredAlias: ReceiveView.formatCorporateAlias(suffix: "bryan039")!)
+        #expect(changedAlnum.alias == "@xatechservicbryan039")
+
+        #expect(APIError.biometricFailed.userMessage.contains("Face ID"))
+        let gatewayErr = APIClient.parseError(status: 504, data: Data("<html>Gateway time-out</html>".utf8), decoder: decoder)
+        #expect(gatewayErr.code == .providerError)
+    }
 }
 

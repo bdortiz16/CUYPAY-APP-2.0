@@ -175,7 +175,11 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
     }
     if (res.status === 0) {
       this.opts.logger.error({ op: name, err: res.error }, 'coinsenda network error');
-      throw new AppError('PROVIDER_ERROR', 'Coinsenda no respondió', { provider: 'coinsenda', op: name });
+      throw new AppError(
+        'PROVIDER_ERROR',
+        'Nuestro operador transaccional está tardando en responder. Inténtalo de nuevo en unos segundos.',
+        { op: name },
+      );
     }
     return res;
   }
@@ -183,11 +187,15 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
   private fail(name: string, res: SdkResult): never {
     const err = res.data?.error ?? res.data?.data?.error;
     this.opts.logger.warn({ op: name, status: res.status, code: err?.code, data: res.data }, 'coinsenda error');
-    throw new AppError('PROVIDER_ERROR', `Coinsenda respondió ${res.status} en ${name}`, {
-      provider: 'coinsenda',
-      op: name,
-      providerCode: err?.code ?? null,
-    });
+    throw new AppError(
+      'PROVIDER_ERROR',
+      'No pudimos completar la operación con la red Bre-B en este momento. Inténtalo de nuevo en unos segundos.',
+      {
+        op: name,
+        status: res.status,
+        providerCode: err?.code ?? null,
+      },
+    );
   }
 
   private getCoinsendaUserId(): string {
@@ -227,7 +235,8 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
 
   private async configureBrebUserConfig(input: {
     depositAccountId: string;
-    aliasPrefix: string;
+    fullHandleWithoutAt: string;
+    customSuffix: string;
     holderName: string;
   }): Promise<void> {
     try {
@@ -238,7 +247,7 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
             'GET',
             '/depositAccounts',
             { filter: JSON.stringify({ where: { id: input.depositAccountId }, limit: 1 }) },
-            { rawPayload: true },
+            { rawPayload: true, timeout: 5_000 },
           ),
         ).catch(() => null);
         if (daRes && sdk.isHttpSuccess(daRes.status)) {
@@ -258,19 +267,27 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
         }
       }
 
-      const maxLen = this.cachedBrebDepositAccount?.maxPrefixLength ?? 12;
-      const sanitizedPrefix = sanitizeBrebAliasPrefix(input.aliasPrefix, maxLen);
-      if (!sanitizedPrefix) return;
-
+      // Siempre preservamos el prefijo corporativo registrado (@xatechservic) para nunca corromperlo con dígitos sueltos (ej. 1019).
+      const corporatePrefix = 'xatechservic';
       const { firstName, lastName } = splitBrebHolderName(input.holderName);
+      const fullFormatted = `@${input.fullHandleWithoutAt}`;
       const rawCustom: Record<string, string> = {
-        alias_prefix: sanitizedPrefix,
+        alias_prefix: corporatePrefix,
         name: firstName,
         surname: lastName,
         merchant_name: 'CuyPay',
       };
 
       const allowedKeys = this.cachedBrebDepositAccount?.customKeys;
+      if (allowedKeys) {
+        for (const extraKey of ['alias', 'alias_value', 'custom_alias']) {
+          if (allowedKeys.includes(extraKey)) rawCustom[extraKey] = fullFormatted;
+        }
+        if (allowedKeys.includes('alias_suffix') && input.customSuffix) {
+          rawCustom.alias_suffix = input.customSuffix;
+        }
+      }
+
       const custom: Record<string, string> = {};
       for (const [k, v] of Object.entries(rawCustom)) {
         if (!v) continue;
@@ -286,7 +303,7 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
           'GET',
           '/users/{id}/depositProviderUserConfigs',
           { filter: JSON.stringify({ order: 'id DESC', limit: 200 }) },
-          { rawPayload: true },
+          { rawPayload: true, timeout: 5_000 },
         ),
       );
       if (!sdk.isHttpSuccess(cfgsRes.status)) return;
@@ -305,7 +322,13 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
           !cfg?.account_id,
       );
 
+      const needsUpdate = (cfg: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+        const existing = cfg?.custom && typeof cfg.custom === 'object' ? cfg.custom : {};
+        return Object.entries(custom).some(([k, v]) => existing[k] !== v);
+      };
+
       const updateExistingCfg = async (cfg: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+        if (!needsUpdate(cfg)) return;
         const mergedCustom = {
           ...(cfg.custom && typeof cfg.custom === 'object' ? cfg.custom : {}),
           ...custom,
@@ -323,7 +346,7 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
                 custom: mergedCustom,
               },
             },
-            { rawPayload: true },
+            { rawPayload: true, timeout: 6_000 },
           ),
         );
       };
@@ -348,14 +371,14 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
                 custom,
               },
             },
-            { rawPayload: true },
+            { rawPayload: true, timeout: 6_000 },
           ),
         );
       }
     } catch (err) {
       this.opts.logger?.warn?.(
         { err: (err as Error).message },
-        'No se pudo actualizar depositProviderUserConfig de Bre-B en Coinsenda (continuando creación)',
+        'No se pudo actualizar depositProviderUserConfig de Bre-B (continuando creación)',
       );
     }
   }
@@ -376,7 +399,7 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
               deposit_provider_id: providerKeyId,
             },
           },
-          { rawPayload: true },
+          { rawPayload: true, timeout: 4_000 },
         ),
       );
     } catch {
@@ -387,10 +410,9 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
   async createBrebKey(input: { alias: string; holderName: string; userRef: string }) {
     return this.runBrebSerialized(async () => {
       await this.ensureSession();
-      const cleanAlias = input.alias.trim();
-      const withoutAt = cleanAlias.replace(/^@+/, '');
-      const normalizedHandle = stripCorporatePrefixFromHandle(withoutAt);
-      const formattedAlias = `@${normalizedHandle || withoutAt}`;
+      const fullHandleWithoutAt = normalizeCorporateBrebHandle(input.alias);
+      const customSuffix = stripCorporatePrefixFromHandle(fullHandleWithoutAt);
+      const formattedAlias = `@${fullHandleWithoutAt}`;
 
       // Catálogo oficial de Bre-B en Coinsenda: 69391969002c69002ac2e285 (provider_type: breb, currency: cop)
       const depositAccountId =
@@ -398,13 +420,20 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
           ? this.opts.brebDepositAccountId
           : '69391969002c69002ac2e285';
 
-      // Personaliza alias_prefix y nombre del titular en la cuenta COP antes de reclamar la llave Bre-B
-      // (Coinsenda toma una foto permanente de depositProviderUserConfig al crear cada depositProvider).
+      // Asegura que depositProviderUserConfig conserve alias_prefix='xatechservic' y nombre del titular
       await this.configureBrebUserConfig({
         depositAccountId,
-        aliasPrefix: normalizedHandle || withoutAt,
+        fullHandleWithoutAt,
+        customSuffix,
         holderName: input.holderName,
       });
+
+      const baseCreateData = {
+        country: 'international',
+        recaptcha_response: 'BYPASS_RECAPTCHA_DEV',
+        account_id: this.opts.copAccountId,
+        deposit_account_id: depositAccountId,
+      };
 
       let res = await this.call('createBrebKey', (c) =>
         c.request(
@@ -413,53 +442,54 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
           '/depositProviders/create-deposit-provider-by-account-id-public',
           {
             data: {
-              country: 'international',
-              recaptcha_response: 'BYPASS_RECAPTCHA_DEV',
-              account_id: this.opts.copAccountId,
-              deposit_account_id: depositAccountId,
+              ...baseCreateData,
               alias: formattedAlias,
             },
           },
-          { rawPayload: true },
+          { rawPayload: true, timeout: 12_000 },
         ),
       );
-      if (res.status === 465) {
+
+      const firstErrCode = res.data?.error?.code ?? res.data?.data?.error?.code;
+      if (
+        !sdk.isHttpSuccess(res.status) &&
+        (res.status === 465 || res.status === 400 || res.status === 422) &&
+        firstErrCode !== 'depositprovider_alias_taken'
+      ) {
         res = await this.call('createBrebKeyWithoutExtraAliasField', (c) =>
           c.request(
             'deposit',
             'POST',
             '/depositProviders/create-deposit-provider-by-account-id-public',
-            {
-              data: {
-                country: 'international',
-                recaptcha_response: 'BYPASS_RECAPTCHA_DEV',
-                account_id: this.opts.copAccountId,
-                deposit_account_id: depositAccountId,
-              },
-            },
-            { rawPayload: true },
+            { data: baseCreateData },
+            { rawPayload: true, timeout: 12_000 },
           ),
         );
       }
+
       if (!sdk.isHttpSuccess(res.status)) {
         const code = res.data?.error?.code ?? res.data?.data?.error?.code;
         if (res.status === 409 || code === 'depositprovider_already_exists' || code === 'depositprovider_alias_taken') {
-          throw new AppError('BREB_ALIAS_TAKEN', 'La llave Bre-B ya está tomada', { providerCode: code });
+          throw new AppError('BREB_ALIAS_TAKEN', 'Esa llave Bre-B ya está en uso. Prueba con otra combinación.', {
+            providerCode: code,
+          });
         }
         this.fail('createBrebKey', res);
       }
+
       const d = this.payload(res);
       const item = Array.isArray(d) ? d[0] : d;
-      const rawAssignedAlias =
-        item?.account?.account_id?.account_id ??
-        item?.account?.account_id ??
-        item?.reference?.data?.alias_value ??
-        item?.reference?.alias_value ??
-        item?.alias_value ??
-        item?.alias ??
-        item?.address ??
-        formattedAlias;
-      const assignedStr = String(rawAssignedAlias).trim();
+      const stringCandidates: Array<unknown> = [
+        item?.account?.account_id?.account_id,
+        typeof item?.account?.account_id === 'string' ? item.account.account_id : undefined,
+        item?.reference?.data?.alias_value,
+        item?.reference?.alias_value,
+        item?.alias_value,
+        item?.alias,
+        item?.address,
+      ];
+      const foundAlias = stringCandidates.find((v): v is string => typeof v === 'string' && v.trim().length > 0);
+      const assignedStr = (foundAlias ?? formattedAlias).trim();
       const assignedAlias = assignedStr.startsWith('@') ? assignedStr : `@${assignedStr}`;
       const providerKeyId = String(item?.id ?? item?.deposit_provider_id ?? newId('dp', new Date()));
 
@@ -493,7 +523,7 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
             country: 'international',
           },
         },
-        { rawPayload: true },
+        { rawPayload: true, timeout: 6_000 },
       ),
     );
     if (!sdk.isHttpSuccess(res.status)) {
@@ -723,13 +753,30 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
   }
 
   async cancelBrebKey(providerKeyId: string) {
+    if (!providerKeyId) return;
     const res = await this.call('cancelBrebKey', (c) => {
-      const dp = c.deposit.depositProvider;
-      if (dp.cancelDepositProviderPublic) {
+      const dp = c.deposit?.depositProvider;
+      if (dp?.cancelDepositProviderPublic) {
         return dp.cancelDepositProviderPublic({ deposit_provider_id: providerKeyId });
       }
-      return Promise.resolve({ status: 200, data: {} });
+      return c.request(
+        'deposit',
+        'POST',
+        '/depositProviders/cancel-deposit-provider-public',
+        {
+          data: {
+            country: 'international',
+            recaptcha_response: 'BYPASS_RECAPTCHA_DEV',
+            deposit_provider_id: providerKeyId,
+          },
+        },
+        { rawPayload: true, timeout: 5_000 },
+      );
     });
+    const code = res.data?.error?.code ?? res.data?.data?.error?.code;
+    if (res.status === 404 || code === 'depositprovider_not_found' || code === 'depositprovider_already_canceled') {
+      return;
+    }
     if (!sdk.isHttpSuccess(res.status)) this.fail('cancelBrebKey', res);
   }
 
@@ -1613,29 +1660,33 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
   }
 }
 
+function normalizeCorporateBrebHandle(raw: string): string {
+  let cleaned = String(raw ?? '')
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/^@+/, '')
+    .toLowerCase()
+    .replace(/\.{2,}/g, '.')
+    .replace(/^\.+|\.+$/g, '');
+  if (cleaned.startsWith('xatechseric') && !cleaned.startsWith('xatechservic') && cleaned.length > 'xatechseric'.length) {
+    cleaned = 'xatechservic' + cleaned.slice('xatechseric'.length).replace(/^\.+/, '');
+  }
+  const doubled = 'xatechservicxatechservic';
+  if (cleaned.startsWith(doubled) && cleaned.length > doubled.length) {
+    cleaned = 'xatechservic' + cleaned.slice(doubled.length).replace(/^\.+/, '');
+  }
+  return cleaned;
+}
+
 function stripCorporatePrefixFromHandle(raw: string): string {
   const trimmed = raw.trim().replace(/^@+/, '');
   const lower = trimmed.toLowerCase();
   for (const legacy of ['xatechservic', 'xatechseric']) {
-    if (lower.startsWith(legacy) && trimmed.length >= legacy.length + 3) {
+    if (lower.startsWith(legacy) && trimmed.length > legacy.length) {
       return trimmed.slice(legacy.length).replace(/^\.+/, '');
     }
   }
   return trimmed;
-}
-
-function sanitizeBrebAliasPrefix(raw: string, maxLength = 12): string {
-  const withoutCorp = stripCorporatePrefixFromHandle(raw);
-  const cleaned = withoutCorp
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9.]/g, '')
-    .replace(/\.{2,}/g, '.')
-    .replace(/^\.+|\.+$/g, '')
-    .slice(0, maxLength)
-    .replace(/\.+$/g, '');
-  return cleaned.length >= 3 ? cleaned : '';
 }
 
 function splitBrebHolderName(holderName: string): { firstName: string; lastName: string } {

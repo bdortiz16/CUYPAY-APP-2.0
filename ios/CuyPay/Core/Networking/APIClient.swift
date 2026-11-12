@@ -23,7 +23,7 @@ actor APIClient: CuyPayAPI {
             self.session = session
         } else {
             let configuration = URLSessionConfiguration.ephemeral
-            configuration.timeoutIntervalForRequest = 30
+            configuration.timeoutIntervalForRequest = 45
             configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
             configuration.urlCache = nil
             configuration.httpCookieStorage = nil
@@ -55,6 +55,8 @@ actor APIClient: CuyPayAPI {
                 try await signer.sign(&request, deviceId: deviceId, reason: reason)
             } catch let error as DeviceKeyError {
                 throw Self.map(error)
+            } catch {
+                throw APIError.deviceKeyUnavailable
             }
         }
 
@@ -110,7 +112,7 @@ actor APIClient: CuyPayAPI {
     }
 
     private func decode<R: Decodable>(_ type: R.Type, from data: Data) throws -> R {
-        if data.isEmpty, let empty = EmptyResponse() as? R {
+        if let empty = EmptyResponse() as? R {
             return empty
         }
         do {
@@ -127,7 +129,10 @@ actor APIClient: CuyPayAPI {
         let fallback: APIErrorCode = switch status {
         case 401: .unauthorized
         case 404: .notFound
+        case 409: .brebAliasTaken
         case 422: .validationError
+        case 429: .rateLimited
+        case 502, 503, 504, 520...524: .providerError
         default: .unknown
         }
         return .server(status: status, code: fallback, message: nil, limit: nil)
@@ -136,6 +141,7 @@ actor APIClient: CuyPayAPI {
     private static func map(_ error: DeviceKeyError) -> APIError {
         switch error {
         case .biometryCancelled: .biometricCancelled
+        case .biometryFailed: .biometricFailed
         default: .deviceKeyUnavailable
         }
     }
@@ -286,7 +292,12 @@ actor APIClient: CuyPayAPI {
     }
 
     func deleteBrebKey() async throws {
-        let _: EmptyResponse = try await send(.delete("/breb/key", signReason: SignReason.deleteBrebKey))
+        do {
+            let _: EmptyResponse = try await send(.delete("/breb/key", signReason: SignReason.deleteBrebKey))
+        } catch let error as APIError {
+            if case .server(404, _, _, _) = error { return }
+            throw error
+        }
     }
 
     // MARK: - Tarjetas (Cards & Apple Pay)

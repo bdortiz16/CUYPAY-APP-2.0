@@ -337,27 +337,59 @@ describe('Card & Bre-B lifecycle endpoints', () => {
     expect(copWallet.availableMinor).toBe(8_800_000); // $70.000 + $18.000 devueltos = $88.000 COP
   });
 
-  it('permite eliminar llave Bre-B anterior, crear llave personalizada (@bryan), registrar push-token y sincronizar depósitos con GET /wallets?sync=1', async () => {
+  it('retira todas las llaves Bre-B previas (incluyendo bloqueadas), permite @xatechservicbryan039 y @xatechservic1019, y sincroniza depósitos', async () => {
     const c = await registerUser(env, { firstName: 'Bryan', lastName: 'Ortiz', phone: '+573154103792' });
     const user = (await env.container.deps.repos.users.byId(c.session.userId))!;
     user.kycStatus = 'approved';
     await env.container.deps.repos.users.update(user);
 
-    // 1. Crea llave genérica, la elimina y verifica que GET /v1/breb/key devuelva 404 (no llave fantasma bloqueada)
+    // Simula llave legada en estado 'blocked' (previa a 'replaced') + llave activa actual
+    await env.container.deps.repos.brebKeys.create({
+      id: 'brk_legacy_blocked',
+      userId: user.id,
+      type: 'alias',
+      alias: '@xatechservicold999',
+      status: 'blocked',
+      holderName: 'Bryan Ortiz',
+      providerKeyId: 'dp_legacy_old',
+      createdAt: new Date(Date.now() - 60_000),
+    });
+
     const genericKey = await c.signed('POST', '/v1/breb/key', {});
-    expect(genericKey.status).toBe(200);
+    expect(genericKey.status).toBe(409); // bloqueada legada aún figuraba hasta eliminarla
+
+    // 1. Elimina todas las llaves previas de golpe y verifica que GET /v1/breb/key devuelva 404 inmediato y DELETE repetido sea 204
     const delRes = await c.signed('DELETE', '/v1/breb/key', {});
     expect(delRes.status).toBe(204);
     const afterDel = await c.call('GET', '/v1/breb/key');
     expect(afterDel.status).toBe(404);
+    const secondDel = await c.signed('DELETE', '/v1/breb/key', {});
+    expect(secondDel.status).toBe(204);
 
-    // 2. Crea llave personalizada limpia (incluso si el cliente envía prefijo legado @xatechsericbryan)
-    const customKey = await c.signed('POST', '/v1/breb/key', { preferredAlias: '@xatechsericbryan' });
+    // 2. Crea llave personalizada con @xatechservicbryan039 (incluso corrigiendo typo @xatechsericbryan039)
+    const customKey = await c.signed('POST', '/v1/breb/key', { preferredAlias: '@xatechsericbryan039' });
     expect(customKey.status).toBe(200);
-    expect(customKey.body.alias).toBe('@bryan');
+    expect(customKey.body.alias).toBe('@xatechservicbryan039');
     expect(customKey.body.status).toBe('active');
 
-    // 3. Registra token APNs del dispositivo
+    // 3. Permite cambiar a sufijo numérico (@xatechservic1019) respetando el prefijo corporativo
+    const numericKey = await c.signed('PUT', '/v1/breb/key', { preferredAlias: '@xatechservic1019' });
+    expect(numericKey.status).toBe(200);
+    expect(numericKey.body.alias).toBe('@xatechservic1019');
+    expect(numericKey.body.status).toBe('active');
+
+    // En modo live, sufijos cortos como 'bryan039' o '1019' se normalizan automáticamente con @xatechservic
+    const prevMode = env.container.deps.config.PROVIDERS_MODE;
+    env.container.deps.config.PROVIDERS_MODE = 'live';
+    try {
+      expect(env.container.services.breb.normalizeAlias('bryan039')).toBe('@xatechservicbryan039');
+      expect(env.container.services.breb.normalizeAlias('1019')).toBe('@xatechservic1019');
+      expect(env.container.services.breb.normalizeAlias('@xatechservic1019')).toBe('@xatechservic1019');
+    } finally {
+      env.container.deps.config.PROVIDERS_MODE = prevMode;
+    }
+
+    // 4. Registra token APNs del dispositivo
     const pushRes = await c.call('POST', '/v1/me/push-token', {
       token: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90',
       environment: 'production',
@@ -365,7 +397,7 @@ describe('Card & Bre-B lifecycle endpoints', () => {
     expect(pushRes.status).toBe(200);
     expect(pushRes.body).toEqual({ registered: true });
 
-    // 4. Simula depósito entrante con remitente y verifica que GET /v1/wallets?sync=1 lo acredite automáticamente
+    // 5. Simula depósito entrante con remitente y verifica que GET /v1/wallets?sync=1 lo acredite automáticamente
     const storedKey = (await env.container.deps.repos.brebKeys.byUser(c.session.userId))!;
     env.coinsenda.simulateDeposit({
       providerKeyId: storedKey.providerKeyId,

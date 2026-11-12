@@ -12,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS citext;
 CREATE TYPE currency_code    AS ENUM ('COP', 'BRL');
 CREATE TYPE kyc_status       AS ENUM ('not_started', 'pending', 'approved', 'rejected', 'retry');
 CREATE TYPE user_tier        AS ENUM ('basic', 'full');
-CREATE TYPE breb_key_status  AS ENUM ('active', 'blocked', 'pending');
+CREATE TYPE breb_key_status  AS ENUM ('active', 'blocked', 'pending', 'replaced');
 CREATE TYPE aml_result       AS ENUM ('clear', 'hit', 'review');
 CREATE TYPE beneficiary_status AS ENUM ('active', 'pending_review', 'rejected');
 CREATE TYPE txn_type         AS ENUM ('deposit', 'transfer', 'conversion', 'card_pocket', 'card_purchase');
@@ -120,13 +120,18 @@ CREATE TABLE kyc_webhook_events (               -- auditoría e idempotencia de 
 -- ── Bre-B ──────────────────────────────────────────────────────────────────
 CREATE TABLE breb_keys (
   id              TEXT PRIMARY KEY,
-  user_id         TEXT NOT NULL UNIQUE REFERENCES users(id),   -- una llave por usuario (fase 1)
-  alias           TEXT NOT NULL UNIQUE,
+  user_id         TEXT NOT NULL REFERENCES users(id),
+  type            TEXT NOT NULL DEFAULT 'alias',
+  alias           TEXT NOT NULL,
   status          breb_key_status NOT NULL,
   holder_name     TEXT NOT NULL,
   provider_key_id TEXT NOT NULL UNIQUE,                        -- deposit_provider_id en Coinsenda
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX breb_keys_user_live_idx
+  ON breb_keys(user_id) WHERE status <> 'replaced' AND type <> 'national_id';
+CREATE UNIQUE INDEX breb_keys_alias_live_idx
+  ON breb_keys(lower(alias)) WHERE status <> 'replaced';
 
 CREATE TABLE breb_resolutions (
   id               TEXT PRIMARY KEY,

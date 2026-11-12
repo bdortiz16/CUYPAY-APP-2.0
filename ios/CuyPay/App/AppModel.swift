@@ -162,6 +162,8 @@ final class AppModel {
             didAuthenticate(session.user)
         } catch DeviceKeyError.biometryCancelled {
             loginError = APIError.biometricCancelled.userMessage
+        } catch DeviceKeyError.biometryFailed {
+            loginError = APIError.biometricFailed.userMessage
         } catch let error as DeviceKeyError {
             loginError = error == .keyNotFound
                 ? String(localized: "No encontramos la llave de este dispositivo. Regístralo de nuevo.")

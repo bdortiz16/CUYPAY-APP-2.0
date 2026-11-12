@@ -177,7 +177,15 @@ export function createMemoryRepositories(): Repositories {
       if (data.devices) for (const [k, v] of data.devices) devices.set(k, v);
       if (data.otps) for (const [k, v] of data.otps) otps.set(k, v);
       if (data.kyc) for (const [k, v] of data.kyc) kyc.set(k, v);
-      if (data.brebKeys) for (const [k, v] of data.brebKeys) brebKeys.set(k, v);
+      if (data.brebKeys) {
+        for (const [k, v] of data.brebKeys) {
+          if (v && typeof v === 'object') {
+            v.alias = typeof v.alias === 'string' ? v.alias : '';
+            v.createdAt = v.createdAt instanceof Date ? v.createdAt : new Date(v.createdAt ?? Date.now());
+            brebKeys.set(k, v);
+          }
+        }
+      }
       if (data.cards) for (const [k, v] of data.cards) cards.set(k, v);
       if (data.beneficiaries) for (const [k, v] of data.beneficiaries) beneficiaries.set(k, v);
       if (data.ledgerAccounts) for (const [k, v] of data.ledgerAccounts) ledgerAccounts.set(k, v);
@@ -324,23 +332,31 @@ export function createMemoryRepositories(): Repositories {
         save();
       },
       async byUser(userId) {
+        const isUserAliasKey = (k: BrebKey) =>
+          k.userId === userId && k.status !== 'replaced' && k.type !== 'national_id' && Boolean(k.alias);
         return (
-          opt(find(brebKeys, (k) => k.userId === userId && k.status === 'active')) ??
-          opt(find(brebKeys, (k) => k.userId === userId && k.status !== 'replaced'))
+          opt(find(brebKeys, (k) => isUserAliasKey(k) && k.status === 'active')) ??
+          opt(find(brebKeys, (k) => isUserAliasKey(k) && k.status === 'pending')) ??
+          opt(find(brebKeys, (k) => isUserAliasKey(k)))
         );
       },
       async listByUser(userId) {
         return [...brebKeys.values()].filter((k) => k.userId === userId).map(clone);
       },
       async listActive() {
-        return [...brebKeys.values()].filter((k) => k.status === 'active').map(clone);
+        return [...brebKeys.values()].filter((k) => k.status === 'active' && k.type !== 'national_id').map(clone);
       },
       async byProviderKeyId(pid) {
         return opt(find(brebKeys, (k) => k.providerKeyId === pid));
       },
       async byAlias(alias) {
         const target = alias.trim().toLowerCase();
-        return opt(find(brebKeys, (k) => k.status !== 'replaced' && k.alias.toLowerCase() === target));
+        return opt(
+          find(
+            brebKeys,
+            (k) => k.status !== 'replaced' && typeof k.alias === 'string' && k.alias.trim().toLowerCase() === target,
+          ),
+        );
       },
       async byId(id) {
         return opt(brebKeys.get(id));

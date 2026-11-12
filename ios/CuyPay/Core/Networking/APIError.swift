@@ -73,6 +73,8 @@ enum APIError: Error, Hashable, Sendable, LocalizedError {
     case notAuthenticated
     /// El usuario canceló Face ID.
     case biometricCancelled
+    /// Face ID no reconoció el rostro en este intento (reintentable).
+    case biometricFailed
     /// Face ID no disponible o la clave del dispositivo es inválida (biometría cambió).
     case deviceKeyUnavailable
     case unknown(String)
@@ -106,6 +108,8 @@ enum APIError: Error, Hashable, Sendable, LocalizedError {
             return String(localized: "Tu sesión expiró. Ingresa de nuevo con Face ID.")
         case .biometricCancelled:
             return String(localized: "Cancelaste la autenticación. La operación no se realizó.")
+        case .biometricFailed:
+            return String(localized: "No pudimos reconocer tu rostro con Face ID. Inténtalo de nuevo.")
         case .deviceKeyUnavailable:
             return String(localized: "No pudimos usar la llave segura de este dispositivo. Si cambiaste tu Face ID, debes registrar el dispositivo de nuevo.")
         case .unknown:

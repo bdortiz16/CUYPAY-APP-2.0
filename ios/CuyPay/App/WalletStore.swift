@@ -251,6 +251,11 @@ final class WalletStore {
         }
     }
 
+    func clearBrebKey() {
+        brebKey = nil
+        brebKeyLoaded = true
+    }
+
     func refreshCards() async {
         do {
             cards = try await api.cards()

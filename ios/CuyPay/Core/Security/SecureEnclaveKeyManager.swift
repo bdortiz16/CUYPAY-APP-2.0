@@ -25,6 +25,7 @@ enum DeviceKeyError: Error, Sendable {
     case accessControlCreationFailed
     case biometryUnavailable
     case biometryCancelled
+    case biometryFailed
     case keyInvalidated
 }
 
@@ -111,7 +112,15 @@ final class SecureEnclaveKeyManager: DeviceSigning {
     }
 
     func sign(_ message: Data, reason: String) async throws -> String {
-        guard let data = try keychain.data(for: KeychainAccount.deviceKey) else {
+        let data: Data
+        do {
+            guard let stored = try keychain.data(for: KeychainAccount.deviceKey) else {
+                throw DeviceKeyError.keyNotFound
+            }
+            data = stored
+        } catch let error as DeviceKeyError {
+            throw error
+        } catch {
             throw DeviceKeyError.keyNotFound
         }
 
@@ -135,11 +144,17 @@ final class SecureEnclaveKeyManager: DeviceSigning {
             switch error.code {
             case .userCancel, .appCancel, .systemCancel, .userFallback:
                 throw DeviceKeyError.biometryCancelled
-            case .biometryNotAvailable, .biometryNotEnrolled, .biometryLockout:
+            case .authenticationFailed:
+                throw DeviceKeyError.biometryFailed
+            case .biometryNotAvailable, .biometryNotEnrolled, .biometryLockout, .passcodeNotSet:
                 throw DeviceKeyError.biometryUnavailable
             default:
-                throw error
+                throw DeviceKeyError.biometryFailed
             }
+        } catch let error as DeviceKeyError {
+            throw error
+        } catch {
+            throw DeviceKeyError.biometryFailed
         }
 
         // 2) Usamos el contexto ya autenticado: el Secure Enclave no vuelve a pedir Face ID.
