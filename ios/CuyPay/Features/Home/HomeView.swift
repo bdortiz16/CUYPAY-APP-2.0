@@ -74,46 +74,35 @@ struct HomeView: View {
                             ErrorBanner(message: error)
                         }
 
-                        VStack(spacing: 12) {
-                            HStack(alignment: .top, spacing: 12) {
-                                CardQuickCard(
-                                    card: store.activeCard,
-                                    hideAmounts: hideAmounts,
-                                    isLoading: !store.cardsLoaded,
-                                    onTap: { openGated(.card) }
-                                )
-                                SavingsQuickCard(
-                                    userSavings: store.userSavings,
-                                    config: store.savingsConfig,
-                                    hideAmounts: hideAmounts,
-                                    isLoading: !store.savingsLoaded && !store.hasLoadedOnce,
-                                    onTap: { openGated(.savingsVault) }
-                                )
+                        HStack(alignment: .top, spacing: 12) {
+                            CardQuickCard(
+                                card: store.activeCard,
+                                hideAmounts: hideAmounts,
+                                isLoading: !store.cardsLoaded,
+                                onTap: { openGated(.card) }
+                            )
+                            RateChartCard(
+                                rate: store.fxRate,
+                                isLoading: !store.hasLoadedOnce,
+                                onTap: store.fxRate != nil ? { openGated(.convert) } : nil
+                            )
+                        }
+
+                        // Accesos directos delgados a Bolsillo de Ahorro y Créditos
+                        HStack(spacing: 12) {
+                            quickFinancePill(
+                                title: "Bolsillo de Ahorro",
+                                subtitle: savingsPillSubtitle,
+                                systemImage: "lock.rotation"
+                            ) {
+                                openGated(.savingsVault)
                             }
-
-                            HStack(alignment: .top, spacing: 12) {
-                                LoansQuickCard(
-                                    userLoans: store.userLoans,
-                                    config: store.loansConfig,
-                                    hideAmounts: hideAmounts,
-                                    isLoading: !store.loansLoaded && !store.hasLoadedOnce,
-                                    onTap: { openGated(.loans) }
-                                )
-
-                                if store.fxRate != nil || !store.hasLoadedOnce {
-                                    RateChartCard(
-                                        rate: store.fxRate,
-                                        isLoading: !store.hasLoadedOnce,
-                                        onTap: store.fxRate != nil ? { openGated(.convert) } : nil
-                                    )
-                                } else {
-                                    BeneficiariesQuickCard(
-                                        beneficiaries: store.activeBeneficiaries,
-                                        onSelect: { openGated(.send(preselected: $0)) },
-                                        onAdd: { openGated(.addBeneficiary) },
-                                        onSeeAll: { path.append(.beneficiaries) }
-                                    )
-                                }
+                            quickFinancePill(
+                                title: "Créditos",
+                                subtitle: loansPillSubtitle,
+                                systemImage: "banknote.fill"
+                            ) {
+                                openGated(.loans)
                             }
                         }
 
@@ -179,6 +168,67 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    private var savingsPillSubtitle: String {
+        if let summary = store.userSavings?.summary, summary.activeCount > 0 {
+            return hideAmounts ? "•••• bloqueado" : summary.totalPrincipal.formatted()
+        }
+        return "30 a 360 días"
+    }
+
+    private var loansPillSubtitle: String {
+        if let summary = store.userLoans?.summary {
+            if summary.activeCount > 0 {
+                return hideAmounts ? "•••• activo" : summary.activeRemaining.formatted()
+            }
+            if summary.pendingCount > 0 {
+                return "En estudio"
+            }
+        }
+        return "Solicita hasta 360d"
+    }
+
+    private func quickFinancePill(
+        title: LocalizedStringKey,
+        subtitle: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(Theme.spruce)
+                    .frame(width: 34, height: 34)
+                    .background(Theme.spruce.opacity(0.12), in: .circle)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                    Text(verbatim: subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            .contentShape(.rect(cornerRadius: 20))
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 20))
     }
 
     // MARK: Encabezado
