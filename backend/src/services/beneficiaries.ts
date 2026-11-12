@@ -1,4 +1,5 @@
 import type { AmlCheck, Beneficiary, BrebResolution, User } from '../domain/types.js';
+import { normalizeBrebKeyCandidate, parseBrebQrPayload } from '../lib/breb-qr.js';
 import { newId } from '../lib/clock.js';
 import { AppError } from '../lib/errors.js';
 import type { ServiceDeps } from './deps.js';
@@ -6,21 +7,41 @@ import { requireKycApproved } from './kyc.js';
 
 const RESOLUTION_TTL_MS = 10 * 60_000;
 
-/** "Juan Pérez" → "JUAN P***Z" */
-export function maskHolderName(firstName: string, lastName: string): string {
-  const first = firstName.trim().split(/\s+/)[0]?.toUpperCase() ?? '';
-  const last = lastName.trim().split(/\s+/)[0]?.toUpperCase() ?? '';
-  if (!last) return first;
-  if (last.length <= 2) return `${first} ${last[0]}***`;
-  return `${first} ${last[0]}***${last[last.length - 1]}`;
+/** "Juan Pérez" → "JUAN P***Z"; para comercios muestra el nombre comercial completo en mayúsculas. */
+export function maskHolderName(firstName: string, lastName: string, isMerchant = false): string {
+  if (isMerchant) {
+    return `${firstName} ${lastName}`.replace(/\s+/g, ' ').trim().toUpperCase();
+  }
+  let first = firstName.trim();
+  let last = lastName.trim();
+  if (!last && first.includes(' ')) {
+    const tokens = first.split(/\s+/);
+    first = tokens[0] ?? '';
+    last = tokens.slice(1).join(' ');
+  }
+  const firstWord = first.split(/\s+/)[0]?.toUpperCase() ?? '';
+  const lastWord = last.split(/\s+/)[0]?.toUpperCase() ?? '';
+  if (!lastWord) return firstWord;
+  if (lastWord.length <= 2) return `${firstWord} ${lastWord[0]}***`;
+  return `${firstWord} ${lastWord[0]}***${lastWord[lastWord.length - 1]}`;
 }
 
-export const maskDocument = (doc: string): string => `****${doc.slice(-4)}`;
+export const maskDocument = (doc: string): string => {
+  const clean = doc.trim();
+  if (!clean) return '****';
+  return `****${clean.slice(-4)}`;
+};
 
-/** Normaliza la llave a consultar: celulares/documentos sin espacios; alias @ en minúsculas. */
+/** Normaliza la llave a consultar: celulares (+57 → 10 dígitos), documentos/comercios sin espacios, alias @ y correos en minúsculas. */
 export function normalizeBeneficiaryAlias(alias: string): string {
   const a = alias.trim();
+  if (!a) return '';
   if (a.startsWith('@')) return a.toLowerCase();
+  if (a.includes('@')) return a.replace(/\s+/g, '').toLowerCase();
+  const compactPhone = a.replace(/[\s()-]/g, '');
+  if (/^\+?573\d{9}$/.test(compactPhone)) {
+    return compactPhone.replace(/^\+?57/, '');
+  }
   return a.replace(/[\s-]/g, '');
 }
 
@@ -28,22 +49,88 @@ export function normalizeBeneficiaryAlias(alias: string): string {
 export class BeneficiaryService {
   constructor(private readonly d: ServiceDeps) {}
 
-  async resolve(user: User, rawAlias: string): Promise<BrebResolution> {
+  async resolve(user: User, rawAlias: string, qrPayload?: string): Promise<BrebResolution> {
     requireKycApproved(user);
-    const alias = normalizeBeneficiaryAlias(rawAlias);
-    if (!alias || alias.length > 64) throw new AppError('VALIDATION_ERROR', 'Llave inválida', { field: 'alias' });
-    const holder = await this.d.coinsenda.resolveBrebAlias(alias);
-    if (!holder) throw new AppError('BREB_ALIAS_NOT_FOUND', 'La llave Bre-B no existe', { alias });
+
+    const parsedQr = qrPayload?.trim() ? parseBrebQrPayload(qrPayload) : null;
+    const parsedDirect = parseBrebQrPayload(rawAlias);
+    const activeParsed = parsedQr && parsedQr.candidateKeys.length > 0 ? parsedQr : parsedDirect;
+
+    const candidates: string[] = [];
+    const addCandidate = (value: string | null | undefined) => {
+      if (!value) return;
+      const norm = normalizeBeneficiaryAlias(value);
+      if (norm && norm.length <= 64 && !candidates.includes(norm)) {
+        candidates.push(norm);
+      }
+    };
+
+    // Si rawAlias ya es una llave puntual extraída por el cliente (no un QR crudo), probarla primero
+    if (!parsedDirect.isEmvCo && parsedDirect.primaryKey) {
+      for (const k of parsedDirect.candidateKeys) addCandidate(k);
+    }
+    if (parsedQr) {
+      for (const k of parsedQr.candidateKeys) addCandidate(k);
+    }
+    for (const k of parsedDirect.candidateKeys) addCandidate(k);
+
+    if (candidates.length === 0) {
+      const fallback = normalizeBrebKeyCandidate(rawAlias, 'auto');
+      addCandidate(fallback);
+    }
+
+    if (candidates.length === 0) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        activeParsed.unsupportedReason ?? 'Llave inválida',
+        { field: 'alias' },
+      );
+    }
+
+    let resolvedAlias = candidates[0]!;
+    let holder: Awaited<ReturnType<ServiceDeps['coinsenda']['resolveBrebAlias']>> = null;
+    for (const candidate of candidates) {
+      holder = await this.d.coinsenda.resolveBrebAlias(candidate);
+      if (holder) {
+        resolvedAlias = normalizeBeneficiaryAlias(holder.alias || candidate) || candidate;
+        break;
+      }
+    }
+
+    if (!holder) {
+      throw new AppError('BREB_ALIAS_NOT_FOUND', 'La llave Bre-B no existe', { alias: resolvedAlias });
+    }
+
+    const isMerchant = Boolean(
+      activeParsed.isMerchant ||
+        holder.documentType.toUpperCase() === 'NIT' ||
+        (/^\d{10}$/.test(resolvedAlias) && resolvedAlias.startsWith('00')),
+    );
+
+    let firstName = holder.firstName.trim();
+    let lastName = holder.lastName.trim();
+    if (!firstName && !lastName && activeParsed.merchantName) {
+      firstName = activeParsed.merchantName;
+    } else if (!isMerchant && !lastName && firstName.includes(' ')) {
+      const parts = firstName.split(/\s+/);
+      firstName = parts[0] ?? firstName;
+      lastName = parts.slice(1).join(' ');
+    }
+
     const now = this.d.clock.now();
     const res: BrebResolution = {
       id: newId('res', now),
       userId: user.id,
-      alias,
-      holderFirstName: holder.firstName,
-      holderLastName: holder.lastName,
-      documentType: holder.documentType,
-      documentNumber: holder.documentNumber,
-      bankName: holder.bankName,
+      alias: resolvedAlias,
+      holderFirstName: firstName,
+      holderLastName: lastName,
+      documentType: holder.documentType || (isMerchant ? 'NIT' : 'CC'),
+      documentNumber: holder.documentNumber || resolvedAlias.replace(/\D/g, '') || '0000',
+      bankName: holder.bankName || 'Bre-B',
+      isMerchant,
+      merchantName: activeParsed.merchantName ?? (isMerchant ? `${firstName} ${lastName}`.trim() || null : null),
+      suggestedAmountMinor: activeParsed.amountMinor,
+      suggestedReference: activeParsed.reference,
       raw: holder.raw,
       expiresAt: new Date(now.getTime() + RESOLUTION_TTL_MS),
       createdAt: now,

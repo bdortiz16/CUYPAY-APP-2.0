@@ -37,10 +37,30 @@ export class TransferService {
     return b;
   }
 
-  async preview(user: User, beneficiaryId: string, amountMinor: number) {
+  async preview(
+    user: User,
+    target: string | { beneficiaryId?: string; resolutionId?: string },
+    amountMinor: number,
+  ) {
     requireKycApproved(user);
     await assertNotFrozen(this.d, user.id);
-    await this.activeBeneficiary(user.id, beneficiaryId);
+    const beneficiaryId = typeof target === 'string' ? target : target.beneficiaryId;
+    const resolutionId = typeof target === 'string' ? undefined : target.resolutionId;
+    if (beneficiaryId) {
+      await this.activeBeneficiary(user.id, beneficiaryId);
+    } else if (resolutionId) {
+      const res = await this.d.repos.resolutions.byId(resolutionId);
+      if (!res || res.userId !== user.id) {
+        throw new AppError('NOT_FOUND', 'Resolución no encontrada');
+      }
+      if (res.expiresAt <= this.d.clock.now()) {
+        throw new AppError('VALIDATION_ERROR', 'La consulta del destinatario venció, vuelve a escanear o consultar la llave', {
+          field: 'resolutionId',
+        });
+      }
+    } else {
+      throw new AppError('VALIDATION_ERROR', 'Destinatario requerido', { field: 'beneficiaryId' });
+    }
     const amount = BigInt(amountMinor);
     const fee = this.fee();
     await this.limits.assertWithin(user, 'transfer_out', amount);
@@ -53,12 +73,37 @@ export class TransferService {
 
   async execute(
     user: User,
-    input: { beneficiaryId: string; amountMinor: number; description?: string; idempotencyKey: string },
+    input: { beneficiaryId?: string; resolutionId?: string; amountMinor: number; description?: string; idempotencyKey: string },
   ): Promise<{ status: number; body: TransactionJson }> {
     requireKycApproved(user);
     return this.mutex.run(user.id, () =>
       this.idem.run(user.id, 'transfer', input.idempotencyKey, input, async () => {
-        const txn = await this.doExecute(user, input);
+        let beneficiaryId = input.beneficiaryId;
+        if (!beneficiaryId && input.resolutionId) {
+          const { beneficiary, aml } = await this.beneficiaries.create(user, { resolutionId: input.resolutionId });
+          const { presentBeneficiary } = await import('../domain/presenters.js');
+          const json = presentBeneficiary(beneficiary, aml);
+          if (beneficiary.status === 'rejected') {
+            throw new AppError('AML_REJECTED', 'No es posible enviar dinero a este destinatario', { beneficiary: json });
+          }
+          if (beneficiary.status === 'pending_review') {
+            throw new AppError(
+              'AML_REVIEW',
+              'El destinatario requiere revisión de cumplimiento antes del primer envío. Te avisaremos cuando esté activo.',
+              { beneficiary: json },
+            );
+          }
+          beneficiaryId = beneficiary.id;
+        }
+        if (!beneficiaryId) {
+          throw new AppError('VALIDATION_ERROR', 'Destinatario requerido', { field: 'beneficiaryId' });
+        }
+        const txn = await this.doExecute(user, {
+          beneficiaryId,
+          amountMinor: input.amountMinor,
+          description: input.description,
+          idempotencyKey: input.idempotencyKey,
+        });
         return { status: 201, body: presentTransaction(txn) };
       }),
     );

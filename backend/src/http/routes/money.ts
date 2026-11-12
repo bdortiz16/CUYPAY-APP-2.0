@@ -35,10 +35,31 @@ const ApplePayTokenize = z.object({
   nonce: z.string(),
   nonceSignature: z.string(),
 });
-const Resolve = z.object({ alias: z.string().trim().min(1).max(64) });
+const Resolve = z.object({
+  alias: z.string().trim().min(1).max(2048),
+  qrPayload: z.string().trim().max(2048).optional(),
+});
 const CreateBen = z.object({ resolutionId: Id, nickname: z.string().trim().max(60).optional() });
-const Preview = z.object({ beneficiaryId: Id, amountMinor: Amount });
-const Transfer = z.object({ beneficiaryId: Id, amountMinor: Amount, description: z.string().max(140).optional(), idempotencyKey: IdemKey });
+const Preview = z
+  .object({
+    beneficiaryId: Id.optional(),
+    resolutionId: Id.optional(),
+    amountMinor: Amount,
+  })
+  .refine((v) => Boolean(v.beneficiaryId || v.resolutionId), {
+    message: 'Se requiere beneficiaryId o resolutionId',
+  });
+const Transfer = z
+  .object({
+    beneficiaryId: Id.optional(),
+    resolutionId: Id.optional(),
+    amountMinor: Amount,
+    description: z.string().max(140).optional(),
+    idempotencyKey: IdemKey,
+  })
+  .refine((v) => Boolean(v.beneficiaryId || v.resolutionId), {
+    message: 'Se requiere beneficiaryId o resolutionId',
+  });
 const RateQuery = z.object({ from: z.string().default('COP'), to: z.string().default('BRL') });
 const QuoteReq = z.object({ fromCurrency: z.enum(['COP', 'BRL']), toCurrency: z.enum(['COP', 'BRL']), amountMinor: Amount });
 const ConvertReq = z.object({ quoteId: Id, idempotencyKey: IdemKey });
@@ -138,8 +159,8 @@ export function registerMoneyRoutes(app: FastifyInstance, { deps, services }: Co
 
   // ── Beneficiarios ──
   app.post('/beneficiaries/resolve', auth, async (req) => {
-    const { alias } = parse(Resolve, req.body);
-    return presentResolution(await services.beneficiaries.resolve(await h.currentUser(req), alias));
+    const { alias, qrPayload } = parse(Resolve, req.body);
+    return presentResolution(await services.beneficiaries.resolve(await h.currentUser(req), alias, qrPayload));
   });
 
   app.post('/beneficiaries', signed, async (req, reply) => {
@@ -166,7 +187,11 @@ export function registerMoneyRoutes(app: FastifyInstance, { deps, services }: Co
   // ── Envíos ──
   app.post('/transfers/preview', auth, async (req) => {
     const body = parse(Preview, req.body);
-    const p = await services.transfers.preview(await h.currentUser(req), body.beneficiaryId, body.amountMinor);
+    const p = await services.transfers.preview(
+      await h.currentUser(req),
+      { beneficiaryId: body.beneficiaryId, resolutionId: body.resolutionId },
+      body.amountMinor,
+    );
     return {
       amountMinor: toSafeNumber(p.amount),
       feeMinor: toSafeNumber(p.fee),
@@ -178,7 +203,13 @@ export function registerMoneyRoutes(app: FastifyInstance, { deps, services }: Co
 
   app.post('/transfers', signed, async (req, reply) => {
     const body = parse(Transfer, req.body);
-    const r = await services.transfers.execute(await h.currentUser(req), body);
+    const r = await services.transfers.execute(await h.currentUser(req), {
+      beneficiaryId: body.beneficiaryId,
+      resolutionId: body.resolutionId,
+      amountMinor: body.amountMinor,
+      description: body.description,
+      idempotencyKey: body.idempotencyKey,
+    });
     return reply.status(r.status).send(r.body);
   });
 

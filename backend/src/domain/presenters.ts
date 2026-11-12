@@ -70,16 +70,24 @@ export const presentCard = (c: Card, pocketBalanceMinor = 0n) => ({
   updatedAt: iso(c.updatedAt),
 });
 
-export const presentResolution = (r: BrebResolution) => ({
-  resolutionId: r.id,
-  alias: r.alias,
-  holderName: maskHolderName(r.holderFirstName, r.holderLastName),
-  holderNameFull: `${r.holderFirstName} ${r.holderLastName}`.trim(),
-  documentType: r.documentType,
-  documentMasked: maskDocument(r.documentNumber),
-  bankName: r.bankName,
-  expiresAt: iso(r.expiresAt),
-});
+export const presentResolution = (r: BrebResolution) => {
+  const isMerchant = Boolean(r.isMerchant || r.documentType.toUpperCase() === 'NIT');
+  const fullName = `${r.holderFirstName} ${r.holderLastName}`.trim() || (r.merchantName ?? '');
+  return {
+    resolutionId: r.id,
+    alias: r.alias,
+    holderName: maskHolderName(r.holderFirstName, r.holderLastName, isMerchant) || fullName.toUpperCase(),
+    holderNameFull: fullName,
+    documentType: r.documentType,
+    documentMasked: maskDocument(r.documentNumber || r.alias),
+    bankName: r.bankName,
+    isMerchant,
+    merchantName: r.merchantName ?? null,
+    suggestedAmountMinor: r.suggestedAmountMinor ?? null,
+    suggestedReference: r.suggestedReference ?? null,
+    expiresAt: iso(r.expiresAt),
+  };
+};
 
 export const presentBeneficiary = (b: Beneficiary, aml: AmlCheck | null) => ({
   id: b.id,

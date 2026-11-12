@@ -40,6 +40,24 @@ export class MockCoinsendaGateway implements CoinsendaGateway {
     add('3109876543', 'Camila', 'Rojas', '52987654', 'Davivienda');
     add('@mariarevision', 'María', 'Revision', '1098765432', 'Nequi');
     add('@pedrobloqueado', 'Pedro', 'Bloqueado', '79123456', 'Banco de Bogotá');
+    this.directory.set('0012345678', {
+      alias: '0012345678',
+      firstName: 'Café San Alberto',
+      lastName: '',
+      documentType: 'NIT',
+      documentNumber: '900123456',
+      bankName: 'Redeban Bre-B',
+      raw: { mock: true, merchant: true },
+    });
+    this.directory.set('@panaderialapaz', {
+      alias: '@panaderialapaz',
+      firstName: 'Panadería La Paz SAS',
+      lastName: '',
+      documentType: 'NIT',
+      documentNumber: '901654321',
+      bankName: 'Credibanco Bre-B',
+      raw: { mock: true, merchant: true },
+    });
   }
 
   async createBrebKey(input: { alias: string; holderName: string; userRef: string }) {

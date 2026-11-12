@@ -338,6 +338,16 @@ struct AliasResolution: Codable, Hashable, Sendable {
     var documentMasked: String
     var bankName: String
     var expiresAt: Date
+    var isMerchant: Bool? = nil
+    var merchantName: String? = nil
+    var suggestedAmountMinor: Int64? = nil
+    var suggestedReference: String? = nil
+
+    var isMerchantAccount: Bool {
+        isMerchant == true ||
+            documentType.uppercased() == "NIT" ||
+            (alias.count == 10 && alias.hasPrefix("00") && alias.allSatisfy(\.isASCIIDigit))
+    }
 }
 
 struct Beneficiary: Codable, Hashable, Sendable, Identifiable {
@@ -396,6 +406,7 @@ enum AMLResult: String, Codable, Hashable, Sendable {
 
 struct ResolveAliasRequest: Codable, Hashable, Sendable {
     var alias: String
+    var qrPayload: String? = nil
 }
 
 struct CreateBeneficiaryRequest: Codable, Hashable, Sendable {
@@ -406,7 +417,8 @@ struct CreateBeneficiaryRequest: Codable, Hashable, Sendable {
 // MARK: - Envíos
 
 struct TransferPreviewRequest: Codable, Hashable, Sendable {
-    var beneficiaryId: String
+    var beneficiaryId: String? = nil
+    var resolutionId: String? = nil
     var amountMinor: Int64
 }
 
@@ -423,9 +435,10 @@ struct TransferPreview: Codable, Hashable, Sendable {
 }
 
 struct CreateTransferRequest: Codable, Hashable, Sendable {
-    var beneficiaryId: String
+    var beneficiaryId: String? = nil
+    var resolutionId: String? = nil
     var amountMinor: Int64
-    var description: String?
+    var description: String? = nil
     var idempotencyKey: String
 }
 

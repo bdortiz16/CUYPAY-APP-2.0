@@ -65,7 +65,7 @@ protocol CuyPayAPI: Sendable {
     func changePassword(currentPassword: String?, newPassword: String) async throws
 
     // MARK: Beneficiarios
-    func resolveAlias(_ alias: String) async throws -> AliasResolution
+    func resolveAlias(_ alias: String, qrPayload: String?) async throws -> AliasResolution
     /// 🔐
     func createBeneficiary(resolutionId: String, nickname: String?) async throws -> Beneficiary
     func beneficiaries() async throws -> [Beneficiary]
@@ -73,9 +73,9 @@ protocol CuyPayAPI: Sendable {
     func deleteBeneficiary(id: String) async throws
 
     // MARK: Envíos
-    func transferPreview(beneficiaryId: String, amountMinor: Int64) async throws -> TransferPreview
+    func transferPreview(beneficiaryId: String?, resolutionId: String?, amountMinor: Int64) async throws -> TransferPreview
     /// 🔐
-    func createTransfer(beneficiaryId: String, amountMinor: Int64, description: String?, idempotencyKey: String) async throws -> WalletTransaction
+    func createTransfer(beneficiaryId: String?, resolutionId: String?, amountMinor: Int64, description: String?, idempotencyKey: String) async throws -> WalletTransaction
 
     // MARK: FX
     func fxRate(from: Currency, to: Currency) async throws -> FxRate
@@ -119,6 +119,24 @@ extension CuyPayAPI {
 
     func changeBrebKey() async throws -> BrebKey {
         try await changeBrebKey(preferredAlias: nil)
+    }
+
+    func resolveAlias(_ alias: String) async throws -> AliasResolution {
+        try await resolveAlias(alias, qrPayload: nil)
+    }
+
+    func transferPreview(beneficiaryId: String, amountMinor: Int64) async throws -> TransferPreview {
+        try await transferPreview(beneficiaryId: Optional(beneficiaryId), resolutionId: nil, amountMinor: amountMinor)
+    }
+
+    func createTransfer(beneficiaryId: String, amountMinor: Int64, description: String?, idempotencyKey: String) async throws -> WalletTransaction {
+        try await createTransfer(
+            beneficiaryId: Optional(beneficiaryId),
+            resolutionId: nil,
+            amountMinor: amountMinor,
+            description: description,
+            idempotencyKey: idempotencyKey
+        )
     }
 
     func updateCardStatus(id: String, state: String) async throws -> CardItem {

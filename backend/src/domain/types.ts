@@ -128,6 +128,10 @@ export interface BrebResolution {
   documentType: string;
   documentNumber: string;
   bankName: string;
+  isMerchant?: boolean;
+  merchantName?: string | null;
+  suggestedAmountMinor?: number | null;
+  suggestedReference?: string | null;
   raw: unknown;
   expiresAt: Date;
   createdAt: Date;

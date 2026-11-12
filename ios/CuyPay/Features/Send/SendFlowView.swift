@@ -49,12 +49,12 @@ private struct SendFlowContent: View {
 
 private struct BeneficiaryPickerView: View {
     @Environment(WalletStore.self) private var store
-    let model: SendFlowModel
+    @Bindable var model: SendFlowModel
     @State private var showAdd = false
     @State private var showQRScanner = false
     @State private var directKey = ""
-    @State private var pendingAlias: String?
     @State private var query = ""
+    @FocusState private var directKeyFocused: Bool
 
     private var filtered: [Beneficiary] {
         store.beneficiaries.filter {
@@ -72,16 +72,35 @@ private struct BeneficiaryPickerView: View {
                         Image(systemName: "key.fill")
                             .font(.subheadline)
                             .foregroundStyle(Theme.spruce)
-                        TextField("Escribe la llave (celular, @alias, correo)…", text: $directKey)
+                        TextField("Llave Bre-B (celular, @alias, NIT, comercio)…", text: $directKey)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.emailAddress)
+                            .focused($directKeyFocused)
                             .submitLabel(.go)
-                            .onSubmit { handleDirectInput(directKey) }
+                            .onSubmit { submitDirectInput(directKey) }
+                            .onChange(of: directKey) { _, newValue in
+                                model.pickerErrorMessage = nil
+                                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if trimmed.hasPrefix("0002") && trimmed.count > 30,
+                                   case .valid(let parsed) = BrebQRParser.parse(trimmed),
+                                   parsed.isEmvCo {
+                                    directKeyFocused = false
+                                    directKey = ""
+                                    Task {
+                                        await model.resolveAndSelect(
+                                            rawInput: parsed.rawPayload,
+                                            parsedQR: parsed,
+                                            existingBeneficiaries: store.beneficiaries
+                                        )
+                                    }
+                                }
+                            }
 
                         if !directKey.isEmpty {
                             Button {
                                 directKey = ""
+                                model.pickerErrorMessage = nil
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
                                     .foregroundStyle(.secondary)
@@ -94,16 +113,19 @@ private struct BeneficiaryPickerView: View {
 
                     if !directKey.isEmpty {
                         Button {
-                            handleDirectInput(directKey)
+                            submitDirectInput(directKey)
                         } label: {
                             Image(systemName: "arrow.right.circle.fill")
                                 .font(.system(size: 32))
                                 .foregroundStyle(Theme.spruce)
                         }
                         .buttonStyle(.plain)
+                        .disabled(model.isResolvingRecipient)
                     }
 
                     Button {
+                        directKeyFocused = false
+                        model.pickerErrorMessage = nil
                         showQRScanner = true
                     } label: {
                         HStack(spacing: 6) {
@@ -119,15 +141,21 @@ private struct BeneficiaryPickerView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .disabled(model.isResolvingRecipient)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
                 .padding(.bottom, 8)
 
+                if let pickerError = model.pickerErrorMessage {
+                    ErrorBanner(message: pickerError)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 8)
+                }
+
                 List {
                     Section {
                         Button {
-                            pendingAlias = nil
                             showAdd = true
                         } label: {
                             Label("Nuevo beneficiario", systemImage: "person.crop.circle.badge.plus")
@@ -153,21 +181,45 @@ private struct BeneficiaryPickerView: View {
                 .scrollContentBackground(.hidden)
                 .searchable(text: $query, prompt: Text("Buscar beneficiario"))
                 .overlay {
-                    if store.beneficiaries.isEmpty {
-                        ContentUnavailableView("Aún no tienes beneficiarios", systemImage: "person.2", description: Text("Escribe una llave arriba, escanea un QR o inscribe un nuevo contacto."))
+                    if store.beneficiaries.isEmpty && !model.isResolvingRecipient {
+                        ContentUnavailableView("Aún no tienes beneficiarios", systemImage: "person.2", description: Text("Escanea el QR de un cliente o comercio, escribe su llave arriba o inscribe un contacto."))
                     }
                 }
+            }
+
+            if model.isResolvingRecipient {
+                ZStack {
+                    Color.black.opacity(0.25).ignoresSafeArea()
+                    VStack(spacing: 14) {
+                        ProgressView()
+                            .controlSize(.large)
+                        Text("Verificando destinatario Bre-B…")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 24)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 24))
+                }
+                .transition(.opacity)
             }
         }
         .navigationTitle("¿A quién envías?")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showQRScanner) {
-            QRScannerView { scannedKey in
-                handleDirectInput(scannedKey)
+            QRScannerView { parsedQR in
+                directKeyFocused = false
+                directKey = ""
+                Task {
+                    await model.resolveAndSelect(
+                        rawInput: parsedQR.rawPayload,
+                        parsedQR: parsedQR,
+                        existingBeneficiaries: store.beneficiaries
+                    )
+                }
             }
         }
         .sheet(isPresented: $showAdd) {
-            AddBeneficiaryFlowView(initialAlias: pendingAlias) { beneficiary in
+            AddBeneficiaryFlowView { beneficiary in
                 if beneficiary.status == .active { model.select(beneficiary) }
             }
         }
@@ -176,21 +228,16 @@ private struct BeneficiaryPickerView: View {
         }
     }
 
-    private func handleDirectInput(_ raw: String) {
+    private func submitDirectInput(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-
-        // Si ya existe en beneficiarios, seleccionarlo directo
-        if let existing = store.beneficiaries.first(where: {
-            $0.alias.localizedCaseInsensitiveCompare(trimmed) == .orderedSame
-        }) {
-            model.select(existing)
-            return
+        directKeyFocused = false
+        Task {
+            await model.resolveAndSelect(rawInput: trimmed, existingBeneficiaries: store.beneficiaries)
+            if model.hasRecipient {
+                directKey = ""
+            }
         }
-
-        // Si es una llave nueva, abrir flujo de inscripción con la llave prellenada
-        pendingAlias = trimmed
-        showAdd = true
     }
 }
 
@@ -213,14 +260,32 @@ private struct SendAmountView: View {
             BrandBackground()
             ScrollView {
                 VStack(spacing: 18) {
-                    if let beneficiary = model.beneficiary {
+                    if model.hasRecipient {
                         HStack(spacing: 12) {
-                            AvatarView(initials: beneficiary.initials, size: 48, seed: beneficiary.id)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(verbatim: beneficiary.displayName).font(.headline)
-                                Text(verbatim: "\(beneficiary.bankName) · \(beneficiary.alias)")
+                            AvatarView(initials: model.recipientInitials, size: 48, seed: model.recipientSeed)
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 6) {
+                                    Text(verbatim: model.recipientDisplayName)
+                                        .font(.headline)
+                                        .lineLimit(1)
+                                    if model.recipientIsMerchant {
+                                        Label("Comercio", systemImage: "storefront.fill")
+                                            .font(.caption2.weight(.semibold))
+                                            .padding(.horizontal, 7)
+                                            .padding(.vertical, 3)
+                                            .background(Theme.spruce.opacity(0.16), in: Capsule())
+                                            .foregroundStyle(Theme.spruce)
+                                    }
+                                }
+                                Text(verbatim: "\(model.recipientBankName) · \(model.recipientAlias)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                if let docSummary = model.recipientDocumentSummary {
+                                    Text(verbatim: docSummary)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             Spacer()
                         }
@@ -235,6 +300,18 @@ private struct SendAmountView: View {
                         Text("Disponible: \(available.formatted())")
                             .font(.footnote)
                             .foregroundStyle(insufficient ? Theme.negative : .secondary)
+                    }
+
+                    if !model.note.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "doc.text")
+                                .font(.caption)
+                                .foregroundStyle(Theme.spruce)
+                            Text("Referencia QR: \(model.note)")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                     }
 
                     GlassEffectContainer(spacing: 8) {
@@ -271,7 +348,7 @@ private struct SendAmountView: View {
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize)
         }
-        .navigationTitle("Monto")
+        .navigationTitle(model.recipientIsMerchant ? "Pagar a comercio" : "Monto")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -287,23 +364,27 @@ private struct SendReviewView: View {
             BrandBackground()
             ScrollView {
                 VStack(spacing: 18) {
-                    if let preview = model.preview, let beneficiary = model.beneficiary {
+                    if let preview = model.preview, model.hasRecipient {
                         VStack(spacing: 6) {
-                            Text("Vas a enviar")
+                            Text(model.recipientIsMerchant ? "Vas a pagar" : "Vas a enviar")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                             Text(verbatim: preview.amount.formatted())
                                 .font(.system(size: 44, weight: .bold, design: .rounded))
                                 .monospacedDigit()
-                            Text("a \(beneficiary.holderName)")
+                            Text("a \(model.recipientHolderName)")
                                 .font(.headline)
+                                .multilineTextAlignment(.center)
                         }
                         .padding(.top, 12)
 
                         GlassCard {
                             VStack(spacing: 12) {
-                                DetailRow(title: "Llave Bre-B", value: beneficiary.alias)
-                                DetailRow(title: "Banco", value: beneficiary.bankName)
+                                DetailRow(title: model.recipientIsMerchant ? "Comercio / Llave" : "Llave Bre-B", value: model.recipientAlias)
+                                DetailRow(title: "Entidad", value: model.recipientBankName)
+                                if let docSummary = model.recipientDocumentSummary {
+                                    DetailRow(title: "Identificación", value: docSummary)
+                                }
                                 Divider()
                                 DetailRow(title: "Monto", value: preview.amount.formatted())
                                 DetailRow(title: "Costo del envío", value: preview.feeMinor == 0 ? String(localized: "Gratis") : preview.fee.formatted())
@@ -329,14 +410,14 @@ private struct SendReviewView: View {
                             .glassEffect(.regular, in: .rect(cornerRadius: 16))
                         }
 
-                        TextField("Descripción (opcional)", text: $model.note)
+                        TextField(model.recipientIsMerchant ? "Referencia o factura (opcional)" : "Descripción (opcional)", text: $model.note)
                             .formFieldStyle()
 
                         if let error = model.errorMessage {
                             ErrorBanner(message: error)
                         }
 
-                        Label("Los envíos Bre-B son inmediatos y no se pueden reversar. Verifica los datos.", systemImage: "info.circle")
+                        Label("Los pagos y envíos Bre-B son inmediatos y no se pueden reversar. Verifica los datos.", systemImage: "info.circle")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -347,7 +428,7 @@ private struct SendReviewView: View {
         }
         .safeAreaInset(edge: .bottom) {
             PrimaryButton(
-                title: "Enviar ahora",
+                title: model.recipientIsMerchant ? "Pagar ahora" : "Enviar ahora",
                 systemImage: "faceid",
                 isLoading: model.isLoading,
                 isEnabled: !model.exceedsDailyLimit

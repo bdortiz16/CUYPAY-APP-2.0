@@ -130,8 +130,13 @@ struct AddBeneficiaryFlowView: View {
             if model == nil {
                 let m = AddBeneficiaryModel(api: app.api)
                 if let initialAlias, !initialAlias.isEmpty {
-                    m.alias = initialAlias
-                    Task { await m.resolve() }
+                    if case .valid(let parsed) = BrebQRParser.parse(initialAlias) {
+                        m.applyScannedQR(parsed)
+                        Task { await m.resolve(qrPayload: parsed.isEmvCo ? parsed.rawPayload : nil) }
+                    } else {
+                        m.alias = initialAlias
+                        Task { await m.resolve() }
+                    }
                 }
                 model = m
             }
@@ -182,9 +187,10 @@ private struct AddBeneficiaryContent: View {
             }
         }
         .sheet(isPresented: $showQRScanner) {
-            QRScannerView { scannedKey in
-                model.alias = scannedKey
-                Task { await model.resolve() }
+            QRScannerView { parsedQR in
+                keyFocused = false
+                model.applyScannedQR(parsedQR)
+                Task { await model.resolve(qrPayload: parsedQR.isEmvCo ? parsedQR.rawPayload : nil) }
             }
         }
     }
@@ -196,21 +202,37 @@ private struct AddBeneficiaryContent: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text("Ingresa la llave Bre-B")
                     .font(.system(.title2, design: .rounded).weight(.bold))
-                Text("Puede ser un celular, una cédula, un correo o un alias como @juan.")
+                Text("Puede ser un celular, documento/NIT, código de comercio, correo, alias @ o un código QR Bre-B.")
                     .foregroundStyle(.secondary)
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
-                        TextField("3001234567, @alias, correo…", text: $model.alias)
+                        TextField("3001234567, @alias, NIT, comercio…", text: $model.alias)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.emailAddress)
                             .focused($keyFocused)
                             .submitLabel(.search)
-                            .onSubmit { Task { await model.resolve() } }
+                            .onSubmit {
+                                keyFocused = false
+                                Task { await model.resolve() }
+                            }
+                            .onChange(of: model.alias) { _, newValue in
+                                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if trimmed.hasPrefix("0002") && trimmed.count > 30,
+                                   case .valid(let parsed) = BrebQRParser.parse(trimmed),
+                                   parsed.isEmvCo {
+                                    keyFocused = false
+                                    model.applyScannedQR(parsed)
+                                    Task { await model.resolve(qrPayload: parsed.rawPayload) }
+                                } else if model.pendingQRPayload != nil && trimmed != model.alias {
+                                    model.pendingQRPayload = nil
+                                }
+                            }
                             .formFieldStyle()
 
                         Button {
+                            keyFocused = false
                             showQRScanner = true
                         } label: {
                             Image(systemName: "qrcode.viewfinder")
@@ -239,12 +261,17 @@ private struct AddBeneficiaryContent: View {
         }
         .safeAreaInset(edge: .bottom) {
             PrimaryButton(title: "Consultar llave", systemImage: "magnifyingglass", isEnabled: model.keyKind != .invalid) {
+                keyFocused = false
                 Task { await model.resolve() }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 8)
         }
-        .onAppear { keyFocused = true }
+        .onAppear {
+            if model.alias.isEmpty {
+                keyFocused = true
+            }
+        }
     }
 
     // MARK: Paso 2 — consultando
@@ -256,7 +283,7 @@ private struct AddBeneficiaryContent: View {
                 .controlSize(.large)
             Text("Consultando llave…")
                 .font(.headline)
-            Text("Estamos buscando al titular en el directorio Bre-B.")
+            Text("Estamos buscando al destinatario o comercio en el directorio Bre-B.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -265,12 +292,13 @@ private struct AddBeneficiaryContent: View {
         .padding(24)
     }
 
-    // MARK: Paso 3 — confirmar titular
+    // MARK: Paso 3 — confirmar titular o comercio
 
     private func confirm(_ resolution: AliasResolution) -> some View {
-        ScrollView {
+        let isMerchant = resolution.isMerchantAccount
+        return ScrollView {
             VStack(spacing: 18) {
-                Text("¿Es la persona correcta?")
+                Text(isMerchant ? "¿Es el comercio correcto?" : "¿Es la persona correcta?")
                     .font(.system(.title2, design: .rounded).weight(.bold))
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -279,23 +307,27 @@ private struct AddBeneficiaryContent: View {
                     Text(verbatim: resolution.holderName)
                         .font(.title3.weight(.bold))
                         .multilineTextAlignment(.center)
-                    StatusBadge(text: "Titular verificado en Bre-B", color: Theme.spruce, systemImage: "checkmark.seal.fill")
+                    StatusBadge(
+                        text: isMerchant ? String(localized: "Comercio verificado en Bre-B") : String(localized: "Titular verificado en Bre-B"),
+                        color: Theme.spruce,
+                        systemImage: isMerchant ? "storefront.fill" : "checkmark.seal.fill"
+                    )
                     Divider()
-                    DetailRow(title: "Llave", value: resolution.alias)
-                    DetailRow(title: "Banco", value: resolution.bankName)
+                    DetailRow(title: isMerchant ? "Llave comercio" : "Llave", value: resolution.alias)
+                    DetailRow(title: "Entidad", value: resolution.bankName)
                     DetailRow(title: "Documento", value: "\(resolution.documentType) \(resolution.documentMasked)")
                 }
                 .padding(20)
                 .glassEffect(.regular, in: .rect(cornerRadius: Theme.cardRadius))
 
-                TextField("Apodo (opcional), ej. Mamá", text: $model.nickname)
+                TextField(isMerchant ? "Apodo (opcional), ej. Cafetería" : "Apodo (opcional), ej. Mamá", text: $model.nickname)
                     .formFieldStyle()
 
                 if let error = model.errorMessage {
                     ErrorBanner(message: error)
                 }
 
-                Label("Al inscribirlo validaremos al titular en listas de control (AML), como exige la regulación.", systemImage: "checkmark.shield")
+                Label("Al inscribirlo validaremos al destinatario en listas de control (AML), como exige la regulación.", systemImage: "checkmark.shield")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -306,7 +338,7 @@ private struct AddBeneficiaryContent: View {
                 PrimaryButton(title: "Confirmar e inscribir", systemImage: "faceid") {
                     Task { await model.confirm(resolution, store: store) }
                 }
-                Button("No es esta persona") { model.restart() }
+                Button(isMerchant ? "No es este comercio" : "No es esta persona") { model.restart() }
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
             }

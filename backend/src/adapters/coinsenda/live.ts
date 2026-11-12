@@ -585,34 +585,65 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
     const userId = this.getCoinsendaUserId();
     const formattedAlias = formatBrebAlias(alias);
 
-    const res = await this.call('resolveBrebAlias', (c) =>
-      c.request(
-        'withdraw',
-        'POST',
-        '/withdrawAccounts/resolve-breb-alias-public',
-        {
-          data: {
-            userId,
-            alias: formattedAlias,
-            country: 'international',
+    const requestResolve = (candidate: string) =>
+      this.call('resolveBrebAlias', (c) =>
+        c.request(
+          'withdraw',
+          'POST',
+          '/withdrawAccounts/resolve-breb-alias-public',
+          {
+            data: {
+              userId,
+              alias: candidate,
+              country: 'international',
+            },
           },
-        },
-        { rawPayload: true, timeout: 6_000 },
-      ),
-    );
+          { rawPayload: true, timeout: 6_000 },
+        ),
+      );
+
+    let activeAlias = formattedAlias;
+    let res = await requestResolve(activeAlias);
+
+    // Si la entrada no traía `@` (ej. código corporativo/pasaporte alfanumérico) y con `@` dio withdrawaccount_23, probar valor directo
+    const rawTrimmed = alias.trim();
+    if (!sdk.isHttpSuccess(res.status)) {
+      const err = res.data?.error ?? res.data?.data?.error;
+      if (err?.code === 'withdrawaccount_23') {
+        if (!rawTrimmed.startsWith('@') && activeAlias.startsWith('@') && rawTrimmed.length >= 4) {
+          activeAlias = rawTrimmed;
+          res = await requestResolve(activeAlias);
+        }
+      }
+    }
+
     if (!sdk.isHttpSuccess(res.status)) {
       const err = res.data?.error ?? res.data?.data?.error;
       if (err?.code === 'withdrawaccount_23') return null;
       this.fail('resolveBrebAlias', res);
     }
     const d = this.payload(res);
+    const rawFirst = String(
+      d?.first_name ??
+        d?.name ??
+        d?.holder_name ??
+        d?.business_name ??
+        d?.company_name ??
+        d?.merchant_name ??
+        d?.commercial_name ??
+        d?.razon_social ??
+        d?.full_name ??
+        '',
+    ).trim();
+    const rawLast = String(d?.last_name ?? d?.surname ?? d?.second_last_name ?? '').trim();
+
     return {
-      alias: formattedAlias,
-      firstName: String(d?.first_name ?? d?.name ?? d?.holder_name ?? ''),
-      lastName: String(d?.last_name ?? d?.surname ?? ''),
+      alias: activeAlias,
+      firstName: rawFirst,
+      lastName: rawLast,
       documentType: String(d?.id_type ?? d?.document_type ?? 'CC'),
       documentNumber: String(d?.id_number ?? d?.document_number ?? ''),
-      bankName: String(d?.bank_name ?? d?.participant_name ?? d?.entity ?? 'Bre-B'),
+      bankName: String(d?.bank_name ?? d?.participant_name ?? d?.financial_institution ?? d?.entity_name ?? d?.entity ?? 'Bre-B'),
       raw: d,
     };
   }
@@ -642,7 +673,7 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
   async addWithdrawAccount(input: { holder: BrebAliasHolder; label: string }) {
     await this.ensureSession();
     const h = input.holder;
-    const accountId = formatBrebAlias(h.alias);
+    let accountId = formatBrebAlias(h.alias);
     const safeLabel = sanitizeWithdrawLabel(h, input.label);
 
     const existing = await this.findExistingBrebWithdrawAccount(accountId);
@@ -652,7 +683,10 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
 
     // Coinsenda requiere que la llave Bre-B esté recién resuelta en sesión antes de crear la withdrawAccount.
     try {
-      await this.resolveBrebAlias(accountId);
+      const resolved = await this.resolveBrebAlias(h.alias);
+      if (resolved?.alias) {
+        accountId = resolved.alias;
+      }
     } catch {
       // Ignorar en caso de que el mock de test no espere esta llamada extra
     }
@@ -1843,10 +1877,19 @@ function extractDepositPayerName(d: any): string | null { // eslint-disable-line
 function formatBrebAlias(raw: string): string {
   const clean = raw.trim();
   if (!clean) return clean;
-  const withoutAt = clean.replace(/^@/, '');
-  if (withoutAt.includes('@')) return withoutAt.toLowerCase();
+  if (!clean.startsWith('@') && clean.includes('@')) {
+    return clean.replace(/\s+/g, '').toLowerCase();
+  }
+  const compactPhone = clean.replace(/[\s()-]/g, '');
+  if (/^\+?573\d{9}$/.test(compactPhone)) {
+    return compactPhone.replace(/^\+?57/, '');
+  }
+  if (/^\+\d{10,15}$/.test(compactPhone)) {
+    return compactPhone.slice(1);
+  }
+  const withoutAt = clean.replace(/^@+/, '');
   if (/^\d+$/.test(withoutAt)) return clean.startsWith('@') ? `@${withoutAt}` : withoutAt;
-  return `@${withoutAt}`;
+  return `@${withoutAt.toLowerCase()}`;
 }
 
 function formatCoinsendaAmount(minor: bigint): string {

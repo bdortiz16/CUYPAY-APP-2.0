@@ -6,38 +6,73 @@ import Observation
 enum BrebKeyKind: Equatable, Sendable {
     case phone
     case nationalId
+    case merchantCode
     case email
     case alias
     case alphanumeric
     case invalid
 
     static func detect(_ raw: String) -> BrebKeyKind {
-        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard value.count >= 3 else { return .invalid }
-        let digitsOnly = value.allSatisfy(\.isASCIIDigit)
-        if digitsOnly {
-            if value.count == 10 && value.hasPrefix("3") { return .phone }
-            if (5...10).contains(value.count) { return .nationalId }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 3 else { return .invalid }
+
+        // Si el texto es un payload QR EMVCo o URL con llave, clasificar la llave extraída
+        if trimmed.hasPrefix("0002") || trimmed.contains("://") {
+            if case .valid(let parsed) = BrebQRParser.parse(trimmed) {
+                return detect(parsed.primaryKey)
+            }
             return .invalid
         }
-        if value.hasPrefix("@") {
-            let body = value.dropFirst()
-            let valid = !body.isEmpty && body.allSatisfy { $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" }
+
+        let compactPhone = trimmed
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "(", with: "")
+            .replacingOccurrences(of: ")", with: "")
+            .replacingOccurrences(of: "-", with: "")
+        if compactPhone.hasPrefix("+573") && compactPhone.count == 13 && compactPhone.dropFirst().allSatisfy(\.isASCIIDigit) {
+            return .phone
+        }
+        if compactPhone.hasPrefix("573") && compactPhone.count == 12 && compactPhone.allSatisfy(\.isASCIIDigit) {
+            return .phone
+        }
+
+        let compactDigits = trimmed
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "-", with: "")
+        if compactDigits.allSatisfy(\.isASCIIDigit) {
+            if compactDigits.count == 10 && compactDigits.hasPrefix("3") { return .phone }
+            if compactDigits.count == 10 && compactDigits.hasPrefix("00") { return .merchantCode }
+            if (5...15).contains(compactDigits.count) { return .nationalId }
+            return .invalid
+        }
+
+        if trimmed.hasPrefix("@") {
+            let body = trimmed.dropFirst()
+            let valid = !body.isEmpty && body.count <= 63 && body.allSatisfy {
+                $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" || $0 == "-"
+            }
             return valid ? .alias : .invalid
         }
-        if value.contains("@") {
-            let parts = value.split(separator: "@")
-            if parts.count == 2, !parts[0].isEmpty, parts[1].contains("."), !parts[1].hasSuffix(".") { return .email }
+
+        if trimmed.contains("@") {
+            let parts = trimmed.split(separator: "@", omittingEmptySubsequences: false)
+            if parts.count == 2, !parts[0].isEmpty, parts[1].contains("."), !parts[1].hasSuffix(".") {
+                return .email
+            }
             return .invalid
         }
-        if value.allSatisfy({ $0.isLetter || $0.isNumber }) && value.count <= 20 { return .alphanumeric }
+
+        if trimmed.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" || $0 == "-" }) && trimmed.count <= 40 {
+            return .alphanumeric
+        }
         return .invalid
     }
 
     var title: String {
         switch self {
         case .phone: String(localized: "Celular")
-        case .nationalId: String(localized: "Cédula")
+        case .nationalId: String(localized: "Documento / NIT")
+        case .merchantCode: String(localized: "Código de comercio")
         case .email: String(localized: "Correo")
         case .alias: String(localized: "Alias @")
         case .alphanumeric: String(localized: "Llave alfanumérica")
@@ -49,6 +84,7 @@ enum BrebKeyKind: Equatable, Sendable {
         switch self {
         case .phone: "iphone"
         case .nationalId: "person.text.rectangle"
+        case .merchantCode: "storefront"
         case .email: "envelope"
         case .alias: "at"
         case .alphanumeric: "textformat.abc"
@@ -57,7 +93,7 @@ enum BrebKeyKind: Equatable, Sendable {
     }
 }
 
-/// Inscripción: llave → resolución Bre-B (titular) → confirmación + apodo → Face ID → AML → resultado.
+/// Inscripción: llave → resolución Bre-B (titular o comercio) → confirmación + apodo → Face ID → AML → resultado.
 @Observable
 @MainActor
 final class AddBeneficiaryModel {
@@ -80,6 +116,7 @@ final class AddBeneficiaryModel {
     var phase: Phase = .enterKey
     var alias = ""
     var nickname = ""
+    var pendingQRPayload: String?
     var errorMessage: String?
 
     init(api: any CuyPayAPI) {
@@ -88,12 +125,34 @@ final class AddBeneficiaryModel {
 
     var keyKind: BrebKeyKind { BrebKeyKind.detect(alias) }
 
-    func resolve() async {
-        guard keyKind != .invalid else { return }
+    func applyScannedQR(_ parsed: ParsedBrebQR) {
+        alias = parsed.primaryKey
+        pendingQRPayload = parsed.isEmvCo ? parsed.rawPayload : nil
+        errorMessage = nil
+    }
+
+    func resolve(qrPayload: String? = nil) async {
+        let rawTrimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawTrimmed.isEmpty else { return }
+
+        var effectiveKey = rawTrimmed
+        var effectiveQRPayload = qrPayload ?? pendingQRPayload
+
+        if case .valid(let parsed) = BrebQRParser.parse(rawTrimmed) {
+            effectiveKey = parsed.primaryKey
+            if parsed.isEmvCo {
+                alias = parsed.primaryKey
+                effectiveQRPayload = parsed.rawPayload
+                pendingQRPayload = parsed.rawPayload
+            }
+        }
+
+        guard BrebKeyKind.detect(effectiveKey) != .invalid else { return }
         errorMessage = nil
         phase = .resolving
         do {
-            let resolution = try await api.resolveAlias(alias.trimmingCharacters(in: .whitespacesAndNewlines))
+            let resolution = try await api.resolveAlias(effectiveKey, qrPayload: effectiveQRPayload)
+            alias = resolution.alias
             phase = .confirm(resolution)
         } catch {
             errorMessage = error.userMessage
@@ -133,6 +192,7 @@ final class AddBeneficiaryModel {
     func restart() {
         alias = ""
         nickname = ""
+        pendingQRPayload = nil
         errorMessage = nil
         phase = .enterKey
     }

@@ -361,8 +361,8 @@ actor APIClient: CuyPayAPI {
 
     // MARK: - Beneficiarios
 
-    func resolveAlias(_ alias: String) async throws -> AliasResolution {
-        try await send(.post("/beneficiaries/resolve", body: ResolveAliasRequest(alias: alias)))
+    func resolveAlias(_ alias: String, qrPayload: String?) async throws -> AliasResolution {
+        try await send(.post("/beneficiaries/resolve", body: ResolveAliasRequest(alias: alias, qrPayload: qrPayload)))
     }
 
     func createBeneficiary(resolutionId: String, nickname: String?) async throws -> Beneficiary {
@@ -381,12 +381,25 @@ actor APIClient: CuyPayAPI {
 
     // MARK: - Envíos
 
-    func transferPreview(beneficiaryId: String, amountMinor: Int64) async throws -> TransferPreview {
-        try await send(.post("/transfers/preview", body: TransferPreviewRequest(beneficiaryId: beneficiaryId, amountMinor: amountMinor)))
+    func transferPreview(beneficiaryId: String?, resolutionId: String?, amountMinor: Int64) async throws -> TransferPreview {
+        let body = TransferPreviewRequest(beneficiaryId: beneficiaryId, resolutionId: resolutionId, amountMinor: amountMinor)
+        return try await send(.post("/transfers/preview", body: body))
     }
 
-    func createTransfer(beneficiaryId: String, amountMinor: Int64, description: String?, idempotencyKey: String) async throws -> WalletTransaction {
-        let body = CreateTransferRequest(beneficiaryId: beneficiaryId, amountMinor: amountMinor, description: description, idempotencyKey: idempotencyKey)
+    func createTransfer(
+        beneficiaryId: String?,
+        resolutionId: String?,
+        amountMinor: Int64,
+        description: String?,
+        idempotencyKey: String
+    ) async throws -> WalletTransaction {
+        let body = CreateTransferRequest(
+            beneficiaryId: beneficiaryId,
+            resolutionId: resolutionId,
+            amountMinor: amountMinor,
+            description: description,
+            idempotencyKey: idempotencyKey
+        )
         return try await send(.post("/transfers", body: body, signReason: SignReason.transfer))
     }
 

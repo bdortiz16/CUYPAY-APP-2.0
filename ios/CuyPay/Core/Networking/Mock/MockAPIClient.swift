@@ -571,30 +571,72 @@ actor MockAPIClient: CuyPayAPI {
         hasPasswordState = true
     }
 
-    func resolveAlias(_ alias: String) async throws -> AliasResolution {
-        await simulateLatency(2)
-        let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    func resolveAlias(_ alias: String, qrPayload: String?) async throws -> AliasResolution {
+        await simulateLatency(1.2)
+        let parsedQR: ParsedBrebQR? = {
+            if let qrPayload, case .valid(let parsed) = BrebQRParser.parse(qrPayload) {
+                return parsed
+            }
+            if case .valid(let parsed) = BrebQRParser.parse(alias) {
+                return parsed
+            }
+            return nil
+        }()
+
+        let effectiveAlias = parsedQR?.primaryKey ?? alias.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = effectiveAlias.lowercased()
         if normalized.contains("noexiste") || normalized.hasSuffix("0000") || normalized.count < 3 {
             throw APIError.server(status: 404, code: .brebAliasNotFound, message: nil, limit: nil)
         }
-        let candidates: [(String, String, String)] = [
-            ("Valentina Ríos Mejía", "Bancolombia", "VALENTINA R*** M***A"),
-            ("Santiago Herrera López", "Davivienda", "SANTIAGO H***A L***Z"),
-            ("Camila Ortiz Pardo", "Nequi", "CAMILA O***Z P***O"),
-            ("Mateo Castaño Gil", "Banco de Bogotá", "MATEO C***O G**L"),
-        ]
-        let seed = normalized.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
-        let pick = candidates[seed % candidates.count]
-        let resolution = AliasResolution(
-            resolutionId: Self.newId("res"),
-            alias: alias.trimmingCharacters(in: .whitespacesAndNewlines),
-            holderName: pick.2,
-            holderNameFull: pick.0,
-            documentType: "CC",
-            documentMasked: "****\(Int.random(in: 1000...9999))",
-            bankName: pick.1,
-            expiresAt: Date().addingTimeInterval(600)
-        )
+
+        let isMerchant = parsedQR?.isMerchant == true ||
+            (effectiveAlias.count == 10 && effectiveAlias.hasPrefix("00") && effectiveAlias.allSatisfy(\.isASCIIDigit)) ||
+            normalized.contains("comercio") ||
+            normalized.contains("cafe") ||
+            normalized.contains("panaderia")
+
+        let resolution: AliasResolution
+        if isMerchant {
+            let merchantTitle = parsedQR?.merchantName ?? "Café San Alberto SAS"
+            resolution = AliasResolution(
+                resolutionId: Self.newId("res"),
+                alias: effectiveAlias,
+                holderName: merchantTitle.uppercased(),
+                holderNameFull: merchantTitle,
+                documentType: "NIT",
+                documentMasked: "****\(Int.random(in: 1000...9999))",
+                bankName: "Redeban Bre-B",
+                expiresAt: Date().addingTimeInterval(600),
+                isMerchant: true,
+                merchantName: merchantTitle,
+                suggestedAmountMinor: parsedQR?.amountMinor,
+                suggestedReference: parsedQR?.reference
+            )
+        } else {
+            let candidates: [(String, String, String)] = [
+                ("Valentina Ríos Mejía", "Bancolombia", "VALENTINA R*** M***A"),
+                ("Santiago Herrera López", "Davivienda", "SANTIAGO H***A L***Z"),
+                ("Camila Ortiz Pardo", "Nequi", "CAMILA O***Z P***O"),
+                ("Mateo Castaño Gil", "Banco de Bogotá", "MATEO C***O G**L"),
+            ]
+            let seed = normalized.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
+            let pick = candidates[seed % candidates.count]
+            let fullName = parsedQR?.merchantName ?? pick.0
+            resolution = AliasResolution(
+                resolutionId: Self.newId("res"),
+                alias: effectiveAlias,
+                holderName: pick.2,
+                holderNameFull: fullName,
+                documentType: "CC",
+                documentMasked: "****\(Int.random(in: 1000...9999))",
+                bankName: pick.1,
+                expiresAt: Date().addingTimeInterval(600),
+                isMerchant: false,
+                merchantName: nil,
+                suggestedAmountMinor: parsedQR?.amountMinor,
+                suggestedReference: parsedQR?.reference
+            )
+        }
         resolutions[resolution.resolutionId] = resolution
         return resolution
     }
@@ -605,6 +647,13 @@ actor MockAPIClient: CuyPayAPI {
         }
         try await requireSignature(SignReason.createBeneficiary)
         await simulateLatency(3)
+        return enrollBeneficiary(from: resolution, nickname: nickname)
+    }
+
+    private func enrollBeneficiary(from resolution: AliasResolution, nickname: String?) -> Beneficiary {
+        if let existing = beneficiariesState.first(where: { $0.alias.caseInsensitiveCompare(resolution.alias) == .orderedSame && $0.status != .rejected }) {
+            return existing
+        }
         let alias = resolution.alias.lowercased()
         let result: AMLResult
         let status: BeneficiaryStatus
@@ -649,24 +698,38 @@ actor MockAPIClient: CuyPayAPI {
 
     private static func transferFee(_ amountMinor: Int64) -> Int64 { 0 }
 
-    func transferPreview(beneficiaryId: String, amountMinor: Int64) async throws -> TransferPreview {
+    func transferPreview(beneficiaryId: String?, resolutionId: String?, amountMinor: Int64) async throws -> TransferPreview {
         await simulateLatency(0.8)
         guard amountMinor > 0 else {
+            throw APIError.server(status: 400, code: .validationError, message: nil, limit: nil)
+        }
+        if let beneficiaryId {
+            guard let beneficiary = beneficiariesState.first(where: { $0.id == beneficiaryId }) else {
+                throw APIError.server(status: 404, code: .notFound, message: nil, limit: nil)
+            }
+            guard beneficiary.status == .active else {
+                throw APIError.server(status: 422, code: .beneficiaryNotActive, message: nil, limit: nil)
+            }
+        } else if let resolutionId {
+            guard resolutions[resolutionId] != nil else {
+                throw APIError.server(status: 404, code: .notFound, message: nil, limit: nil)
+            }
+        } else {
             throw APIError.server(status: 400, code: .validationError, message: nil, limit: nil)
         }
         let fee = Self.transferFee(amountMinor)
         return TransferPreview(amountMinor: amountMinor, feeMinor: fee, totalMinor: amountMinor + fee, currency: .cop, limits: limitsState)
     }
 
-    func createTransfer(beneficiaryId: String, amountMinor: Int64, description: String?, idempotencyKey: String) async throws -> WalletTransaction {
+    func createTransfer(
+        beneficiaryId: String?,
+        resolutionId: String?,
+        amountMinor: Int64,
+        description: String?,
+        idempotencyKey: String
+    ) async throws -> WalletTransaction {
         if let previous = usedIdempotencyKeys[idempotencyKey] { return previous }
         try requireKYC()
-        guard let beneficiary = beneficiariesState.first(where: { $0.id == beneficiaryId }) else {
-            throw APIError.server(status: 404, code: .notFound, message: nil, limit: nil)
-        }
-        guard beneficiary.status == .active else {
-            throw APIError.server(status: 422, code: .beneficiaryNotActive, message: nil, limit: nil)
-        }
         let fee = Self.transferFee(amountMinor)
         let total = amountMinor + fee
         try checkLimits(amountMinor, operation: .transferOut)
@@ -676,6 +739,34 @@ actor MockAPIClient: CuyPayAPI {
         }
         try await requireSignature(SignReason.transfer)
         await simulateLatency(2)
+
+        let beneficiary: Beneficiary
+        if let beneficiaryId {
+            guard let existing = beneficiariesState.first(where: { $0.id == beneficiaryId }) else {
+                throw APIError.server(status: 404, code: .notFound, message: nil, limit: nil)
+            }
+            beneficiary = existing
+        } else if let resolutionId, let resolution = resolutions[resolutionId] {
+            let enrolled = enrollBeneficiary(from: resolution, nickname: nil)
+            if enrolled.status == .rejected {
+                throw APIError.server(status: 422, code: .amlRejected, message: "No es posible enviar dinero a este destinatario", limit: nil)
+            }
+            if enrolled.status == .pendingReview {
+                throw APIError.server(
+                    status: 422,
+                    code: .amlReview,
+                    message: "El destinatario requiere revisión de cumplimiento antes del primer envío.",
+                    limit: nil
+                )
+            }
+            beneficiary = enrolled
+        } else {
+            throw APIError.server(status: 404, code: .notFound, message: nil, limit: nil)
+        }
+
+        guard beneficiary.status == .active else {
+            throw APIError.server(status: 422, code: .beneficiaryNotActive, message: nil, limit: nil)
+        }
 
         walletsState[index].availableMinor -= total
         walletsState[index].balanceMinor -= total
