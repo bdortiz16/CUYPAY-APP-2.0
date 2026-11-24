@@ -1168,6 +1168,26 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
       return undefined;
     };
 
+    // Coinsenda puede rechazar un segundo titular con el mismo documento (465 "unexpected
+    // error"). Si eso pasa y el titular de ESTE cliente ya existe con contactos anteriores, se
+    // reutiliza por su id guardado o por su documento verificado en KYC (misma persona).
+    const matchOwnHolderIgnoringContacts = (list: any[]) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      const byCurrency = list.filter(
+        (h) => !h?.provider || String(h.provider).toLowerCase().includes(targetCurrency),
+      );
+      if (expectedHolderId) {
+        const byStoredId = byCurrency.find((h) => String(h?.id ?? '') === expectedHolderId);
+        if (byStoredId) return { holder: byStoredId, via: 'stored_id' as const };
+      }
+      if (holderInfo.id_number) {
+        const byDoc = byCurrency.find(
+          (h) => String(h?.info_needed?.id_number ?? '').trim() === holderInfo.id_number,
+        );
+        if (byDoc) return { holder: byDoc, via: 'document' as const };
+      }
+      return undefined;
+    };
+
     let holder = matchHolderForUser(holders);
     if (!holder?.id) {
       const syncHolderRes = await this.call('addNewCardHolderPublic', (c) =>
@@ -1195,8 +1215,26 @@ export class LiveCoinsendaGateway implements CoinsendaGateway {
         holder = matchHolderForUser(holders);
       }
       if (!holder?.id) {
+        // Coinsenda rechazó crear un titular nuevo (p. ej. documento ya registrado con los
+        // contactos anteriores): reutilizamos el titular propio de este cliente.
+        const own = matchOwnHolderIgnoringContacts(holders);
+        if (own?.holder?.id) {
+          holder = own.holder;
+          this.opts.logger?.info?.(
+            { userId: input.userId, via: own.via, providerStatus: syncHolderRes.status, providerCode: syncErr?.code ?? null },
+            'Coinsenda rechazó un CardHolder nuevo; se reutiliza el titular existente del cliente',
+          );
+        }
+      }
+      if (!holder?.id) {
         this.opts.logger?.warn?.(
-          { status: syncHolderRes.status, code: syncErr?.code, userId: input.userId },
+          {
+            status: syncHolderRes.status,
+            code: syncErr?.code,
+            userId: input.userId,
+            holderCount: holders.length,
+            hasStoredHolderId: Boolean(expectedHolderId),
+          },
           'Fallo al crear CardHolder individual en Coinsenda',
         );
         if (!sdk.isHttpSuccess(syncHolderRes.status) || syncErr) {
