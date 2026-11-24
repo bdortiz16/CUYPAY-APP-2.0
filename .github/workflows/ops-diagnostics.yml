@@ -86,7 +86,12 @@ jobs:
             case "$STATUS" in Success) break;; Failed|Cancelled|TimedOut) exit 1;; esac
           done
           aws s3 cp "s3://$BUCKET/$KEY" /tmp/diag.txt.gz --only-show-errors
-          aws s3 rm "s3://$BUCKET/$KEY" --only-show-errors
+          # El rol de deploy no tiene s3:DeleteObject fuera de su artefacto: se sobrescribe vacío
+          # (también los diagnósticos anteriores) para no dejar logs en claro en el bucket.
+          for k in $(aws s3 ls "s3://$BUCKET/diag/" | awk '{print $4}'); do
+            : | aws s3 cp - "s3://$BUCKET/diag/$k" --only-show-errors || true
+          done
+          aws s3 rm "s3://$BUCKET/$KEY" --only-show-errors || true
       - name: Cifrar resultado
         run: |
           set -euo pipefail
