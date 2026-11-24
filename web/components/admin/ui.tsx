@@ -91,6 +91,8 @@ const STATUS_MAP: Record<string, [Tone, string]> = {
   review: ["warn", "Revisar"],
   // bolsillo de ahorros y reserva 72h
   maturing_soon: ["warn", "Vence <72h"],
+  // tarjetas virtuales
+  expired: ["neutral", "Vencida"],
   canceled: ["neutral", "Cancelado"],
   unfunded: ["warn", "Pendiente bloqueo 72h"],
   funded_locked: ["ok", "Bloqueado p/ reintegro"],

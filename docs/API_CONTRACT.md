@@ -196,7 +196,7 @@ CuyPay permite la emisión y gestión de tarjetas virtuales internacionales cone
 |---|---|---|---|
 | GET | `/cards` | – | `{ items: [Card] }` |
 | GET | `/cards/:id` | – | `Card` |
-| POST 🔐 | `/cards/virtual` | `{ label? }` | `201 Card` (máximo 3 tarjetas activas por usuario, requiere KYC aprobado) |
+| POST 🔐 | `/cards/virtual` | `{ label?, kind?: "fixed" \| "temporary", purpose?: "personal" \| "family" \| "friend" \| "online" \| "other" }` | `201 Card` (sin límite de tarjetas, requiere KYC aprobado; `temporary` vence a las 24 h) |
 | GET | `/cards/:id/look-url` | – | `{ lookUrl: string, expiresAt: string }` |
 | PUT 🔐 | `/cards/:id/status` | `{ workingState: "active" \| "inactive" }` | `Card` (congelar / reactivar) |
 | PUT | `/cards/:id/label` | `{ label: string }` | `Card` (renombrar tarjeta) |
@@ -215,6 +215,10 @@ CuyPay permite la emisión y gestión de tarjetas virtuales internacionales cone
   "expiryYear": "28",
   "cardholderName": "ANA GOMEZ",
   "label": "Compras Online",
+  "kind": "fixed", // "fixed" | "temporary"
+  "purpose": "online", // "personal" | "family" | "friend" | "online" | "other"
+  "expiresAt": null, // temporales: createdAt + 24 h; al vencer se cancelan solas en Coinsenda
+  "canceledReason": null, // "user" | "expired" | "admin" | null
   "currency": "COP",
   "limits": {
     "dailyPurchaseMinor": 500000000,
@@ -223,6 +227,7 @@ CuyPay permite la emisión y gestión de tarjetas virtuales internacionales cone
   "createdAt": "..."
 }
 ```
+Una tarjeta temporal vencida devuelve `status: "canceled"` + `canceledReason: "expired"`; `look-url`, fondeo y Apple Pay responden `400 VALIDATION_ERROR` con `details.reason = "card_expired"`.
 
 ## 13. Seguridad, Bloqueo por Inactividad y Sesión
 

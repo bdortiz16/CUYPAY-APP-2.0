@@ -102,6 +102,11 @@ export interface BrebKey {
 
 export type CardType = 'virtual' | 'physical';
 export type CardStatus = 'active' | 'frozen' | 'canceled';
+/** FIJA: permanece hasta que el cliente la elimine. TEMPORAL: vence sola 24 h después de crearse (estilo Nubank). */
+export type CardKind = 'fixed' | 'temporary';
+/** Para quién / para qué es la tarjeta virtual adicional. */
+export type CardPurpose = 'personal' | 'family' | 'friend' | 'online' | 'other';
+export type CardCancelReason = 'user' | 'expired' | 'admin';
 export interface Card {
   id: string;
   userId: string;
@@ -115,6 +120,13 @@ export interface Card {
   providerCardId: string;
   providerCardHolderId?: string;
   ledgerAccountId: string;
+  /** Ausente en tarjetas antiguas ⇒ se trata como 'fixed'. */
+  kind?: CardKind;
+  purpose?: CardPurpose;
+  /** Solo tarjetas temporales: momento en que se cancela automáticamente. */
+  expiresAt?: Date | null;
+  canceledAt?: Date | null;
+  canceledReason?: CardCancelReason | null;
   createdAt: Date;
   updatedAt: Date;
 }

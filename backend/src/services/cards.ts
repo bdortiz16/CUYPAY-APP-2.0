@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { presentCard, presentTransaction, type TransactionJson } from '../domain/presenters.js';
-import type { Card, CardStatus, Transaction, User } from '../domain/types.js';
+import type { Card, CardCancelReason, CardKind, CardPurpose, CardStatus, Transaction, User } from '../domain/types.js';
 import { newId } from '../lib/clock.js';
 import { assertDeliverableEmail, isPlaceholderEmail } from '../lib/email-validator.js';
 import { AppError, isAppError } from '../lib/errors.js';
@@ -14,7 +14,27 @@ import { assertNotFrozen } from './runtime-config.js';
 
 export interface IssueCardInput {
   label?: string;
+  /** 'fixed' (por defecto) o 'temporary' (vence 24 h después de crearse). */
+  kind?: CardKind;
+  purpose?: CardPurpose;
 }
+
+/** Vigencia de una tarjeta virtual TEMPORAL (modelo Nubank: 24 h desde su creación). */
+export const TEMPORARY_CARD_TTL_MS = 24 * 60 * 60 * 1000;
+
+const DEFAULT_LABELS: Record<CardPurpose, string> = {
+  personal: 'CuyPay Virtual',
+  family: 'Familiar',
+  friend: 'Amigo',
+  online: 'Compras online',
+  other: 'Tarjeta adicional',
+};
+
+export const cardKind = (c: Card): CardKind => c.kind ?? 'fixed';
+
+/** Una temporal vencida ya no puede usarse aunque el barrido aún no la haya cancelado en Coinsenda. */
+export const isCardExpired = (c: Card, now: Date): boolean =>
+  cardKind(c) === 'temporary' && Boolean(c.expiresAt) && c.expiresAt!.getTime() <= now.getTime();
 
 export interface CardPocketTransferInput {
   amountMinor: number;
@@ -87,14 +107,39 @@ export class CardService {
 
   async list(userId: string): Promise<Card[]> {
     const cards = await this.d.repos.cards.listByUser(userId);
+    await this.expireDue(cards);
     return this.syncCardsIfNeeded(cards);
   }
 
+  /**
+   * Nota: no cancela temporales vencidas (se usa dentro del mutex del usuario y el KeyedMutex no es
+   * reentrante). Las operaciones sensibles usan getUsable(), que rechaza tarjetas vencidas.
+   */
   async get(userId: string, cardId: string): Promise<Card> {
     const card = await this.d.repos.cards.byId(cardId);
     if (!card || card.userId !== userId) throw new AppError('NOT_FOUND', 'Tarjeta no encontrada');
     const [synced] = await this.syncCardsIfNeeded([card]);
     return synced ?? card;
+  }
+
+  /** Detalle para la app: si es una temporal vencida, la cancela primero (fuera de cualquier mutex). */
+  async detail(userId: string, cardId: string): Promise<Card> {
+    const card = await this.get(userId, cardId);
+    await this.expireDue([card]);
+    return card;
+  }
+
+  /** Igual que get() pero exige que la tarjeta siga vigente (no cancelada ni temporal vencida). */
+  private async getUsable(userId: string, cardId: string, action: string): Promise<Card> {
+    const card = await this.get(userId, cardId);
+    if (isCardExpired(card, this.d.clock.now())) {
+      throw new AppError('VALIDATION_ERROR', `Tu tarjeta temporal ya venció; no puedes ${action}. Crea una nueva tarjeta temporal.`, {
+        field: 'card',
+        reason: 'card_expired',
+      });
+    }
+    if (card.status === 'canceled') throw new AppError('VALIDATION_ERROR', 'La tarjeta está cancelada');
+    return card;
   }
 
   private async syncCardsIfNeeded(cards: Card[]): Promise<Card[]> {
@@ -256,17 +301,22 @@ export class CardService {
     };
   }
 
+  /**
+   * Emite una tarjeta virtual en Coinsenda. El cliente puede tener tantas tarjetas virtuales
+   * adicionales como quiera (familiares, amigos, compras online): todas están a nombre del titular
+   * verificado en KYC y gastan del mismo bolsillo de tarjeta.
+   * - FIJA: permanece activa hasta que el cliente la elimine.
+   * - TEMPORAL: se cancela automáticamente en Coinsenda 24 h después de crearse.
+   */
   async issueVirtual(user: User, input?: IssueCardInput): Promise<Card> {
     requireKycApproved(user);
-    const existing = await this.d.repos.cards.listByUser(user.id);
-    const active = existing.filter((c) => c.status !== 'canceled');
-    if (active.length >= 3) {
-      throw new AppError('VALIDATION_ERROR', 'Límite de tarjetas activas alcanzado (máximo 3)');
-    }
+    await assertNotFrozen(this.d, user.id);
+    const kind: CardKind = input?.kind ?? 'fixed';
+    const purpose: CardPurpose = input?.purpose ?? (kind === 'temporary' ? 'online' : 'personal');
 
     const holder = await this.resolveHolderFromKyc(user);
     const holderName = `${holder.firstName} ${holder.lastName}`.trim();
-    const cardLabel = input?.label?.trim() || 'CuyPay Virtual';
+    const cardLabel = (input?.label?.trim() || (kind === 'temporary' ? 'Temporal' : DEFAULT_LABELS[purpose])).slice(0, 30);
     let issued;
     try {
       issued = await this.d.coinsenda.issueCard({
@@ -307,10 +357,16 @@ export class CardService {
       providerCardId: issued.providerCardId,
       ...(issued.providerCardHolderId ? { providerCardHolderId: issued.providerCardHolderId } : {}),
       ledgerAccountId: issued.ledgerAccountId,
+      kind,
+      purpose,
+      expiresAt: kind === 'temporary' ? new Date(now.getTime() + TEMPORARY_CARD_TTL_MS) : null,
+      canceledAt: null,
+      canceledReason: null,
       createdAt: now,
       updatedAt: now,
     };
     await this.d.repos.cards.create(card);
+    this.d.logger.info({ userId: user.id, cardId: card.id, kind, purpose, expiresAt: card.expiresAt ?? null }, 'virtual card issued');
     const currentPocket = await this.ledger.cardPocket(user.id, 'COP');
     if (this.d.coinsenda.syncCardSpendingLimit) {
       await this.d.coinsenda.syncCardSpendingLimit({
@@ -323,8 +379,7 @@ export class CardService {
   }
 
   async getLookUrl(userId: string, cardId: string): Promise<{ url: string }> {
-    const card = await this.get(userId, cardId);
-    if (card.status === 'canceled') throw new AppError('VALIDATION_ERROR', 'La tarjeta está cancelada');
+    const card = await this.getUsable(userId, cardId, 'ver sus datos');
     try {
       return await this.d.coinsenda.getCardLookUrl(card.providerCardId, card.providerCardHolderId);
     } catch (err) {
@@ -343,7 +398,20 @@ export class CardService {
     if (card.status === 'canceled') {
       throw new AppError('VALIDATION_ERROR', 'Una tarjeta cancelada no puede ser modificada');
     }
+    if (newState === 'active' && isCardExpired(card, this.d.clock.now())) {
+      throw new AppError('VALIDATION_ERROR', 'Tu tarjeta temporal ya venció y no se puede reactivar. Crea una nueva tarjeta temporal.', {
+        reason: 'card_expired',
+      });
+    }
+    return this.applyState(card, newState, { preservePocket: opts?.preservePocket, reason: 'user' });
+  }
 
+  /** Cambia el estado en Coinsenda y localmente; si cancela, registra motivo y devuelve el bolsillo si ya no quedan tarjetas. */
+  private async applyState(
+    card: Card,
+    newState: CardStatus,
+    opts: { preservePocket?: boolean; reason: CardCancelReason },
+  ): Promise<Card> {
     try {
       await this.d.coinsenda.updateCardWorkingState(card.providerCardId, newState);
     } catch (err) {
@@ -351,63 +419,116 @@ export class CardService {
       throw new AppError('PROVIDER_ERROR', 'No se pudo actualizar el estado de la tarjeta');
     }
 
+    const now = this.d.clock.now();
     card.status = newState;
-    card.updatedAt = this.d.clock.now();
+    card.updatedAt = now;
+    if (newState === 'canceled') {
+      card.canceledAt = now;
+      card.canceledReason = opts.reason;
+    }
     await this.d.repos.cards.update(card);
 
-    // Si el usuario elimina definitivamente su última tarjeta activa y no va a emitir reemplazo inmediato,
-    // devolvemos automáticamente el saldo del bolsillo de tarjeta a su saldo principal Bre-B.
-    if (newState === 'canceled' && !opts?.preservePocket) {
-      await this.mutex.run(userId, async () => {
-        const remainingActive = (await this.d.repos.cards.listByUser(userId)).filter((c) => c.status !== 'canceled');
-        if (remainingActive.length > 0) return;
-        const pocketMinor = await this.ledger.cardPocket(userId, 'COP');
-        if (pocketMinor <= 0n) return;
-        try {
-          let transferRef: string | null = null;
-          if (this.d.coinsenda.transferCardPocketFunds) {
-            const tr = await this.d.coinsenda.transferCardPocketFunds({
-              direction: 'from_card',
-              amountMinor: pocketMinor,
-            });
-            transferRef = tr.transferId;
-          }
-          const now = this.d.clock.now();
-          const txnId = newId('txn', now);
-          await this.ledger.withdrawCardPocket(userId, 'COP', pocketMinor, txnId);
-          const txn: Transaction = {
-            id: txnId,
-            userId,
-            type: 'card_pocket',
-            direction: 'in',
-            currency: 'COP',
-            amountMinor: pocketMinor,
-            feeMinor: 0n,
-            status: 'completed',
-            title: 'Devolución de Tarjeta CuyPay',
-            subtitle: 'Saldo devuelto a tu cuenta principal Bre-B',
-            description: 'Reintegro automático al eliminar tarjeta virtual',
-            conversion: null,
-            beneficiaryId: null,
-            quoteId: null,
-            providerRef: transferRef ?? card.id,
-            flagged: false,
-            failureReason: null,
-            createdAt: now,
-            updatedAt: now,
-          };
-          await this.d.repos.transactions.create(txn);
-          await this.d.events.publish({ type: 'transaction.created', txn });
-        } catch (err) {
-          this.d.logger.warn(
-            { userId, cardId: card.id, err: (err as Error).message },
-            'No se pudo devolver automáticamente el bolsillo al cancelar tarjeta; el saldo permanece en card_pocket',
-          );
-        }
-      });
+    if (newState === 'canceled' && !opts.preservePocket) {
+      await this.refundPocketIfNoActiveCards(card);
     }
-
     return card;
+  }
+
+  /**
+   * Si el usuario elimina definitivamente su última tarjeta activa (o vence su última temporal) y no va a
+   * emitir reemplazo inmediato, devolvemos automáticamente el saldo del bolsillo de tarjeta a su saldo principal Bre-B.
+   */
+  private async refundPocketIfNoActiveCards(card: Card): Promise<void> {
+    const userId = card.userId;
+    await this.mutex.run(userId, async () => {
+      const remainingActive = (await this.d.repos.cards.listByUser(userId)).filter((c) => c.status !== 'canceled');
+      if (remainingActive.length > 0) return;
+      const pocketMinor = await this.ledger.cardPocket(userId, 'COP');
+      if (pocketMinor <= 0n) return;
+      try {
+        let transferRef: string | null = null;
+        if (this.d.coinsenda.transferCardPocketFunds) {
+          const tr = await this.d.coinsenda.transferCardPocketFunds({
+            direction: 'from_card',
+            amountMinor: pocketMinor,
+          });
+          transferRef = tr.transferId;
+        }
+        const now = this.d.clock.now();
+        const txnId = newId('txn', now);
+        await this.ledger.withdrawCardPocket(userId, 'COP', pocketMinor, txnId);
+        const expired = card.canceledReason === 'expired';
+        const txn: Transaction = {
+          id: txnId,
+          userId,
+          type: 'card_pocket',
+          direction: 'in',
+          currency: 'COP',
+          amountMinor: pocketMinor,
+          feeMinor: 0n,
+          status: 'completed',
+          title: 'Devolución de Tarjeta CuyPay',
+          subtitle: 'Saldo devuelto a tu cuenta principal Bre-B',
+          description: expired
+            ? 'Reintegro automático al vencer tu tarjeta virtual temporal'
+            : 'Reintegro automático al eliminar tarjeta virtual',
+          conversion: null,
+          beneficiaryId: null,
+          quoteId: null,
+          providerRef: transferRef ?? card.id,
+          flagged: false,
+          failureReason: null,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await this.d.repos.transactions.create(txn);
+        await this.d.events.publish({ type: 'transaction.created', txn });
+      } catch (err) {
+        this.d.logger.warn(
+          { userId, cardId: card.id, err: (err as Error).message },
+          'No se pudo devolver automáticamente el bolsillo al cancelar tarjeta; el saldo permanece en card_pocket',
+        );
+      }
+    });
+  }
+
+  /** Cancela en Coinsenda las temporales vencidas de la lista (mejor esfuerzo; si falla se reintenta en el siguiente barrido). */
+  private async expireDue(cards: Card[]): Promise<number> {
+    const now = this.d.clock.now();
+    let expired = 0;
+    for (const c of cards) {
+      if (c.status === 'canceled' || !isCardExpired(c, now)) continue;
+      try {
+        await this.applyState(c, 'canceled', { reason: 'expired' });
+        expired++;
+        this.d.logger.info({ userId: c.userId, cardId: c.id, expiresAt: c.expiresAt }, 'temporary virtual card expired and canceled');
+        await this.d.events.publish({ type: 'customer.updated', userId: c.userId });
+      } catch (err) {
+        this.d.logger.warn(
+          { userId: c.userId, cardId: c.id, err: (err as Error).message },
+          'No se pudo cancelar en Coinsenda la tarjeta temporal vencida; se reintentará',
+        );
+      }
+    }
+    return expired;
+  }
+
+  /** Barrido periódico (poller): cancela automáticamente todas las tarjetas temporales vencidas. */
+  async expireTemporaryCards(): Promise<number> {
+    const now = this.d.clock.now();
+    const due = (await this.d.repos.cards.listAll()).filter((c) => c.status !== 'canceled' && isCardExpired(c, now));
+    if (!due.length) return 0;
+    return this.expireDue(due);
+  }
+
+  /** Portal admin: cancelación forzada de una tarjeta (p. ej. fraude). Devuelve el bolsillo si era la última. */
+  async adminCancel(cardId: string): Promise<{ before: Card; after: Card }> {
+    const card = await this.d.repos.cards.byId(cardId);
+    if (!card) throw new AppError('NOT_FOUND', 'Tarjeta no encontrada');
+    if (card.status === 'canceled') throw new AppError('CONFLICT', 'La tarjeta ya está cancelada');
+    const before = { ...card };
+    const after = await this.applyState(card, 'canceled', { reason: 'admin' });
+    return { before, after };
   }
 
   async fundPocket(user: User, cardId: string, input: CardPocketTransferInput): Promise<{ status: number; body: CardPocketTransferResult }> {
@@ -421,10 +542,7 @@ export class CardService {
     }
 
     const execute = async (): Promise<{ status: number; body: CardPocketTransferResult }> => {
-      const card = await this.get(user.id, cardId);
-      if (card.status === 'canceled') {
-        throw new AppError('VALIDATION_ERROR', 'No puedes recargar una tarjeta cancelada');
-      }
+      const card = await this.getUsable(user.id, cardId, 'recargarla');
 
       const mainWallet = await this.ledger.wallet(user.id, 'COP');
       if (mainWallet.availableMinor < amountMinor) {
@@ -582,7 +700,8 @@ export class CardService {
 
   private async syncActiveCardsLimit(userId: string, allowedAmountMinor: bigint): Promise<void> {
     if (!this.d.coinsenda.syncCardSpendingLimit) return;
-    const activeCards = (await this.d.repos.cards.listByUser(userId)).filter((c) => c.status !== 'canceled');
+    const now = this.d.clock.now();
+    const activeCards = (await this.d.repos.cards.listByUser(userId)).filter((c) => c.status !== 'canceled' && !isCardExpired(c, now));
     await Promise.all(
       activeCards.map((c) =>
         this.d.coinsenda.syncCardSpendingLimit!({
@@ -694,7 +813,7 @@ export class CardService {
   }
 
   async tokenizeApplePay(userId: string, cardId: string, input: ApplePayTokenizeInput) {
-    const card = await this.get(userId, cardId);
+    const card = await this.getUsable(userId, cardId, 'vincularla a Apple Pay');
     if (card.status !== 'active') throw new AppError('VALIDATION_ERROR', 'La tarjeta debe estar activa para vincular a Apple Pay');
 
     try {

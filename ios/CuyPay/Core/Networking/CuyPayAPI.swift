@@ -48,7 +48,8 @@ protocol CuyPayAPI: Sendable {
     func card(id: String) async throws -> CardItem
     func cardPocket() async throws -> CardPocketSummary
     /// 🔐
-    func issueVirtualCard(label: String?) async throws -> CardItem
+    /// 🔐 Emite una tarjeta virtual FIJA o TEMPORAL (vence a las 24 h) para el titular o para familiares/amigos/compras online.
+    func issueVirtualCard(label: String?, kind: VirtualCardKind, purpose: VirtualCardPurpose) async throws -> CardItem
     func cardLookUrl(id: String) async throws -> String
     /// 🔐
     func updateCardStatus(id: String, state: String, preservePocket: Bool?) async throws -> CardItem
@@ -113,6 +114,10 @@ protocol CuyPayAPI: Sendable {
 }
 
 extension CuyPayAPI {
+    func issueVirtualCard(label: String?) async throws -> CardItem {
+        try await issueVirtualCard(label: label, kind: .fixed, purpose: .personal)
+    }
+
     func createBrebKey() async throws -> BrebKey {
         try await createBrebKey(preferredAlias: nil)
     }

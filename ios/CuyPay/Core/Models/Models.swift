@@ -237,6 +237,13 @@ struct CardItem: Codable, Hashable, Sendable, Identifiable {
     var holderName: String? = nil
     var balanceMinor: Int64? = nil
     var availableMinor: Int64? = nil
+    /// "fixed" | "temporary". Ausente en backends antiguos ⇒ FIJA.
+    var kind: String? = nil
+    /// "personal" | "family" | "friend" | "online" | "other".
+    var purpose: String? = nil
+    /// Solo tarjetas temporales: momento en que se cancelan automáticamente.
+    var expiresAt: Date? = nil
+    var canceledReason: String? = nil
 
     var maskedPan: String {
         "•••• " + lastFour
@@ -244,6 +251,89 @@ struct CardItem: Codable, Hashable, Sendable, Identifiable {
 
     var pocketBalance: Money {
         Money(minorUnits: availableMinor ?? balanceMinor ?? 0, currency: currency)
+    }
+
+    var cardKind: VirtualCardKind {
+        VirtualCardKind(rawValue: kind ?? "") ?? .fixed
+    }
+
+    var cardPurpose: VirtualCardPurpose {
+        VirtualCardPurpose(rawValue: purpose ?? "") ?? .personal
+    }
+
+    var isTemporary: Bool { cardKind == .temporary }
+
+    /// Una temporal vencida ya no se puede usar aunque el backend aún no la haya marcado como cancelada.
+    func isExpired(now: Date = Date()) -> Bool {
+        guard isTemporary, let expiresAt else { return false }
+        return expiresAt <= now
+    }
+
+    /// Tarjeta vigente: no cancelada ni temporal vencida.
+    func isUsable(now: Date = Date()) -> Bool {
+        status != .canceled && !isExpired(now: now)
+    }
+
+    /// "Vence en 23 h 12 min" para tarjetas temporales.
+    func expiryCountdown(now: Date = Date()) -> String? {
+        guard isTemporary, let expiresAt else { return nil }
+        let remaining = Int(expiresAt.timeIntervalSince(now))
+        guard remaining > 0 else { return String(localized: "Vencida") }
+        let hours = remaining / 3600
+        let minutes = (remaining % 3600) / 60
+        if hours > 0 {
+            return String(localized: "Vence en \(hours) h \(minutes) min")
+        }
+        return String(localized: "Vence en \(max(minutes, 1)) min")
+    }
+}
+
+/// FIJA: dura hasta que el cliente la elimine. TEMPORAL: se cancela sola 24 h después de crearse.
+enum VirtualCardKind: String, Codable, Hashable, Sendable, CaseIterable, Identifiable {
+    case fixed
+    case temporary
+
+    var id: String { rawValue }
+}
+
+/// Para quién / para qué es la tarjeta virtual adicional.
+enum VirtualCardPurpose: String, Codable, Hashable, Sendable, CaseIterable, Identifiable {
+    case personal
+    case family
+    case friend
+    case online
+    case other
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .personal: String(localized: "Para mí")
+        case .family: String(localized: "Familiar")
+        case .friend: String(localized: "Amigo")
+        case .online: String(localized: "Compras online")
+        case .other: String(localized: "Otro")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .personal: "person.fill"
+        case .family: "figure.2.and.child.holdinghands"
+        case .friend: "person.2.fill"
+        case .online: "cart.fill"
+        case .other: "sparkles"
+        }
+    }
+
+    var defaultLabel: String {
+        switch self {
+        case .personal: "CuyPay Virtual"
+        case .family: "Familiar"
+        case .friend: "Amigo"
+        case .online: "Compras online"
+        case .other: "Tarjeta adicional"
+        }
     }
 }
 
@@ -261,6 +351,8 @@ enum CardItemStatus: String, Codable, Hashable, Sendable {
 
 struct IssueCardRequest: Codable, Hashable, Sendable {
     var label: String?
+    var kind: String? = nil
+    var purpose: String? = nil
 }
 
 struct UpdateCardStatusRequest: Codable, Hashable, Sendable {

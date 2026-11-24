@@ -31,6 +31,7 @@ import { EventBus } from './services/events.js';
 import { AuditService } from './services/admin/audit.js';
 import { AdminAuthService } from './services/admin/auth.js';
 import { AdminCustomerService } from './services/admin/customers.js';
+import { AdminCardService } from './services/admin/cards.js';
 import { AdminTransactionService } from './services/admin/transactions.js';
 import { ComplianceService } from './services/admin/compliance.js';
 import { ProviderHealthService } from './services/admin/providers.js';
@@ -172,8 +173,10 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
   const treasury = new TreasuryService(deps, audit);
   const savings = new SavingsService(deps, ledger, audit);
   const loans = new LoansService(deps, ledger, mutex, audit);
+  const cards = new CardService(deps, ledger, idempotency, mutex);
   const admin = {
     audit,
+    cards: new AdminCardService(deps, audit, cards),
     auth: new AdminAuthService(deps, audit),
     customers: adminCustomers,
     transactions: new AdminTransactionService(deps, audit, ledger, limits, mutex),
@@ -196,7 +199,7 @@ export function createContainer(config: AppConfig, o: ContainerOverrides = {}) {
     signature: new SignatureService(deps),
     kyc: new KycService(deps),
     breb: new BrebService(deps),
-    cards: new CardService(deps, ledger, idempotency, mutex),
+    cards,
     savings,
     loans,
     beneficiaries,

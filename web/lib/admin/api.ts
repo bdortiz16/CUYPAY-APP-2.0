@@ -1,5 +1,7 @@
 import type {
   Admin,
+  AdminCard,
+  AdminCardsPage,
   AdminBeneficiary,
   AdminCustomerDetail,
   AdminCustomerSummary,
@@ -8,6 +10,7 @@ import type {
   AlertResolution,
   AuditEntry,
   AuditQuery,
+  CardQuery,
   ComplianceAlert,
   CreatedAdmin,
   CustomerQuery,
@@ -58,6 +61,9 @@ export interface AdminApi {
   setLimitOverrides(id: string, items: LimitItem[], reason: string): Promise<void>;
   revokeDevice(id: string, deviceId: string, reason: string): Promise<void>;
   addNote(id: string, text: string): Promise<void>;
+
+  cards(q: CardQuery): Promise<AdminCardsPage>;
+  cancelCard(id: string, reason: string): Promise<AdminCard>;
 
   transactions(q: TransactionQuery): Promise<Page<AdminTransaction>>;
   transaction(id: string): Promise<AdminTransactionDetail>;
@@ -225,6 +231,8 @@ export function createHttpApi(baseUrl: string): AdminApi {
     revokeDevice: (id, deviceId, reason) =>
       req("POST", `/admin/customers/${encodeURIComponent(id)}/devices/${encodeURIComponent(deviceId)}/revoke`, { reason }),
     addNote: (id, text) => req("POST", `/admin/customers/${encodeURIComponent(id)}/notes`, { text }),
+    cards: (q) => req("GET", `/admin/cards${qs(q)}`),
+    cancelCard: (id, reason) => req("POST", `/admin/cards/${encodeURIComponent(id)}/cancel`, { reason }),
     transactions: (q) => req("GET", `/admin/transactions${qs(q)}`),
     transaction: (id) => req("GET", `/admin/transactions/${encodeURIComponent(id)}`),
     reverse: (id, reason) => req("POST", `/admin/transactions/${encodeURIComponent(id)}/reverse`, { reason }),

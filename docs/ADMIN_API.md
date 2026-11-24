@@ -102,6 +102,25 @@ PII se devuelve **enmascarada** si el rol no tiene permiso (`"documentNumber": "
 ```
 `POST /admin/customers/{id}/notes` `{ text }` → `201` nota interna (el propio `text` cuenta como `reason` en el audit log).
 `documentType` / `documentNumber` son `null` mientras el KYC no los persista en el perfil del cliente.
+`AdminCustomerDetail.cards` incluye las tarjetas virtuales del cliente (`AdminCard`, ver abajo).
+
+## Tarjetas virtuales
+Los clientes pueden emitir tarjetas virtuales adicionales **sin límite**: `fixed` (fija, permanente hasta cancelarla)
+o `temporary` (temporal, se cancela automáticamente en Coinsenda 24 h después de crearse; el barrido corre en el poller).
+| Método | Ruta | Permiso | Notas |
+|---|---|---|---|
+| GET | `/admin/cards?kind=fixed\|temporary&status=active\|inactive\|canceled\|expired&purpose=&customerId=&limit=&cursor=` | `dashboard:read` | `{ items: [AdminCard], nextCursor, summary }` |
+| POST | `/admin/cards/{id}/cancel` | `customers:freeze` (owner, compliance) | `{ reason }` → cancela en Coinsenda (irreversible), queda en audit log como `card.cancel` |
+
+```jsonc
+// AdminCard
+{ "id": "crd_...", "customerId": "usr_...", "customerName": "Ana Gómez", "label": "Compras online",
+  "kind": "fixed|temporary", "purpose": "personal|family|friend|online|other",
+  "status": "active|inactive|canceled|expired", "last4": "4321",
+  "expiresAt": "... | null", "canceledAt": "... | null", "canceledReason": "user|expired|admin|null", "createdAt": "..." }
+// summary
+{ "activeFixed": 0, "activeTemporary": 0, "expiredLast24h": 0, "issuedLast24h": 0, "customersWithCards": 0 }
+```
 
 ## Transacciones
 | Método | Ruta | Notas |

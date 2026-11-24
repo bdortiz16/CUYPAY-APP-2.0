@@ -17,6 +17,7 @@ const NAV: { group: string; items: { href: string; label: string; perm: Permissi
       { href: "/admin-portal/", label: "Resumen", perm: "dashboard:read" },
       { href: "/admin-portal/customers/", label: "Clientes", perm: "dashboard:read" },
       { href: "/admin-portal/transactions/", label: "Transacciones", perm: "dashboard:read" },
+      { href: "/admin-portal/cards/", label: "Tarjetas virtuales", perm: "dashboard:read" },
       { href: "/admin-portal/compliance/", label: "Cumplimiento", perm: "compliance:read", countKey: "compliance" },
     ],
   },

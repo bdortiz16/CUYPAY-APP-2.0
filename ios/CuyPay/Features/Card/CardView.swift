@@ -35,6 +35,7 @@ struct CardView: View {
     @State private var showApplePaySuccess = false
     @State private var walletCoordinator: AppleWalletProvisioningCoordinator?
     @State private var errorMessage: String?
+    @State private var showNewCardSheet = false
 
     private var activeCard: CardItem? {
         store.activeCard
@@ -75,8 +76,14 @@ struct CardView: View {
                 ScrollView {
                     if let card = activeCard, store.cardsLoaded {
                         VStack(alignment: .leading, spacing: 20) {
+                            cardSelectorStrip(selected: card)
+                                .padding(.top, 4)
+
                             virtualCardShowcase(card)
-                                .padding(.top, 8)
+
+                            if card.isTemporary {
+                                temporaryCardBanner(card)
+                            }
 
                             quickActionsRow(card)
 
@@ -131,7 +138,7 @@ struct CardView: View {
                     _ = await (u, w, c, t)
                 }
             }
-            .navigationTitle(activeCard != nil ? "Mi Tarjeta" : "Tarjeta CuyPay")
+            .navigationTitle(store.usableCards.count > 1 ? "Mis Tarjetas" : (activeCard != nil ? "Mi Tarjeta" : "Tarjeta CuyPay"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -151,6 +158,17 @@ struct CardView: View {
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase != .active && isCardFlipped {
                     setCardFlipped(false)
+                }
+            }
+            .onChange(of: activeCard?.id) { _, _ in
+                // Los datos sensibles son por tarjeta: al cambiar de tarjeta se ocultan y se vuelven a pedir con Face ID.
+                resetCardFlipImmediately()
+                cardSecrets = nil
+            }
+            .sheet(isPresented: $showNewCardSheet) {
+                NewVirtualCardSheet { issued in
+                    store.selectedCardId = issued.id
+                    Task { await store.refreshCards() }
                 }
             }
             .sheet(item: $pocketTransferMode) { transferMode in
@@ -185,7 +203,7 @@ struct CardView: View {
                 isPresented: $showCancelConfirm,
                 titleVisibility: .visible
             ) {
-                Button("Eliminar y crear nueva tarjeta", role: .destructive) {
+                Button(activeCard?.isTemporary == true ? LocalizedStringKey("Eliminar y crear otra temporal") : LocalizedStringKey("Eliminar y crear nueva tarjeta"), role: .destructive) {
                     Task { await cancelAndReissueCard() }
                 }
                 Button("Solo eliminar tarjeta", role: .destructive) {
@@ -200,6 +218,84 @@ struct CardView: View {
             } message: {
                 Text("Tu tarjeta CuyPay quedó vinculada exitosamente a Apple Wallet.")
             }
+        }
+    }
+
+    // MARK: - 0. Carrusel de tarjetas (fijas y temporales) + crear nueva
+
+    private func cardSelectorStrip(selected: CardItem) -> some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 10) {
+                ForEach(store.usableCards) { item in
+                    cardChip(item, isSelected: item.id == selected.id)
+                }
+                Button {
+                    showNewCardSheet = true
+                } label: {
+                    Label("Nueva tarjeta", systemImage: "plus")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.spruce)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .glassEffect(.regular, in: .capsule)
+                        .contentShape(.capsule)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(Text("Crea una tarjeta virtual fija o temporal"))
+            }
+            .padding(.vertical, 2)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private func cardChip(_ item: CardItem, isSelected: Bool) -> some View {
+        Button {
+            withAnimation(.snappy) { store.selectedCardId = item.id }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: item.isTemporary ? "clock.fill" : item.cardPurpose.systemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(isSelected ? Color.white : (item.isTemporary ? Theme.warning : Theme.spruce))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(verbatim: item.label)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(verbatim: item.isTemporary ? String(localized: "Temporal") : "•••• \(item.lastFour)")
+                        .font(.caption2)
+                        .opacity(0.8)
+                }
+                .foregroundStyle(isSelected ? Color.white : Color.primary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                isSelected ? AnyShapeStyle(Theme.spruceSolid) : AnyShapeStyle(.thinMaterial),
+                in: .capsule
+            )
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// Aviso de vigencia de la tarjeta temporal con cuenta regresiva (se refresca cada 30 s).
+    private func temporaryCardBanner(_ card: CardItem) -> some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "clock.badge.exclamationmark.fill")
+                    .font(.title3)
+                    .foregroundStyle(Theme.warning)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(verbatim: card.expiryCountdown(now: context.date) ?? String(localized: "Tarjeta temporal"))
+                        .font(.subheadline.weight(.semibold))
+                    Text("Tarjeta temporal para compras en internet. Se cancelará automáticamente y sus datos dejarán de funcionar.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .glassEffect(.regular.tint(Theme.warning.opacity(0.10)), in: .rect(cornerRadius: 18))
         }
     }
 
@@ -243,7 +339,7 @@ struct CardView: View {
                     Circle()
                         .fill(isFrozen ? Theme.warning : Theme.positive)
                         .frame(width: 6, height: 6)
-                    Text(isFrozen ? "Bloqueada" : "Activa")
+                    Text(isFrozen ? "Bloqueada" : (card.isTemporary ? "Temporal" : "Activa"))
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.96))
                 }
@@ -1191,9 +1287,18 @@ struct CardView: View {
             }
 
             PrimaryButton(title: "Crear mi tarjeta virtual", isLoading: isIssuing) {
-                Task { await issueCard() }
+                if app.user?.hasPlaceholderContact == true {
+                    errorMessage = String(localized: "Confirma primero tu correo y celular mediante código de seguridad en Perfil y seguridad.")
+                } else {
+                    showNewCardSheet = true
+                }
             }
             .padding(.top, 4)
+
+            Text("Elige entre tarjeta fija o temporal (vence en 24 h, ideal para compras en internet).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
     }
 
@@ -1426,7 +1531,8 @@ struct CardView: View {
 
     // MARK: - Acciones
 
-    private func issueCard() async {
+    /// Emite una tarjeta igual a `template` (mismo tipo, propósito y nombre) o la tarjeta fija principal.
+    private func issueCard(like template: CardItem? = nil) async {
         if app.user?.hasPlaceholderContact == true {
             errorMessage = String(localized: "Confirma primero tu correo y celular mediante código de seguridad en Perfil y seguridad.")
             return
@@ -1435,7 +1541,12 @@ struct CardView: View {
         errorMessage = nil
         defer { isIssuing = false }
         do {
-            _ = try await app.api.issueVirtualCard(label: "CuyPay Virtual")
+            let issued = try await app.api.issueVirtualCard(
+                label: template?.label ?? "CuyPay Virtual",
+                kind: template?.cardKind ?? .fixed,
+                purpose: template?.cardPurpose ?? .personal
+            )
+            store.selectedCardId = issued.id
             await store.refreshCards()
         } catch {
             errorMessage = error.userMessage
@@ -1528,6 +1639,9 @@ struct CardView: View {
             )
             resetCardFlipImmediately()
             cardSecrets = nil
+            if store.selectedCardId == card.id {
+                store.selectedCardId = nil
+            }
             async let w: Void = store.refreshWallets()
             async let c: Void = store.refreshCards()
             async let t: Void = store.refreshTransactions()
@@ -1544,9 +1658,10 @@ struct CardView: View {
             errorMessage = String(localized: "Primero actualiza tu correo y celular con código de seguridad en Perfil y seguridad.")
             return
         }
+        let template = activeCard
         let canceled = await cancelCard(preservePocket: true)
         guard canceled else { return }
-        await issueCard()
+        await issueCard(like: template)
     }
 
     private func startAppleWalletFlow(_ card: CardItem) async {

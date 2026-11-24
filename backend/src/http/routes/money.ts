@@ -20,7 +20,12 @@ const Id = z.string().min(1).max(64);
 
 const CreateKey = z.object({ preferredAlias: z.string().trim().max(64).optional() });
 const ChangeKey = z.object({ preferredAlias: z.string().trim().max(64).optional() });
-const IssueCard = z.object({ label: z.string().min(1).max(30).optional() });
+const IssueCard = z.object({
+  label: z.string().trim().min(1).max(30).optional(),
+  /** FIJA (por defecto) o TEMPORAL (vence automáticamente a las 24 h). */
+  kind: z.enum(['fixed', 'temporary']).optional(),
+  purpose: z.enum(['personal', 'family', 'friend', 'online', 'other']).optional(),
+});
 const UpdateCardState = z.object({
   state: z.enum(['active', 'frozen', 'canceled']),
   preservePocket: z.boolean().optional(),
@@ -102,7 +107,7 @@ export function registerMoneyRoutes(app: FastifyInstance, { deps, services }: Co
   app.get('/cards/:id', auth, async (req) => {
     const { id } = parse(z.object({ id: Id }), req.params);
     const [card, pocketMinor] = await Promise.all([
-      services.cards.get(req.auth!.userId, id),
+      services.cards.detail(req.auth!.userId, id),
       services.cards.pocketBalance(req.auth!.userId),
     ]);
     return presentCard(card, pocketMinor);

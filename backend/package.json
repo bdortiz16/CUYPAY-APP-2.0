@@ -14,7 +14,7 @@
   "license": "UNLICENSED",
   "type": "module",
   "dependencies": {
-    "@coinsenda/sdk": "1.9.0",
+    "@coinsenda/sdk": "file:vendor/coinsenda-sdk-1.9.0.tgz",
     "@fastify/cors": "^11.4.1",
     "@fastify/helmet": "^13.2.0",
     "@fastify/rate-limit": "^11.2.2",

@@ -110,6 +110,8 @@ export interface CardRepo {
   byId(id: string): Promise<Card | null>;
   listByUser(userId: string): Promise<Card[]>;
   byProviderCardId(providerCardId: string): Promise<Card | null>;
+  /** Todas las tarjetas (barrido de vencimiento de temporales y portal admin). */
+  listAll(): Promise<Card[]>;
 }
 
 export interface ResolutionRepo {
