@@ -249,6 +249,9 @@ struct NewVirtualCardSheet: View {
         errorMessage = nil
         defer { isIssuing = false }
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Foto previa: si la respuesta se pierde en el proxy (502/52x) después de que Coinsenda
+        // ya emitió la tarjeta, la detectamos al recargar en lugar de mostrar un error falso.
+        let knownIds: Set<String>? = (try? await app.api.cards()).map { Set($0.map(\.id)) }
         do {
             let card = try await app.api.issueVirtualCard(
                 label: trimmed.isEmpty ? nil : trimmed,
@@ -258,8 +261,38 @@ struct NewVirtualCardSheet: View {
             onIssued(card)
             dismiss()
         } catch {
+            if Self.isGatewayFailure(error), let knownIds,
+               let recovered = await recoverIssuedCard(excluding: knownIds) {
+                onIssued(recovered)
+                dismiss()
+                return
+            }
             errorMessage = error.userMessage
         }
+    }
+
+    /// Error de pasarela sin cuerpo JSON (Cloudflare/ALB) o corte de red durante la emisión.
+    private static func isGatewayFailure(_ error: Error) -> Bool {
+        switch error as? APIError {
+        case .server(let status, _, let message, _):
+            return status >= 500 && (message?.isEmpty ?? true)
+        case .network, .decoding:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Reintenta leer las tarjetas unos segundos: Coinsenda puede tardar en confirmar la orden.
+    private func recoverIssuedCard(excluding knownIds: Set<String>) async -> CardItem? {
+        for delay in [1.5, 3.0, 5.0] {
+            try? await Task.sleep(for: .seconds(delay))
+            if let cards = try? await app.api.cards(),
+               let created = cards.first(where: { !knownIds.contains($0.id) && $0.status != .canceled }) {
+                return created
+            }
+        }
+        return nil
     }
 }
 
