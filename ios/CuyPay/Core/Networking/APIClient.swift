@@ -315,8 +315,9 @@ actor APIClient: CuyPayAPI {
         try await send(.get("/cards/pocket"))
     }
 
-    func issueVirtualCard(label: String?) async throws -> CardItem {
-        try await send(.post("/cards/virtual", body: IssueCardRequest(label: label), signReason: SignReason.issueCard))
+    func issueVirtualCard(label: String?, kind: VirtualCardKind, purpose: VirtualCardPurpose) async throws -> CardItem {
+        let body = IssueCardRequest(label: label, kind: kind.rawValue, purpose: purpose.rawValue)
+        return try await send(.post("/cards/virtual", body: body, signReason: SignReason.issueCard))
     }
 
     func cardLookUrl(id: String) async throws -> String {

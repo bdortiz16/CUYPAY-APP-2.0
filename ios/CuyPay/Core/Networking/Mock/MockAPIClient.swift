@@ -373,15 +373,17 @@ actor MockAPIClient: CuyPayAPI {
         )
     }
 
-    func issueVirtualCard(label: String?) async throws -> CardItem {
+    func issueVirtualCard(label: String?, kind: VirtualCardKind, purpose: VirtualCardPurpose) async throws -> CardItem {
         try requireKYC()
         try await requireSignature(SignReason.issueCard)
         await simulateLatency(2)
+        let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fallbackLabel = kind == .temporary ? "Temporal" : purpose.defaultLabel
         let newCard = CardItem(
             id: Self.newId("crd"),
             cardType: "virtual",
             status: .active,
-            label: label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "CuyPay Virtual",
+            label: trimmed.isEmpty ? fallbackLabel : String(trimmed.prefix(30)),
             lastFour: "4242",
             brand: "Visa",
             currency: .cop,
@@ -389,7 +391,10 @@ actor MockAPIClient: CuyPayAPI {
             updatedAt: Date(),
             holderName: user.fullName,
             balanceMinor: cardPocketMinor,
-            availableMinor: cardPocketMinor
+            availableMinor: cardPocketMinor,
+            kind: kind.rawValue,
+            purpose: purpose.rawValue,
+            expiresAt: kind == .temporary ? Date().addingTimeInterval(24 * 60 * 60) : nil
         )
         cardsState.append(newCard)
         return hydratedCard(newCard)

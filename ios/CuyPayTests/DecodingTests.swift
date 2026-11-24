@@ -215,6 +215,58 @@ struct DecodingTests {
         #expect(store.activeCard?.holderName == "Bryan Ortiz")
     }
 
+    @Test("Tarjetas FIJAS y TEMPORALES: decodificación, vencimiento y selección en el carrusel")
+    @MainActor
+    func fixedAndTemporaryCards() throws {
+        let future = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3 * 3600))
+        let past = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-60))
+        let response = try decode(ItemsResponse<CardItem>.self, """
+        { "items": [
+          { "id": "crd_legacy", "cardType": "virtual", "status": "active", "label": "CuyPay Virtual",
+            "lastFour": "1111", "brand": "Visa", "currency": "COP",
+            "createdAt": "2026-11-10T10:00:00Z", "updatedAt": "2026-11-10T10:00:00Z" },
+          { "id": "crd_temp", "cardType": "virtual", "status": "active", "label": "Netflix",
+            "lastFour": "2222", "brand": "Visa", "currency": "COP", "kind": "temporary", "purpose": "online",
+            "expiresAt": "\(future)", "canceledReason": null,
+            "createdAt": "2026-11-11T10:00:00Z", "updatedAt": "2026-11-11T10:00:00Z" },
+          { "id": "crd_mom", "cardType": "virtual", "status": "frozen", "label": "Mamá",
+            "lastFour": "3333", "brand": "Visa", "currency": "COP", "kind": "fixed", "purpose": "family",
+            "expiresAt": null,
+            "createdAt": "2026-11-12T10:00:00Z", "updatedAt": "2026-11-12T10:00:00Z" },
+          { "id": "crd_old_temp", "cardType": "virtual", "status": "active", "label": "Temporal",
+            "lastFour": "4444", "brand": "Visa", "currency": "COP", "kind": "temporary", "purpose": "online",
+            "expiresAt": "\(past)",
+            "createdAt": "2026-11-09T10:00:00Z", "updatedAt": "2026-11-09T10:00:00Z" }
+        ] }
+        """)
+        let cards = response.items
+        #expect(cards[0].cardKind == .fixed)
+        #expect(cards[0].cardPurpose == .personal)
+        #expect(cards[1].isTemporary)
+        #expect(cards[1].cardPurpose == .online)
+        #expect(cards[1].expiryCountdown()?.isEmpty == false)
+        #expect(cards[2].cardPurpose == .family)
+        #expect(cards[3].isExpired())
+        #expect(!cards[3].isUsable())
+
+        let store = WalletStore(api: MockAPIClient())
+        store.cards = cards
+        // Fijas primero, luego temporales vigentes; la temporal vencida no aparece.
+        #expect(store.usableCards.map(\.id) == ["crd_legacy", "crd_mom", "crd_temp"])
+        #expect(store.activeCard?.id == "crd_legacy")
+
+        store.selectedCardId = "crd_temp"
+        #expect(store.activeCard?.id == "crd_temp")
+
+        store.selectedCardId = "crd_old_temp"
+        #expect(store.activeCard?.id == "crd_legacy")
+
+        let body = try JSONCoding.makeEncoder().encode(IssueCardRequest(label: "Mamá", kind: "fixed", purpose: "family"))
+        let json = String(decoding: body, as: UTF8.self)
+        #expect(json.contains("\"kind\":\"fixed\""))
+        #expect(json.contains("\"purpose\":\"family\""))
+    }
+
     @Test("User detecta correos placeholder y OnboardingModel exige nombre y correo reales")
     @MainActor
     func placeholderContactAndOnboardingValidation() async throws {

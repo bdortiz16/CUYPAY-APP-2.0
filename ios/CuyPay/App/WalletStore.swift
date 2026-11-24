@@ -19,6 +19,8 @@ final class WalletStore {
     var brebKeyLoaded = false
     var cards: [CardItem] = []
     var cardsLoaded = false
+    /// Tarjeta elegida en el carrusel de Mis Tarjetas (fijas y temporales).
+    var selectedCardId: String?
     var savingsConfig: SavingsConfig?
     var userSavings: UserSavingsResponse?
     var savingsLoaded = false
@@ -52,9 +54,24 @@ final class WalletStore {
         beneficiaries.filter { $0.status == .active }
     }
 
-    /// Tarjeta activa o congelada del usuario (ignora tarjetas canceladas para permitir crear una nueva).
+    /// Tarjetas vigentes (activas o congeladas, sin temporales vencidas): primero las FIJAS, luego las TEMPORALES.
+    var usableCards: [CardItem] {
+        let now = Date()
+        return cards
+            .filter { $0.isUsable(now: now) }
+            .sorted { lhs, rhs in
+                if lhs.isTemporary != rhs.isTemporary { return !lhs.isTemporary }
+                return lhs.createdAt < rhs.createdAt
+            }
+    }
+
+    /// Tarjeta seleccionada (o la primera vigente). Ignora canceladas y temporales vencidas.
     var activeCard: CardItem? {
-        cards.first { $0.status != .canceled }
+        let usable = usableCards
+        if let selectedCardId, let selected = usable.first(where: { $0.id == selectedCardId }) {
+            return selected
+        }
+        return usable.first
     }
 
     /// Saldo disponible en el bolsillo dedicado de la tarjeta virtual COP.
@@ -396,6 +413,7 @@ final class WalletStore {
         brebKeyLoaded = false
         cards = []
         cardsLoaded = false
+        selectedCardId = nil
         savingsConfig = nil
         userSavings = nil
         savingsLoaded = false

@@ -6,7 +6,8 @@ import { useEffect, useState } from "react";
 import { formatDateTime, formatMinor, parseToMinor, timeAgo } from "@/lib/format";
 import { useSession, useStreamEvent } from "@/lib/admin/session";
 import { useLoad } from "@/lib/admin/useLoad";
-import type { LimitItem, LimitOperation, LimitPeriod, Tier } from "@/lib/admin/types";
+import type { AdminCard, LimitItem, LimitOperation, LimitPeriod, Tier } from "@/lib/admin/types";
+import { CancelCardDialog, CardsTable } from "./CardsAdminView";
 import {
   css as s,
   cx,
@@ -192,6 +193,7 @@ function CustomerDetail({ id }: { id: string }) {
   const [overrides, setOverrides] = useState<{ operation: LimitOperation; period: LimitPeriod; value: string }[]>([]);
   const [note, setNote] = useState("");
   const [savingNote, setSavingNote] = useState(false);
+  const [cancelingCard, setCancelingCard] = useState<AdminCard | null>(null);
 
   useStreamEvent(["customer.updated", "kyc.updated", "transaction.created", "transaction.updated"], (e) => {
     const d = e.data as { customerId?: string; id?: string };
@@ -481,6 +483,18 @@ function CustomerDetail({ id }: { id: string }) {
         </Panel>
       </div>
 
+      <Panel
+        title={`Tarjetas virtuales · ${(c.cards ?? []).filter((x) => x.status === "active" || x.status === "frozen").length} vigentes`}
+        actions={<Link href={`/admin-portal/cards/`}>Ver todas</Link>}
+        bodyless
+      >
+        {(c.cards ?? []).length === 0 ? (
+          <Empty>El cliente no ha creado tarjetas virtuales.</Empty>
+        ) : (
+          <CardsTable items={c.cards ?? []} canCancel={canFreeze} onCancel={setCancelingCard} />
+        )}
+      </Panel>
+
       <Panel title="Notas internas">
         <form
           className={s.stack}
@@ -534,6 +548,14 @@ function CustomerDetail({ id }: { id: string }) {
       </Panel>
 
       {/* Diálogos */}
+      <CancelCardDialog
+        card={cancelingCard}
+        onClose={() => setCancelingCard(null)}
+        onDone={() => {
+          setCancelingCard(null);
+          done("Tarjeta cancelada");
+        }}
+      />
       <ReasonDialog
         open={dialog?.kind === "freeze"}
         title="Congelar cliente"

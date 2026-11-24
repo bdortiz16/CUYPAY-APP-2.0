@@ -12,6 +12,13 @@ export function startPoller(container: Container): () => void {
   const tick = async () => {
     if (running) return;
     running = true;
+    // Vencimiento de tarjetas temporales: aislado para que un fallo de otro proveedor no lo bloquee.
+    try {
+      const expiredCards = await services.cards.expireTemporaryCards();
+      if (expiredCards) deps.logger.info({ expiredCards }, 'temporary virtual cards expired');
+    } catch (err) {
+      deps.logger.error({ err: (err as Error).message }, 'temporary card expiry sweep failed');
+    }
     try {
       const r = await services.deposits.poll();
       if (r.credited) deps.logger.info({ credited: r.credited }, 'deposits credited');

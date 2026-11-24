@@ -380,6 +380,9 @@ export function createMemoryRepositories(): Repositories {
       async byProviderCardId(pid) {
         return opt(find(cards, (c) => c.providerCardId === pid));
       },
+      async listAll() {
+        return [...cards.values()].map(clone);
+      },
     },
     resolutions: {
       async create(r) {

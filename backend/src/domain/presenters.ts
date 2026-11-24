@@ -66,6 +66,10 @@ export const presentCard = (c: Card, pocketBalanceMinor = 0n) => ({
   currency: c.currency,
   balanceMinor: c.status === 'canceled' ? 0 : n(pocketBalanceMinor),
   availableMinor: c.status === 'canceled' ? 0 : n(pocketBalanceMinor),
+  kind: c.kind ?? 'fixed',
+  purpose: c.purpose ?? 'personal',
+  expiresAt: c.expiresAt ? iso(c.expiresAt) : null,
+  canceledReason: c.canceledReason ?? null,
   createdAt: iso(c.createdAt),
   updatedAt: iso(c.updatedAt),
 });

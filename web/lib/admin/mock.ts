@@ -4,6 +4,7 @@ import { can, permissionsForRole } from "./rbac";
 import { customerRateFrom, quote } from "../fx";
 import type {
   Admin,
+  AdminCard,
   AdminBeneficiary,
   AdminCustomerDetail,
   AdminCustomerSummary,
@@ -666,6 +667,46 @@ export function createMockApi(): AdminApi {
     return { items: slice, nextCursor: start + limit < items.length ? String(start + limit) : null };
   };
 
+  // ----- tarjetas virtuales simuladas (FIJAS y TEMPORALES) -----
+  const CARD_LABELS: Record<AdminCard["purpose"], string[]> = {
+    personal: ["CuyPay Virtual"],
+    family: ["Mamá", "Hermano", "Hijo", "Esposa"],
+    friend: ["Amigo", "Compañero de piso"],
+    online: ["Netflix", "Amazon", "Compras online"],
+    other: ["Viajes", "Suscripciones"],
+  };
+  const mockCards: AdminCard[] = [];
+  for (const c of s.customers.filter((x) => x.kycStatus === "approved").slice(0, 40)) {
+    const n = int(1, 4);
+    for (let i = 0; i < n; i++) {
+      const temporary = i > 0 && rnd() < 0.35;
+      const purpose: AdminCard["purpose"] = i === 0 ? "personal" : temporary ? "online" : pick(["family", "friend", "other"] as const);
+      const createdAt = Date.now() - (temporary ? int(1, 40) * 3_600_000 : int(1, 120) * DAY);
+      const expiresAt = temporary ? createdAt + DAY : null;
+      const expired = expiresAt !== null && expiresAt <= Date.now();
+      const canceled = !expired && rnd() < 0.08;
+      mockCards.push({
+        id: id("crd"),
+        customerId: c.id,
+        customerName: `${c.firstName} ${c.lastName}`,
+        label: temporary ? "Temporal" : pick(CARD_LABELS[purpose]),
+        kind: temporary ? "temporary" : "fixed",
+        purpose,
+        status: expired ? "expired" : canceled ? "canceled" : rnd() < 0.06 ? "frozen" : "active",
+        lastFour: String(int(1000, 9999)),
+        brand: "Visa",
+        currency: "COP",
+        providerCardId: `cs_${id("card")}`,
+        expiresAt: expiresAt ? iso(expiresAt) : null,
+        canceledAt: expired ? iso(expiresAt!) : canceled ? iso(createdAt + DAY) : null,
+        canceledReason: expired ? "expired" : canceled ? "user" : null,
+        createdAt: iso(createdAt),
+        updatedAt: iso(createdAt),
+      });
+    }
+  }
+  mockCards.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
   // ----- simulador SSE -----
   let simTimer: ReturnType<typeof setTimeout> | null = null;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -1109,7 +1150,48 @@ export function createMockApi(): AdminApi {
         beneficiaries: clone(s.beneficiaries.filter((b) => b.customerId === c.id)),
         recentTransactions: clone(s.txs.filter((t) => t.customerId === c.id).slice(0, 10)),
         notes: clone(c.notes),
+        cards: clone(mockCards.filter((x) => x.customerId === c.id)),
       };
+    },
+    async cards(q) {
+      await latency();
+      requireAuth();
+      const items = mockCards.filter(
+        (x) =>
+          (!q.kind || x.kind === q.kind) &&
+          (!q.status || x.status === q.status) &&
+          (!q.purpose || x.purpose === q.purpose) &&
+          (!q.customerId || x.customerId === q.customerId),
+      );
+      const dayAgo = Date.now() - DAY;
+      const live = mockCards.filter((x) => x.status === "active" || x.status === "frozen");
+      const page = paginate(items, q.limit ?? 30, q.cursor);
+      return {
+        items: clone(page.items),
+        nextCursor: page.nextCursor,
+        summary: {
+          activeFixed: live.filter((x) => x.kind === "fixed").length,
+          activeTemporary: live.filter((x) => x.kind === "temporary").length,
+          expiredLast24h: mockCards.filter((x) => x.canceledReason === "expired" && Date.parse(x.canceledAt ?? "") >= dayAgo).length,
+          issuedLast24h: mockCards.filter((x) => Date.parse(x.createdAt) >= dayAgo).length,
+          customersWithCards: new Set(live.map((x) => x.customerId)).size,
+        },
+      };
+    },
+    async cancelCard(cardId, reason) {
+      await latency();
+      requirePerm("customers:freeze");
+      requireReason(reason);
+      const card = mockCards.find((x) => x.id === cardId);
+      if (!card) throw new ApiError(404, "NOT_FOUND", "Tarjeta no encontrada.");
+      if (card.status === "canceled" || card.status === "expired") throw new ApiError(409, "CONFLICT", "La tarjeta ya está cancelada.");
+      const before = { status: card.status };
+      card.status = "canceled";
+      card.canceledReason = "admin";
+      card.canceledAt = new Date().toISOString();
+      card.updatedAt = card.canceledAt;
+      audit("card.cancel", "card", cardId, reason, before, { status: "canceled", canceledReason: "admin" });
+      return clone(card);
     },
     async freeze(cid, reason) {
       await latency();

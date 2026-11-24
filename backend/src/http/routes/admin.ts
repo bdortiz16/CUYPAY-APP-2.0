@@ -59,6 +59,14 @@ const TxnQuery = z.object({
   limit: Limit,
   cursor: Cursor,
 });
+const CardsQuery = z.object({
+  kind: z.enum(['fixed', 'temporary']).optional(),
+  status: z.enum(['active', 'frozen', 'canceled', 'expired']).optional(),
+  purpose: z.enum(['personal', 'family', 'friend', 'online', 'other']).optional(),
+  customerId: Id.optional(),
+  limit: Limit,
+  cursor: Cursor,
+});
 const ExportQuery = z.object({
   from: DateQ,
   to: DateQ,
@@ -195,7 +203,9 @@ export function registerAdminRoutes(app: FastifyInstance, container: Container, 
 
   app.get('/admin/customers/:id', guard('dashboard:read'), async (req) => {
     const { id } = parse(IdParam, req.params);
-    return admin.customers.detail(id, presenter(req));
+    const p = presenter(req);
+    const detail = await admin.customers.detail(id, p);
+    return { ...detail, cards: await admin.cards.listByCustomer(id, p) };
   });
 
   app.post('/admin/customers/:id/freeze', guard('customers:freeze'), async (req) => {
@@ -233,6 +243,15 @@ export function registerAdminRoutes(app: FastifyInstance, container: Container, 
     const { id } = parse(IdParam, req.params);
     const b = parse(z.object({ text: z.string().trim().min(3).max(4000) }), req.body);
     return reply.status(201).send(await admin.customers.addNote(ctx(req), id, b.text));
+  });
+
+  // ───────────── Tarjetas virtuales (FIJAS / TEMPORALES) ─────────────
+  app.get('/admin/cards', guard('dashboard:read'), async (req) => admin.cards.list(parse(CardsQuery, req.query), presenter(req)));
+
+  app.post('/admin/cards/:id/cancel', guard('customers:freeze'), async (req) => {
+    const { id } = parse(IdParam, req.params);
+    const { reason } = parse(z.object({ reason: Reason }), req.body);
+    return admin.cards.cancel(ctx(req), id, reason, presenter(req));
   });
 
   // ───────────── Transacciones ─────────────

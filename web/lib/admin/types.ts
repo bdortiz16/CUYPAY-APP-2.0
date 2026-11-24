@@ -360,6 +360,53 @@ export interface AdminCustomerDetail extends AdminCustomerSummary {
   beneficiaries: AdminBeneficiary[];
   recentTransactions: AdminTransaction[];
   notes: Note[];
+  /** Tarjetas virtuales del cliente (FIJAS y TEMPORALES). */
+  cards?: AdminCard[];
+}
+
+// ---------- Tarjetas virtuales ----------
+export type CardKind = "fixed" | "temporary";
+export type CardPurpose = "personal" | "family" | "friend" | "online" | "other";
+export type AdminCardStatus = "active" | "frozen" | "canceled" | "expired";
+
+export interface AdminCard {
+  id: string;
+  customerId: string;
+  customerName: string | null;
+  label: string;
+  kind: CardKind;
+  purpose: CardPurpose;
+  status: AdminCardStatus;
+  lastFour: string;
+  brand: string;
+  currency: Currency;
+  providerCardId: string;
+  expiresAt: string | null;
+  canceledAt: string | null;
+  canceledReason: "user" | "expired" | "admin" | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CardQuery {
+  kind?: CardKind;
+  status?: AdminCardStatus;
+  purpose?: CardPurpose;
+  customerId?: string;
+  limit?: number;
+  cursor?: string | null;
+}
+
+export interface AdminCardsSummary {
+  activeFixed: number;
+  activeTemporary: number;
+  expiredLast24h: number;
+  issuedLast24h: number;
+  customersWithCards: number;
+}
+
+export interface AdminCardsPage extends Page<AdminCard> {
+  summary: AdminCardsSummary;
 }
 
 export type AlertType =
