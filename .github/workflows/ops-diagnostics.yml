@@ -1,0 +1,104 @@
+name: Ops → Diagnóstico backend (cifrado)
+
+# Recolecta logs y estado del contenedor de producción para depurar incidentes.
+# El repositorio es PÚBLICO: el resultado NUNCA se imprime en el log del job; se cifra
+# (AES-256 + RSA-4096) con la llave pública de abajo y se sube como artefacto. Solo quien
+# tenga la llave privada correspondiente puede leerlo.
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Ventana de logs (docker logs --since)"
+        default: "6h"
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  collect:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      INSTANCE_ID: i-09bdb8b8aa495588f
+      BUCKET: cuypay-builds-433213575044
+      DIAG_PUBLIC_KEY: |
+        -----BEGIN PUBLIC KEY-----
+        MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAx38urO8vftdCLcXI/QYY
+        +BGZ6Qllp6meXZy+xNZXje78gVpoXrs2ACmsOlAZnxlZSWziEQn95giuYijw/mn6
+        Y9V5t1zQVsbi8Ns33PW5W0JMHH+ovWbo35PaKLZJimKM6HYl2tGE4cFvLn/U3ctm
+        0/XB+A2P2RYELmCG8au6dP5f1Pw/7bqPgnkgPyTSaQZa2ixYt0eW68Pi7ZxmBTX2
+        4z/oPNIMjWCB9AhRfWjYWtWfz0hKIVODJuDZ8HSsnuUz8WhzISVimWHBdAVjNWJb
+        KT0nbwzJ8so25HRhTO4mtUCe+ONRO4axSJP1t7H3TOC0/hmcr9+vEAWwykgq+nZu
+        OcWHD4Dmh/v+HwO4UZFJhBkxYzt78NMZpTkM13XHa7dLagMcq3lZ9rRN0TR3QFpk
+        YVtwG14Ix1y63+XzrbXsAKZ3k5WaMPhJaAHy0GVZGihx2LMi2Mrevz2I4aO8OD9l
+        KSSfjRYIIfx612LyyNk3fKvJJ9OTlf69/YCp2Tm1DNvLSV71YTGd+keqcGl3/UWH
+        k3kbMxnLCFui/AF1xtN3ZajNcwsNQ9X9EICnI7P6J9dCbESIExkpC/wCUpHPYSbO
+        /thYJdMgjn1+Dp3qj8VvKa9/f7RdzSXyLEUs/xx/20IgIvlysYCYymuCF/J9MwnV
+        aAjov7XIrAD9BT1M5Y3poaUCAwEAAQ==
+        -----END PUBLIC KEY-----
+    steps:
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::433213575044:role/GitHubActionsCuyPayDeployRole
+          aws-region: us-east-2
+      - name: Collect on EC2 (via SSM) → S3 privado
+        env:
+          SINCE: ${{ inputs.since }}
+        run: |
+          set -euo pipefail
+          KEY="diag/diag-${GITHUB_RUN_ID}.txt.gz"
+          pip install --quiet boto3
+          PUT_URL=$(python3 -c "import boto3,sys; print(boto3.client('s3', region_name='us-east-2').generate_presigned_url('put_object', Params={'Bucket':'$BUCKET','Key':'$KEY'}, ExpiresIn=900))")
+          echo "::add-mask::$PUT_URL"
+          SINCE_SAFE=$(printf '%s' "$SINCE" | tr -cd '0-9smhd')
+          cat > /tmp/diag.sh <<EOF
+          set +e
+          OUT=/tmp/cuypay-diag.txt
+          {
+            echo "== date"; date -u
+            echo "== docker ps"; docker ps -a --format '{{.Names}} | {{.Image}} | {{.Status}}'
+            echo "== inspect"; docker inspect cuypay-backend --format 'RestartCount={{.RestartCount}} OOMKilled={{.State.OOMKilled}} StartedAt={{.State.StartedAt}} ExitCode={{.State.ExitCode}} MemLimit={{.HostConfig.Memory}} RestartPolicy={{.HostConfig.RestartPolicy.Name}} Ports={{json .HostConfig.PortBindings}}'
+            echo "== stats"; docker stats --no-stream
+            echo "== free"; free -m
+            echo "== uptime"; uptime
+            echo "== listen"; ss -ltnp
+            echo "== services"; for s in nginx caddy httpd haproxy cloudflared; do printf '%s=' "\$s"; systemctl is-active "\$s" 2>/dev/null || true; done
+            echo "== nginx"; grep -rhiE 'timeout|proxy_pass|keepalive|listen|server_name' /etc/nginx 2>/dev/null | head -80
+            echo "== oom"; dmesg 2>/dev/null | grep -iE 'oom|killed process' | tail -20; journalctl -k --since '-1 day' 2>/dev/null | grep -iE 'oom|killed process' | tail -20
+            echo "== logs"; docker logs --since ${SINCE_SAFE} cuypay-backend 2>&1 | grep -v '/health' | tail -n 5000
+          } > \$OUT 2>&1
+          gzip -f \$OUT
+          curl -fsS -X PUT -T \$OUT.gz '${PUT_URL}'
+          rm -f \$OUT.gz
+          EOF
+          jq -n --rawfile s /tmp/diag.sh '{commands: [$s]}' > /tmp/params.json
+          rm -f /tmp/diag.sh
+          CMD_ID=$(aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
+            --parameters file:///tmp/params.json --query Command.CommandId --output text)
+          rm -f /tmp/params.json
+          for i in $(seq 1 40); do
+            sleep 3
+            STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || echo Pending)
+            echo "SSM Status: $STATUS"
+            case "$STATUS" in Success) break;; Failed|Cancelled|TimedOut) exit 1;; esac
+          done
+          aws s3 cp "s3://$BUCKET/$KEY" /tmp/diag.txt.gz --only-show-errors
+          aws s3 rm "s3://$BUCKET/$KEY" --only-show-errors
+      - name: Cifrar resultado
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          printf '%s\n' "$DIAG_PUBLIC_KEY" > /tmp/pub.pem
+          openssl rand -out /tmp/k.bin 32
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in /tmp/diag.txt.gz -out out/diag.enc -pass file:/tmp/k.bin
+          openssl pkeyutl -encrypt -pubin -inkey /tmp/pub.pem -pkeyopt rsa_padding_mode:oaep -in /tmp/k.bin -out out/key.enc
+          shred -u /tmp/k.bin /tmp/diag.txt.gz
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: diag-encrypted
+          path: out/
+          retention-days: 1
