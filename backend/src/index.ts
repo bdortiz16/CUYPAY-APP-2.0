@@ -32,6 +32,9 @@ async function main() {
     await app.close();
     process.exit(0);
   };
+  // Una promesa rechazada sin manejar no debe tumbar el proceso (cortaría las solicitudes en curso,
+  // p. ej. una emisión de tarjeta ya aceptada por Coinsenda): se registra y se sigue atendiendo.
+  process.on('unhandledRejection', (reason) => logger.error({ err: reason }, 'unhandled promise rejection'));
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 

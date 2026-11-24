@@ -318,6 +318,7 @@ export class CardService {
     const holderName = `${holder.firstName} ${holder.lastName}`.trim();
     const cardLabel = (input?.label?.trim() || (kind === 'temporary' ? 'Temporal' : DEFAULT_LABELS[purpose])).slice(0, 30);
     let issued;
+    const startedAt = Date.now();
     try {
       issued = await this.d.coinsenda.issueCard({
         userId: user.id,
@@ -328,6 +329,10 @@ export class CardService {
         holder,
       });
     } catch (err) {
+      this.d.logger.warn(
+        { userId: user.id, kind, durationMs: Date.now() - startedAt, err: isAppError(err) ? { code: err.code, message: err.message, details: err.details } : err },
+        'virtual card issue failed',
+      );
       if (isAppError(err)) throw err;
       throw new AppError('PROVIDER_ERROR', 'No se pudo emitir la tarjeta en Coinsenda', { provider: 'coinsenda' });
     }
@@ -366,7 +371,7 @@ export class CardService {
       updatedAt: now,
     };
     await this.d.repos.cards.create(card);
-    this.d.logger.info({ userId: user.id, cardId: card.id, kind, purpose, expiresAt: card.expiresAt ?? null }, 'virtual card issued');
+    this.d.logger.info({ userId: user.id, cardId: card.id, kind, purpose, expiresAt: card.expiresAt ?? null, durationMs: Date.now() - startedAt }, 'virtual card issued');
     const currentPocket = await this.ledger.cardPocket(user.id, 'COP');
     if (this.d.coinsenda.syncCardSpendingLimit) {
       await this.d.coinsenda.syncCardSpendingLimit({

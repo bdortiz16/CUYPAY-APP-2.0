@@ -54,6 +54,10 @@ export async function buildApp(container: Container): Promise<FastifyInstance> {
     bodyLimit: 64 * 1024,
     trustProxy: config.NODE_ENV === 'production',
     genReqId: () => crypto.randomUUID(),
+    // Detrás de Cloudflare/balanceador: el keep-alive del origen debe superar el idle del proxy
+    // (Cloudflare reutiliza conexiones hasta 900 s); si Node cierra antes, el proxy responde
+    // 502/520 sin cuerpo JSON y la app muestra "Nuestro aliado no está respondiendo".
+    keepAliveTimeout: 910_000,
   });
 
   // Cuerpo crudo: necesario para la firma de dispositivo (sha256 del body) y el webhook de Sumsub.

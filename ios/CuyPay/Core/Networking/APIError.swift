@@ -88,9 +88,13 @@ enum APIError: Error, Hashable, Sendable, LocalizedError {
 
     var userMessage: String {
         switch self {
-        case .server(_, let code, let message, let limit):
+        case .server(let status, let code, let message, let limit):
             if let message, !message.trimmingCharacters(in: .whitespaces).isEmpty {
                 return message
+            }
+            if status >= 500 {
+                // Respuesta sin cuerpo JSON (Cloudflare/balanceador): mostramos el código para soporte.
+                return Self.message(for: code, limit: limit) + " " + String(localized: "(código \(status))")
             }
             return Self.message(for: code, limit: limit)
         case .network(let rawCode):
