@@ -36,7 +36,7 @@ describe('FX: cotizaciones y conversiones', () => {
     const q = await c.call('POST', '/v1/fx/quotes', { fromCurrency: 'COP', toCurrency: 'BRL', amountMinor: 10_000_000 });
     env.brl.failNext = true;
     const r = await c.signed('POST', '/v1/fx/conversions', { quoteId: q.body.quoteId, idempotencyKey: randomUUID() });
-    expect(r.status).toBe(502);
+    expect(r.status).toBe(424);
     expect(r.body.error.code).toBe('PROVIDER_ERROR');
     expect((await c.call('GET', '/v1/wallets')).body.items[0].availableMinor).toBe(50_000_000);
   });
@@ -107,7 +107,7 @@ describe('envíos: fallas del proveedor y estados', () => {
     env.coinsenda.failNextWithdraw = true;
     const body = { beneficiaryId: ben.id, amountMinor: 4_000_000, idempotencyKey: randomUUID() };
     const r = await c.signed('POST', '/v1/transfers', body);
-    expect(r.status).toBe(502);
+    expect(r.status).toBe(424);
     expect(r.body.error.code).toBe('PROVIDER_ERROR');
     const txnId = r.body.error.details.transactionId;
     expect(txnId).toMatch(/^txn_/);

@@ -46,7 +46,9 @@ const STATUS: Record<ErrorCode, number> = {
   INSUFFICIENT_FUNDS: 422,
   QUOTE_EXPIRED: 422,
   IDEMPOTENCY_CONFLICT: 409,
-  PROVIDER_ERROR: 502,
+  // 424 y no 502: Cloudflare puede reemplazar los 502 del origen por su propia página HTML y la app
+  // perdía el mensaje real ("Nuestro aliado no está respondiendo" genérico).
+  PROVIDER_ERROR: 424,
   NOT_FOUND: 404,
   RATE_LIMITED: 429,
   INTERNAL_ERROR: 500,

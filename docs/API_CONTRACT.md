@@ -251,7 +251,7 @@ Una tarjeta temporal vencida devuelve `status: "canceled"` + `canceledReason: "e
 | 409 | `BREB_KEY_EXISTS`, `BREB_ALIAS_TAKEN`, `IDEMPOTENCY_CONFLICT` |
 | 422 | `AML_REJECTED` (`details.beneficiary`), `BENEFICIARY_NOT_ACTIVE`, `LIMIT_EXCEEDED`, `INSUFFICIENT_FUNDS`, `QUOTE_EXPIRED` |
 | 429 | `RATE_LIMITED` |
-| 500 / 502 | `INTERNAL_ERROR` / `PROVIDER_ERROR` |
+| 500 / 424 | `INTERNAL_ERROR` / `PROVIDER_ERROR` (424 para que Cloudflare no reemplace el cuerpo JSON) |
 
 Notas: un resultado AML `review` responde `201` con `status: "pending_review"` (no se emite `AML_REVIEW`).
 Los límites se calculan sobre `amountMinor` (sin comisión). Un envío puede quedar `pending` hasta que Coinsenda lo liquide.
